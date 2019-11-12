@@ -1,0 +1,118 @@
+<!doctype html>
+
+<!--
+  ~ License information at https://github.com/Caltech-IPAC/firefly/blob/master/License.txt
+  -->
+
+<html>
+
+<head>
+    <meta http-equiv="Cache-Control" content="no-cache">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>SOFIA tool</title>
+</head>
+
+<body>
+<h1> SOFIA image diagnostic tool template </h1>
+<h3>
+  This file needs to live in firefly server to be working.
+</h3>
+<div style="width: 500px; padding: 10px 0 0 20px;">
+    The link below will send an IPAC table containing URLs to FITS images and will display them in a grid in IRSAViewer<br>
+
+    See example table sample here: http://web.ipac.caltech.edu/staff/ejoliet/sofia/sofia-fits-examples.tbl (FITS is the image data source column)<br>
+
+    Using a TAP query to search via CAOM: 'SELECT TOP 10000 * FROM caom.artifact_sofia', running a tap query, will give a URL result VOTable, and the data source column name will be 'uri', example of TAP query: https://irsa.ipac.caltech.edu/TAP/async/6067277 </br>(you can get this URL in <a href='http://irsawebdev5:8080/firefly/firefly-dev.html?__action=layout.showDropDown&visible=true&view=TAPSearch' target='_new'>Firefly dev TAP search)</a><br>
+</div>
+<p>
+<div>
+    <a href="javascript:loadSimpleImageTable()">Click here to send to IRSAViewer a table with images defined below</a>
+</div>
+<div>
+    <form name="a">
+        <div class="input-field">
+            <label> The image table from URL:
+                <input name="url" value="https://irsa.ipac.caltech.edu/TAP/async/6067277/results/result" size=60/>
+            </label></div>
+    <div class="input-field">
+            <label>The column name where to find FITS url files is :
+                <input name="fits" value="uri" size=20/>
+            </label></div>
+        <div style="margin-bottom: 10px"><b>Load table from first available source</b></div>
+        <div class="input-field">
+            <div id="WS_popup"></div>
+            <input id="WS_input" name="fromWS" type="hidden"/>
+        </div>
+      </div>
+    </div>
+</form>
+</div>
+<script type="text/javascript">
+    if (!window.firefly) window.firefly= {};
+    window.firefly.options= {charts: {}};
+</script>
+
+
+<script type="text/javascript">
+    {
+        function loadSimpleImageTable() {
+          var a = document.forms["a"];
+          var url = a.url.value;
+          var colfits= a.fits.value;
+            var req = firefly.util.table.makeFileRequest('SOFIA images',
+                    url,null,
+                    { pageSize: 15,
+                        META_INFO: {
+                            datasource: colfits
+                        }
+                    });
+            firefly.getViewer().showTable( req, {removable: true, showUnits: false, showFilters: true});
+        }
+        onFireflyLoaded= function(firefly) {
+//============
+          //Setting up
+          window.ffViewer= firefly.getViewer();
+          firefly.setGlobalImageDef({
+            ZoomType  : 'TO_WIDTH'
+          } );
+          firefly.debug= true;
+          var util= firefly.util;
+          var ui= firefly.ui;
+//============
+
+// Vandana:
+          // ADD LOCAL FILES such as:
+          firefly.showImage('imageViewHere', {
+            url : 'FILE:///Users/ejoliet/Box/Docs/IRSA/SOFIA/F0317_FI_IFS_04004934_RED_WGR_200632-200634.fits',
+            title     : 'FIFI-LS file from local folder',
+          });
+          // Add images from URL as much as we want with different PLOTID!
+          firefly.showImage('imageViewHere', {
+            url:'https://irsasearchops.ipac.caltech.edu:443/data/SOFIA/FORCAST/OC5K/2017-09-27_FO_F434_proc/p4793/g41/F0434_FO_IMA_05000820_FORF371_CAL_0031-0038.fits',
+            plotId: 'FITS1',
+            title     : 'FORCAST From URL',
+          });
+          firefly.showImage('imageViewHere', {
+            url:'https://irsasearchops.ipac.caltech.edu:443/data/SOFIA/FORCAST/OC5K/2017-09-27_FO_F434_proc/p4793/g41/F0434_FO_IMA_05000820_FORF371_CAL_0031-0038.fits',
+            plotId: 'FITS2',
+            title     : 'FORCAST From URL',
+          });
+          firefly.showImage('imageViewHere', {
+            url:'https://irsasearchops.ipac.caltech.edu:443/data/SOFIA/FORCAST/OC5K/2017-09-27_FO_F434_proc/p4793/g41/F0434_FO_IMA_05000820_FORF371_CAL_0031-0038.fits',
+            plotId: 'FITS3',
+            title     : 'FORCAST From URL',
+          });
+        }
+    }
+</script>
+
+
+
+
+
+
+<!-- to try a container: <script  type="text/javascript" src="http://localhost:8090/firefly/firefly_loader.js"></script>-->
+
+<script  type="text/javascript" src="../firefly_loader.js"></script>

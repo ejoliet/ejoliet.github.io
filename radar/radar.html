@@ -1,0 +1,241 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>IRSA Data Discovery</title>
+  <link rel="stylesheet" type="text/css" href="/applications/Gator/css/gator_result.css" media="screen, print" />
+  <meta name="generator" content=
+  "HTML Tidy for Solaris(vers 1 September 2005),see www.w3.org" />
+  <meta http-equiv="Content-Type" content=
+  "text/html; charset=us-ascii" />
+
+
+<script type="text/javascript" src="/include/ga_incl.js"></script>
+
+<link rel="stylesheet" type="text/css" media="screen,projection" href="/style.css" />
+<link rel="stylesheet" type="text/css" media="print" href="/print_style.css" />
+<link rel="stylesheet" type="text/css" media="screen,projection" href="/ui.css" />
+<script type="text/javascript" src="/ui_verbose.js"></script>
+
+<!--[if lt IE 7]>
+<style type="text/css" media="screen, projection">
+#irsa-menu li
+{
+float: left;
+height: 1%;
+}
+#irsa-menu a
+{
+height: 1%;
+}
+</style>
+<![endif]-->
+</head>
+<body >
+
+<div id="irsa-banner"   style= "min-width:768px; min-height:95px"></div>
+<script type="text/javascript" language='javascript' src='/frontpage/frontpage.nocache.js'> </script>
+
+<div id="content">
+<!--   #include virtual="/include/sysnotice.html"  -->
+
+<script src="/applications/Radar/util.js" type="text/javascript"></script>
+ &nbsp;<br />
+<form name="area_form" method="post"  action="/cgi-bin/Radar/nph-data_discovery">
+
+<button style="background-color:#00356F; color: #ffffff; height: 40px; width: 1004px; box-shadow: none;-webkit-box-shadow: none;  border:0; margin: 5px 0px 10px 13px; font-family: 'times new roman',times,georgia,serif; "><font size="+1">Data Discovery Search Result</font></button>
+
+<table class="Gatortable" bgcolor="#efefef" width="1005" style= " margin: 5px 12px 10px 13px;">
+  <tr>
+    <th> Object/Coordinate </th>
+    <th> Source            </th>
+    <th> Type              </th>
+    <th> Glon              </th>
+    <th> Glat              </th>
+    <th> Equatorial J2000  </th>
+  </tr>
+
+  <tr>
+    <td align="center"><font size="-1">MESSIER 059</font></td>
+    <td align="center"><font size="-1">NED</font></td>
+    <td align="center"><font size="-1">G</font></td>
+    <td align="center"><font size="-1">294.3634</font></td>
+    <td align="center"><font size="-1">74.3621</font></td>
+    <td align="center"><font size="-1">12h 42m 02.24s&nbsp;+11d 38m 49.3s</font></td>
+  </tr>
+</table>
+
+<table class="Gatortable" align="center" width="1000"> <tr><td nowrap bgcolor="#efefef">
+  <table align="center" width="985" height="40" style="margin: 5px 2px 5px 8px; border: solid 1px; background-color: #dddddd;" >
+    <tr><td align="center">Cone Search with center of 190.5094 11.6470 Equatorial J2000 and radius of 10.00 arcsec. </td>
+        <td align="center"> <div id="status"></div></td>
+    </tr>
+  </table>
+</form>
+<script type="text/javascript" language='javascript'>
+function setValue() {
+  var x=document.getElementById("status");
+  x.innerHTML = "<font color='#990000'><b> 56 dataset found.</b></font>";
+}
+setValue(56);
+</script>
+
+<!--load the firefly tools javascript -->
+<script type="text/javascript">
+{
+   onFireflyLoaded= function(firefly) {
+      firefly.debug= true;
+      var util= firefly.util;
+      var ui= firefly.ui;
+      util.image.initAutoReadout(ui.DefaultApiReadout,
+         {MouseReadoutComponent:ui.PopupMouseReadoutMinimal,
+         showThumb:false,
+         showMag:false});
+
+      table1Data = firefly.util.table.makeFileRequest('Matching Data Sets', 'https://irsatest.ipac.caltech.edu:443/workspace/pubspace/60/78/30129b0042b3dce690aa6aab477a/radar//radar_0c8af2eafda6fdfb70666643bf97.tbl', null,
+         {"pageSize": '100',
+          "setAsActive": true,
+           META_INFO: {CENTER_COLUMN: 'ra;dec;EQJ2000', CatalogOverlayType: 'IRSA'}
+         });
+
+      var tblReq = firefly.util.table.makeFileRequest(
+             'SED: raw',
+             /*'http://ned.ipac.caltech.edu/cgi-bin/datasearch?search_type=Photometry&objname=MESSIER+059&of=xml_main',*/
+             'http://localhost:8080/irsaviewer/ned.tbl',
+             null,
+             {}
+      );
+
+      var wrapperReq = firefly.util.table.makeTblRequest('IpacTableFromSource', 'NED SED',
+             {searchRequest: tblReq}, {filters: '"NED Units" = \'Jy\''},{pageSize: 50});
+      var tblId = wrapperReq.tbl_id;
+      // wrapperReq.META_INFO["col.Flux Density.FmtDisp"] = "%e";
+      // wrapperReq.META_INFO["col.Flux Density.PrefWidth"] = "20";
+      wrapperReq.META_INFO["col.Flux Density.Precision"] = "14";
+      // wrapperReq.META_INFO["col.Units.PrefWidth"] = "6";
+      // wrapperReq.META_INFO["col.Upper limit of uncertainty.PrefWidth"] = "10";
+      // wrapperReq.META_INFO["col.Lower limit of uncertainty.PrefWidth"] = "10";
+      // wrapperReq.META_INFO["col.Upper limit of Flux Density.PrefWidth"] = "10";
+      // wrapperReq.META_INFO["col.Lower limit of Flux Density.PrefWidth"] = "10";
+      // wrapperReq.META_INFO["col.Significance.PrefWidth"] = "16";
+      // wrapperReq.META_INFO["col.Frequency Mode.PrefWidth"] = "22";
+      // wrapperReq.META_INFO["col.Coordinates Targeted.PrefWidth"] = "24";
+      // wrapperReq.META_INFO["col.Spatial Mode.PrefWidth"] = "22";
+      // wrapperReq.META_INFO["col.Qualifiers.PrefWidth"] = "22";
+      // wrapperReq.META_INFO["col.Comments.PrefWidth"] = "26";
+
+      firefly.showTable('TableTab', table1Data, {removable: false,
+         showTitle:false,
+         showUnits: true,
+         showFilters: false,
+         selectable: false,
+         expandable: true,
+         help_id: "tables"}
+      );
+      firefly.showTable('TableTab', wrapperReq, {setAsActive: false});
+      firefly.showChart('sedchart', {
+         data: [{
+                 name: 'NED SED',
+                 tbl_id: tblId,
+                 x: 'tables::"Frequency"',
+                 y: 'tables::"Flux Density"',
+                 error_y: {
+						             array: 'tables::"Upper limit of uncertainty"',
+					       },firefly: {
+                         yMax: 'tables::"Upper limit of Flux Density"'
+                 },
+                 mode: 'markers'
+         }],
+         layout: {
+                title: 'Spectral Energy Distribution from NED',
+      					xaxis: {
+      						title: '<em>v</em> [Hz]',
+      						type:'log',
+      						tickwidth: 2,
+      						linewidth: 2,
+      						tickmode: "auto",
+      						showgrid: true,
+      						ticks: "inside",
+      						mirror: "allticks"
+      					},
+      					yaxis: {
+      						title: 'F<sub><em>v</em></sub> [Jy]',
+      						type:'log',
+      						tickwidth: 2,
+      						linewidth: 2,
+      						tickmode: "auto",
+      						showgrid: true,
+      						ticks: "inside",
+      						mirror: "allticks"
+      					}
+      			}
+      });
+      var imageRequestWPt = {
+          Service: 'TWOMASS',
+          Title: '2MASS',
+          SurveyKey: 'asky',
+          SurveyKeyBand: 'j',
+          WorldPt: '190.5094;11.6470;EQ_J2000'
+      };
+      var fovDegFallOver=.5;
+      firefly.showImageOrHiPS(
+          'coverageHere',
+          {
+             plotId: 'FitsOrHips',
+             title     : 'A HiPS - 0.2',
+             hipsRootUrl: 'https://irsa.ipac.caltech.edu/data/hips/CDS/2MASS/Color/',
+             SizeInDeg:.2
+          },
+          imageRequestWPt, fovDegFallOver
+      );
+   }
+}
+</script>
+
+<script type="text/javascript" language='javascript'
+   src='/irsaviewer/firefly_loader.js'>
+</script>
+
+<table align="center" width="1000"> <tr><td nowrap bgcolor="#efefef">
+  <div style="white-space: nowrap;">
+    <center>
+    <table align="center" width="985" height="340" style="margin: 5px 5px 5px 5px; border: solid 1px;" >
+      <tr><td align="center"><b>Search Region</b></td><td align="center"><b>NED SED Plot</b></td></tr>
+      <tr><td><div id="coverageHere" style="background-color:#ffffff; display:inline-block;width: 400px; height: 350px; margin: 5px 0px 5px 5px; border: solid 1px;"></div></td>
+        <td><div id="sedchart" style="background-color:#ffffff; display:inline-block;width: 547px; height: 350px; margin: 5px 2px 5px 1px; border: solid 1px;"></div></td></tr>
+    </table>
+    </center>
+  </div>
+
+  <div id="TableTab" style="background-color:#ffffff; display:inline-block; width: 981px; height: 400px; margin : 20px 2px 5px 6px; border: solid 1px;"></div>
+
+</td></tr></table>
+
+</td></tr></table>
+
+
+<table class="GatortableExt" width="1005" style="margin: 10px 0px 5px 13px">
+  <tr><td align="center" bgcolor="#999999">
+      <table width="100%%" border="0" cellpadding="0">
+      <tr>
+        <td width="30%%" class="line" align="center">Send Query To: </td>
+        <td width="35%%" class="line" align="center">
+          <a href="/applications/finderchart/#&id=Hydra_finderchart_finder_chart&projectId=finderchart&UserTargetWorldPt=148.88822;+69.06529;EQ_J2000&subsize=0.083&sources=DSS,SDSS,2MASS,IRIS,WISE&DoSearch=true" target="help"><img src="/images/icons/FinderChart_blue.jpg" height="50" alt="FinderChart" /></a>
+        </td>
+        <td width="35%%" class="line" align="center">
+          <a href="http://ned.ipac.caltech.edu/cgi-bin/objsearch?search_type=Near+Position+Search&lon=148.88822d&lat=+69.06529d&radius=0.167&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=Distance+to+search+center&of=pre_text&img_stamp=NO" target="help"><img src="/images/icons/NEDLogo.png"  height="50" alt="NED" /></a>
+        </td>
+      </tr>
+    </table></td>
+  </tr>
+</table>
+
+</div> <!-- end #content -->
+<div id="irsa-footer" style="position:absolute;left:0;right:0;margin-top:20px">
+<iframe src="/frontpage/footer.html" width="100%" frameborder=0 scrolling=0 seamless=1/>
+</div>  <!-- end #irsa-footer -->
+
+</body>
+</html>

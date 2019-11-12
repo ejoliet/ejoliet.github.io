@@ -1,0 +1,217 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+<!-- import CSS here as needed -->
+<head>
+  <title>Firefly/NEID prototype</title>
+  <link rel="stylesheet" type="text/css" href="http://irsa/applications/Gator/css/gator_result.css" media="screen, print" />
+  <meta http-equiv="Content-Type" content=
+  "text/html; charset=us-ascii" />
+<link rel="stylesheet" type="text/css" media="screen,projection" href="http://irsa/style.css" />
+<link rel="stylesheet" type="text/css" media="print" href="http://irsa/print_style.css" />
+<link rel="stylesheet" type="text/css" media="screen,projection" href="http://irsa/ui.css" />
+</head>
+<body >
+
+<div id="content">
+
+<!-- Little bit of decoration -->
+<table class="Gatortable" bgcolor="#efefef" width="1005" style= " margin: 5px 12px 10px 13px;">
+  <tr>
+    <th> Object/Coordinate </th>
+    <th> Source            </th>
+    <th> Type              </th>
+    <th> Glon              </th>
+    <th> Glat              </th>
+    <th> Equatorial J2000  </th>
+  </tr>
+  <tr>
+    <td align="center"><font size="-1">MESSIER 059</font></td>
+    <td align="center"><font size="-1">NED</font></td>
+    <td align="center"><font size="-1">G</font></td>
+    <td align="center"><font size="-1">294.3634</font></td>
+    <td align="center"><font size="-1">74.3621</font></td>
+    <td align="center"><font size="-1">12h 42m 02.24s&nbsp;+11d 38m 49.3s</font></td>
+  </tr>
+</table>
+
+<!-- FIREFLY: load the firefly and set the javascript widgets here -->
+<script type="text/javascript">
+{
+   onFireflyLoaded = function(firefly) {
+
+      // Initializing
+
+      //firefly.debug= true;
+      var util= firefly.util;
+      var ui= firefly.ui;
+      util.image.initAutoReadout(ui.DefaultApiReadout,
+         {MouseReadoutComponent:ui.PopupMouseReadoutMinimal,
+         showThumb:false,
+         showMag:false});
+
+
+// ========== Table widget, example here with 2 tables displayed in tabs at the bottom of the page
+
+      // API URL or tables to be fetched and use in the table viewer, example using TAP query API to search around M59 in GDR2:
+let dataUrl = encodeURI("https://irsa.ipac.caltech.edu/TAP/sync?QUERY=SELECT TOP 500 * FROM gaia_dr2_source WHERE CONTAINS(POINT('ICRS', ra, dec),CIRCLE('ICRS', 190.5094, 11.6470, 0.027777777777777776))=1");
+      // With 2mass, use:
+         // dataUrl = encodeURI("https://irsa.ipac.caltech.edu/TAP/sync?QUERY=SELECT * FROM fp_psc WHERE CONTAINS(POINT('ICRS', ra, dec),CIRCLE('ICRS', 190.50935, 11.64703, 0.2777777777777778))=1");
+
+      // define table request:
+      table1Data = firefly.util.table.makeFileRequest('Gaia DR2', dataUrl, null,
+         {"pageSize": '100',
+          "setAsActive": true,
+           META_INFO: {CENTER_COLUMN: 'ra;dec;EQJ2000', CatalogOverlayType: 'IRSA'}
+         });
+
+
+
+      // This can be anything, like the table used in the TAP query earlier but then the
+      tblReq = firefly.util.table.makeFileRequest(
+             'Chart',
+             dataUrl,
+             null,
+             {}
+      );
+      // Add table to tab group
+      firefly.showTable('TableTab', table1Data, {removable: false,
+         showTitle:false,
+         showUnits: true,
+         showFilters: false,
+         selectable: false,
+         expandable: true,
+         help_id: "tables"}
+      );
+
+
+      //Define file request which will be displaying an SED using NED API
+      var tblReq = firefly.util.table.makeFileRequest(
+             'Chart',
+             'http://ned.ipac.caltech.edu/cgi-bin/datasearch?search_type=Photometry&objname=messier059&of=xml_main',
+             /*'from a local table: http://localhost:8080/ned.tbl',*/
+             null,
+             {}
+      );
+      //Define search request to be fecthed from chart widget (the file will be store in Firefly cache server)
+      var wrapperReq = firefly.util.table.makeTblRequest('IpacTableFromSource', 'NED SED',
+             {searchRequest: tblReq}, {filters: '"NED Units" = \'Jy\''},{pageSize: 50});
+
+      // Add table to tab group
+      firefly.showTable('TableTab', wrapperReq, {setAsActive: false,removable: false});
+
+
+//========== chart widget,
+
+
+      var tblId = wrapperReq.tbl_id; // get id to be past to chart
+
+      firefly.showChart('sedchart', {
+         data: [{
+                 name: 'NED SED',
+                 tbl_id: tblId,
+                 x: 'tables::"Frequency"',
+                 y: 'tables::"Flux Density"',
+                 error_y: {
+						             array: 'tables::"Upper limit of uncertainty"',
+					       },firefly: {
+                         yMax: 'tables::"Upper limit of Flux Density"'
+                 },
+                 mode: 'markers'
+         }],
+         layout: {
+                title: 'Spectral Energy Distribution from NED',
+      					xaxis: {
+      						title: '<em>v</em> [Hz]',
+      						type:'log',
+      						tickwidth: 2,
+      						linewidth: 2,
+      						tickmode: "auto",
+      						showgrid: true,
+      						ticks: "inside",
+      						mirror: "allticks"
+      					},
+      					yaxis: {
+      						title: 'F<sub><em>v</em></sub> [Jy]',
+      						type:'log',
+      						tickwidth: 2,
+      						linewidth: 2,
+      						tickmode: "auto",
+      						showgrid: true,
+      						ticks: "inside",
+      						mirror: "allticks"
+      					}
+      			}
+      });
+      var imageRequestWPt = {
+          Service: 'TWOMASS',
+          Title: '2MASS',
+          SurveyKey: 'asky',
+          SurveyKeyBand: 'j',
+          WorldPt: '190.5094;11.6470;EQ_J2000'
+      };
+      var fovDegFallOver=.5;
+
+// show URL FITS image instead of a coverage (example: NED image):
+      var fitsImageRequest= {
+          /*NED*/ url: 'http://ned.ipac.caltech.edu/uri/NED::Image/fits/1994DSS...1...0000:/Bb/MESSIER_031:I:IIIaJ:dss1',
+          ///*SEIP*/ url: 'https://irsa.ipac.caltech.edu/data/SPITZER/Enhanced/SEIP/images/5/0057/50057861/2/50057861-142/50057861.50057861-142-short.IRAC.1.median_mosaic.fits',
+          plotId: 'myfits1',
+          OverlayPosition : '190.5094;11.6470;EQ_J2000',
+          ZoomType : 'TO_WIDTH_HEIGHT',
+          Title: 'Messier 59',
+      };
+
+//Show image in div id = 'coverageHere' without catalog coverage, uncomment:
+
+      //firefly.showImage( 'coverageHere', fitsImageRequest);
+
+//Show image in div id = 'coverageHere' with overlay catalog (comment above line, otherwise you will see both images!):
+       firefly.showCoverage('coverageHere');
+
+// Show HiPS instead:
+// firefly.showImageOrHiPS(
+//     'coverageHere',
+//     {
+//        plotId: 'FitsOrHips',
+//        title     : 'A HiPS - 0.2',
+//        hipsRootUrl: 'https://irsa.ipac.caltech.edu/data/hips/CDS/2MASS/Color/',
+//        SizeInDeg:.2
+//     },
+//     imageRequestWPt,
+//     //fitsImageRequest,
+//     fovDegFallOver
+// );
+   }
+}
+</script>
+
+<!-- FIREFLY: import it here: -->
+<script type="text/javascript" language='javascript'
+   src='https://irsa.ipac.caltech.edu/irsaviewer/firefly_loader.js'>
+</script>
+<!--                          -->
+
+
+<!-- Layout and widget divs are here! - id referenced above in the code -->
+<table align="center" width="1000"> <tr><td nowrap bgcolor="#efefef">
+  <div style="white-space: nowrap;">
+    <center>
+    <table align="center" width="985" height="340" style="margin: 5px 5px 5px 5px; border: solid 1px;" >
+      <tr><td align="center"><b>Search Region</b></td><td align="center"><b>NED SED Plot</b></td></tr>
+      <tr><td><div id="coverageHere" style="background-color:#ffffff; display:inline-block;width: 400px; height: 350px; margin: 5px 0px 5px 5px; border: solid 1px;"></div></td>
+        <td><div id="sedchart" style="background-color:#ffffff; display:inline-block;width: 547px; height: 350px; margin: 5px 2px 5px 1px; border: solid 1px;"></div></td></tr>
+    </table>
+    </center>
+  </div>
+
+  <div id="TableTab" style="background-color:#ffffff; display:inline-block; width: 981px; height: 400px; margin : 20px 2px 5px 6px; border: solid 1px;"></div>
+
+</td></tr></table>
+
+</div> <!-- end #content -->
+
+</body>
+</html>
