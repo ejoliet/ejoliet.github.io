@@ -17,7 +17,7 @@
 		margin-top: 20px;
 	}
 
-	#carousel {
+	.carousel {
 		width: 320px;
 		height: 220px;
 		padding: 0;
@@ -36,7 +36,7 @@
 		background-color: #202020;
 	}
 
-	p {
+	a {
 		text-align: left;
 		color: #FFBF00;
 		font-family: Proxima Nova,-apple-system,Helvetica Neue,Helvetica,Roboto,Arial,sans-serif;
@@ -131,16 +131,16 @@
 				<div class="form-group">
 					<div class="col-xs-12">
 						<center>
-						<div id="carousel"><video id="video0" width="320" height="180" controls muted></video><div id="buttonscontainer"><p>Channel Test01</p><button type="button" onclick="alert('Button Channel 1')"><i class="fa fa-sync-alt" aria-hidden="true"></i> Restart</button></div></div>
-						<div id="carousel"><video id="video1" width="320" height="180" controls muted></video><div id="buttonscontainer"><p>Channel Test02</p><button type="button" onclick=""><i class="fa fa-sync-alt" aria-hidden="true"></i> Restart</button></div></div>
-            <div id="carousel"><video id="video2" width="320" height="180" controls muted></video><div id="buttonscontainer"><p>Channel Test01</p><button type="button" onclick="alert('Button Channel 1')"><i class="fa fa-sync-alt" aria-hidden="true"></i> Restart</button></div></div>
-						<div id="carousel"><video id="video3" width="320" height="180" controls muted></video><div id="buttonscontainer"><p>Channel Test02</p><button type="button" onclick=""><i class="fa fa-sync-alt" aria-hidden="true"></i> Restart</button></div></div>
-            <div id="carousel"><video id="video4" width="320" height="180" controls muted></video><div id="buttonscontainer"><p>Channel Test01</p><button type="button" onclick="alert('Button Channel 1')"><i class="fa fa-sync-alt" aria-hidden="true"></i> Restart</button></div></div>
-						<div id="carousel"><video id="video5" width="320" height="180" controls muted></video><div id="buttonscontainer"><p>Channel Test02</p><button type="button" onclick=""><i class="fa fa-sync-alt" aria-hidden="true"></i> Restart</button></div></div>
-            <div id="carousel"><video id="video6" width="320" height="180" controls muted></video><div id="buttonscontainer"><p>Channel Test02</p><button type="button" onclick=""><i class="fa fa-sync-alt" aria-hidden="true"></i> Restart</button></div></div>
-            <div id="carousel"><video id="video7" width="320" height="180" controls muted></video><div id="buttonscontainer"><p>Channel Test02</p><button type="button" onclick=""><i class="fa fa-sync-alt" aria-hidden="true"></i> Restart</button></div></div>
-						<div id="carousel"><video id="video8" width="320" height="180" controls muted></video><div id="buttonscontainer"><p>Channel Test02</p><button type="button" onclick=""><i class="fa fa-sync-alt" aria-hidden="true"></i> Restart</button></div></div>
-            <div id="carousel"><video id="video9" width="320" height="180" controls muted></video><div id="buttonscontainer"><p>Channel Test02</p><button type="button" onclick=""><i class="fa fa-sync-alt" aria-hidden="true"></i> Restart</button></div></div>
+						<div class="carousel" id="carousel0"><video id="video0" width="320" height="180" controls muted></video><div class="buttonscontainer"><p>Channel title</p></div></div>
+						<div class="carousel" id="carousel1"><video id="video1" width="320" height="180" controls muted></video><div class="buttonscontainer"><p>Channel title</p></div></div>
+            <div class="carousel" id="carousel2"><video id="video2" width="320" height="180" controls muted></video><div class="buttonscontainer"><p>Channel title</p></div></div>
+						<div class="carousel" id="carousel3"><video id="video3" width="320" height="180" controls muted></video><div class="buttonscontainer"><p>Channel title</p></div></div>
+            <div class="carousel" id="carousel4"><video id="video4" width="320" height="180" controls muted></video><div class="buttonscontainer"><p>Channel title</p></div></div>
+						<div class="carousel" id="carousel5"><video id="video5" width="320" height="180" controls muted></video><div class="buttonscontainer"><p>Channel title</p></div></div>
+            <div class="carousel" id="carousel6"><video id="video6" width="320" height="180" controls muted></video><div class="buttonscontainer"><p>Channel title</p></div></div>
+            <div class="carousel" id="carousel7"><video id="video7" width="320" height="180" controls muted></video><div class="buttonscontainer"><p>Channel title</p></div></div>
+						<div class="carousel" id="carousel8"><video id="video8" width="320" height="180" controls muted></video><div class="buttonscontainer"><p>Channel title</p></div></div>
+            <div class="carousel" id="carousel9"><video id="video9" width="320" height="180" controls muted></video><div class="buttonscontainer"><p>Channel title</p></div></div>
 						</center>
 					</div>
 					<div class="col-xs-1">
@@ -157,6 +157,7 @@
 
 <script>
 let video = [];
+let title = [];
 let chan = ["CBS Live 1", "CBS Live 2","CBS Live 3", "CBS Live 4","CBS Live 5", "CBS Live 6","CBS Live 7", "CBS Live 8","CBS Live 9", "CBS Live 10"];
 var i = 0;
 let hls01;
@@ -164,17 +165,24 @@ for (let i = 0; i < chan.length; i++) {
     if(Hls.isSupported()) {
     video[i] = document.getElementById('video'+i);
     video[i].setAttribute("controls","controls");
-    hls01 = new Hls({
-    			liveMaxBackBufferLength: 30,
-          debug: false
-          });
-    hls01.loadSource('https://abcnews-streams.akamaized.net/hls/live/202356'+i+'/abcnews'+(i+1)+'/master.m3u8');
-    hls01.attachMedia(video[i]);
-    hls01.on(Hls.Events.MEDIA_ATTACHED, function() {
-      video[i].muted = true;
-      video[i].play();
-    });
+		title[i] = document.getElementById("carousel"+i).getElementsByClassName("buttonscontainer")[0];
+
+   let url = 'https://abcnews-streams.akamaized.net/hls/live/202356'+i+'/abcnews'+(i+1)+'/master.m3u8'
+			 title[i].childNodes[0].innerHTML = '<a href=\"'+url+'\"/>'+chan[i]+'</a>';
+    play(video[i], url);
 	}
 }
 
+function play(divVideo, url){
+		hls01 = new Hls({
+    			liveMaxBackBufferLength: 30,
+          debug: false
+          });
+    hls01.loadSource(url);
+    hls01.attachMedia(divVideo);
+		hls01.on(Hls.Events.MEDIA_ATTACHED, function() {
+      divVideo.muted = true;
+      divVideo.play();
+    });
+}
 </script>
