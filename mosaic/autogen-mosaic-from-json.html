@@ -145,7 +145,11 @@
     //   ];
     // Another way, better to control 'cors'
     document.addEventListener('DOMContentLoaded', function () {
-        fetch('videos.json', { mode: "no-cors" })
+        // either file present in server or from url can be public, use for example same file from github with 'mode:cors': 
+        // https://raw.githubusercontent.com/ejoliet/ejoliet.github.io/master/mosaic/videos.json 
+        var file = 'videos.json';
+        //file = 'https://raw.githubusercontent.com/ejoliet/ejoliet.github.io/master/mosaic/videos.json';
+        fetch(file, { mode: "cors" })        
             .then(response => {
                 if (!response.ok) {
                     throw new Error('Network response was not ok');
