@@ -1,0 +1,42 @@
+[
+    {
+      "title": "CBS Live 1",
+      "url": "https://abcnews-streams.akamaized.net/hls/live/2023560/abcnews1/master.m3u8"
+    },
+    {
+      "title": "CBS Live 2",
+      "url": "https://abcnews-streams.akamaized.net/hls/live/2023561/abcnews2/master.m3u8"
+    },
+    {
+      "title": "CBS Live 3",
+      "url": "https://abcnews-streams.akamaized.net/hls/live/2023562/abcnews3/master.m3u8"
+    },
+    {
+      "title": "CBS Live 4",
+      "url": "https://abcnews-streams.akamaized.net/hls/live/2023563/abcnews4/master.m3u8"
+    },
+    {
+      "title": "CBS Live 5",
+      "url": "https://abcnews-streams.akamaized.net/hls/live/2023564/abcnews5/master.m3u8"
+    },
+    {
+      "title": "CBS Live 6",
+      "url": "https://abcnews-streams.akamaized.net/hls/live/2023565/abcnews6/master.m3u8"
+    },
+    {
+      "title": "CBS Live 7",
+      "url": "https://abcnews-streams.akamaized.net/hls/live/2023566/abcnews7/master.m3u8"
+    },
+    {
+      "title": "CBS Live 8",
+      "url": "https://abcnews-streams.akamaized.net/hls/live/2023567/abcnews8/master.m3u8"
+    },
+    {
+      "title": "CBS Live 9",
+      "url": "https://abcnews-streams.akamaized.net/hls/live/2023568/abcnews9/master.m3u8"
+    },
+    {
+      "title": "CBS Live 10",
+      "url": "https://abcnews-streams.akamaized.net/hls/live/2023569/abcnews10/master.m3u8"
+    }
+  ]
