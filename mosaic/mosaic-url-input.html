@@ -176,7 +176,7 @@
 
                         const titleLink = document.createElement('a');
                         titleLink.href = video.url;
-                        titleLink.innerHTML = video.title;
+                        titleLink.innerHTML = video.title | video.channel;
 
                         buttonsContainer.appendChild(titleLink);
                         carousel.appendChild(videoEl);
