@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Create ICS 1-hr Event File</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 500px;
+        }
+
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        input[type="text"],
+        textarea {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        input[type="submit"],
+        button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: none;
+            border-radius: 4px;
+            background-color: #007BFF;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        input[type="submit"]:hover,
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        #calendarLink {
+            display: none;
+            text-align: center;
+            color: #007BFF;
+            text-decoration: none;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        #calendarLink:hover {
+            text-decoration: underline;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.30.1/moment.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://momentjs.com/downloads/moment-timezone-with-data.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h2>Create ICS Event</h2>
+        <form id="eventForm">
+            <label for="title">Event Title:</label>
+            <input type="text" id="title" name="title" value="Sample Meeting" required>
+
+            <label for="start_date_time">Start Date and Time (YYYY-MM-DDTHH:MM:SS) [PST]:</label>
+            <input type="text" id="start_date_time" name="start_date_time" required>
+
+            <label for="link">Event Link:</label>
+            <input type="text" id="link" name="link" value="https://example.com">
+
+            <label for="location">Location or Video Call Link:</label>
+            <input type="text" id="location" name="location" value="https://zoom.us/j/123456789">
+
+            <input type="submit" value="Create ICS File">
+        </form>
+        
+        <textarea id="icsContent" readonly></textarea>
+        <button onclick="copyToClipboard()">Copy to Clipboard</button>
+        <button id="downloadBtn">Download ICS File</button>
+        <a href="#" id="calendarLink">Open in Calendar</a>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            document.getElementById('start_date_time').value = getCurrentDateTime();
+        });
+
+        function getCurrentDateTime() {
+            var now = moment().tz("America/Los_Angeles");
+            return now.format("YYYY-MM-DDTHH:mm:ss");
+        }
+
+        document.getElementById('eventForm').onsubmit = function(e) {
+            e.preventDefault();
+            var title = document.getElementById('title').value;
+            var startDateTime = document.getElementById('start_date_time').value;
+            var link = document.getElementById('link').value;
+            var location = document.getElementById('location').value;
+
+            // Create ICS content
+            var icsContent = buildICSContent(title, startDateTime, link, location);
+            document.getElementById('icsContent').value = icsContent;
+
+            // Prepare download link
+            var blob = new Blob([icsContent], { type: 'text/calendar' });
+            var url = URL.createObjectURL(blob);
+            var downloadBtn = document.getElementById('downloadBtn');
+            downloadBtn.onclick = function() {
+                var tempLink = document.createElement('a');
+                tempLink.href = url;
+                tempLink.setAttribute('download', 'event.ics');
+                tempLink.style.display = 'none';
+                document.body.appendChild(tempLink);
+                tempLink.click();
+                document.body.removeChild(tempLink);
+                URL.revokeObjectURL(url);
+            };
+
+            // Prepare calendar link
+            var calendarLink = document.getElementById('calendarLink');
+            calendarLink.href = 'data:text/calendar;charset=utf8,' + encodeURIComponent(icsContent);
+            calendarLink.setAttribute('download', 'event.ics'); // Ensuring correct filename
+            calendarLink.style.display = 'block';
+        };
+
+        function buildICSContent(title, startDateTime, link, location) {
+            var startTime = moment.tz(startDateTime, "YYYY-MM-DDTHH:mm:ss", "America/Los_Angeles");
+            var endTime = startTime.clone().add(1, 'hour'); // Assuming 1-hour event
+
+            // ICS Date format: 20240117T121500Z
+            var formatICSDate = function(date) {
+                return date.utc().format('YYYYMMDDTHHmmss') + 'Z';
+            };
+
+            var now = moment();
+            var uid = 'uid' + now.valueOf() + '@caltech.edu'; // Generate a unique UID
+
+            return `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Your Product//Your App//EN
+CALSCALE:GREGORIAN
+BEGIN:VEVENT
+UID:${uid}
+DTSTAMP:${formatICSDate(now)}
+SUMMARY:${title}
+DTSTART:${formatICSDate(startTime)}
+DTEND:${formatICSDate(endTime)}
+DESCRIPTION:${link}
+LOCATION:${location}
+END:VEVENT
+END:VCALENDAR`;
+        }
+
+        function copyToClipboard() {
+            var content = document.getElementById('icsContent');
+            content.select();
+            document.execCommand('copy');
+        }
+    </script>
+</body>
+</html>
