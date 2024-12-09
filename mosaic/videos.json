@@ -42,5 +42,9 @@
     {
       "channel":"ABC7",
       "url":"https://content.uplynk.com/channel/ext/2118d9222a87420ab69223af9cfa0a0f/kabc_24x7_news.m3u8"
+    },
+    {
+      "channel":"CNN",
+      "url":"https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_2_1964000.m3u8"
     }
   ]
