@@ -46,5 +46,9 @@
     {
       "title":"CNN",
       "url":"https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_2_1964000.m3u8"
+    },
+    {
+      "title":"FOX 11",
+      "url":"https://apollo.production-public.tubi.io/live/ac-kttv.m3u8"
     }
   ]
