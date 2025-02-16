@@ -54,5 +54,21 @@
     {
       "title":"FOX 11",
       "url":"https://apollo.production-public.tubi.io/live/ac-kttv.m3u8"
+    },
+    {
+      "title":"RTVE 24h",
+      "url":"https://rtvelivestream.akamaized.net/rtvesec/24h/24h_main_dvr.m3u8"
+    },
+    {
+      "title":"RTVE America Int",
+      "url":"https://rtvelivestream.akamaized.net/rtvesec/int/tvei_ame_main.m3u8"
+    },
+    {
+      "title":"France 24",
+      "url":"https://live.france24.com/hls/live/2037179/F24_FR_HI_HLS/master_5000.m3u8"
+    },
+    {
+      "title":"DW Espanol",
+      "url":"https://dwamdstream104.akamaized.net/hls/live/2015530/dwstream104/index.m3u8"
     }
   ]
