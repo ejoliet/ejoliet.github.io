@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Family Video Call</title>
+<!-- AIDEV-NOTE: single-file P2P video call. PeerJS 1.5.5 + free PeerJS Cloud signaling.
+     Media is direct peer-to-peer (DTLS-SRTP, encrypted by WebRTC itself).
+     Must be served over HTTPS (getUserMedia requirement). -->
+<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<style>
+  :root{
+    --ink:#1c1a17;
+    --paper:#faf7f0;
+    --go:#1e7a3c;
+    --go-press:#155c2c;
+    --stop:#b3261e;
+    --soft:#8a857c;
+    --card:#ffffff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,"SF Pro Rounded",system-ui,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--paper);color:var(--ink);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:24px;gap:24px;
+  }
+  h1{font-size:2rem;font-weight:700;letter-spacing:-.01em}
+  p{font-size:1.4rem;line-height:1.45;max-width:34rem}
+  .soft{color:var(--soft);font-size:1.1rem}
+  .screen{display:none;flex-direction:column;align-items:center;gap:24px;width:100%;max-width:40rem}
+  .screen.on{display:flex}
+  button{
+    font:inherit;font-size:1.6rem;font-weight:700;color:#fff;
+    background:var(--go);border:none;border-radius:20px;
+    padding:22px 40px;min-width:16rem;cursor:pointer;
+    box-shadow:0 4px 0 var(--go-press);
+  }
+  button:active{transform:translateY(3px);box-shadow:0 1px 0 var(--go-press)}
+  button.secondary{background:#fff;color:var(--ink);box-shadow:0 4px 0 #d8d2c6;border:2px solid #d8d2c6;font-size:1.3rem;padding:16px 28px;min-width:0}
+  button.stop{background:var(--stop);box-shadow:0 4px 0 #7c1712}
+  .linkbox{
+    background:var(--card);border:2px dashed #cfc8ba;border-radius:16px;
+    padding:16px 20px;font-size:1.05rem;word-break:break-all;max-width:100%;
+    user-select:all;
+  }
+  .row{display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
+  /* pulsing dot = "waiting" without jargon */
+  .pulse{width:22px;height:22px;border-radius:50%;background:var(--go);animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+  @media (prefers-reduced-motion: reduce){.pulse{animation:none;opacity:1}}
+  /* in-call layout: remote fills, local is a small corner tile */
+  #incall{position:fixed;inset:0;background:#000;max-width:none;padding:0;justify-content:flex-end}
+  #remoteVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+  #localVideo{
+    position:absolute;top:max(16px,env(safe-area-inset-top));right:16px;
+    width:28vw;max-width:180px;aspect-ratio:3/4;object-fit:cover;
+    border-radius:14px;border:3px solid rgba(255,255,255,.85);background:#222;
+  }
+  #callStatus{
+    position:absolute;top:max(16px,env(safe-area-inset-top));left:16px;right:calc(28vw + 40px);
+    color:#fff;font-size:1.2rem;font-weight:600;text-align:left;
+    text-shadow:0 1px 4px rgba(0,0,0,.7);
+  }
+  #hangupBtn{position:relative;margin-bottom:max(28px,env(safe-area-inset-bottom))}
+</style>
+</head>
+<body>
+
+<!-- Screen 1: start -->
+<section id="setup" class="screen on">
+  <h1>Family Video Call</h1>
+  <p id="setupText">Press the green button to begin.</p>
+  <button id="startBtn">Start</button>
+  <p class="soft">Your browser will ask to use the camera and microphone. Press <b>Allow</b>.</p>
+</section>
+
+<!-- Screen 2 (host only): share link + wait -->
+<section id="share" class="screen">
+  <h1>Send this link</h1>
+  <p>Send this link to the person you want to talk to. The call starts by itself when they open it.</p>
+  <div class="linkbox" id="linkBox">…</div>
+  <div class="row">
+    <button id="copyBtn" class="secondary">Copy link</button>
+    <button id="shareBtn" class="secondary" hidden>Share…</button>
+  </div>
+  <div class="row" style="align-items:center">
+    <div class="pulse"></div>
+    <p class="soft" id="waitText">Waiting for them to join…</p>
+  </div>
+</section>
+
+<!-- Screen 3 (guest only): connecting / retrying -->
+<section id="connecting" class="screen">
+  <h1 id="connTitle">Connecting…</h1>
+  <div class="pulse"></div>
+  <p id="connText">One moment.</p>
+  <button id="retryBtn" hidden>Try again</button>
+</section>
+
+<!-- Screen 4: in call -->
+<section id="incall" class="screen">
+  <video id="remoteVideo" autoplay playsinline></video>
+  <video id="localVideo" autoplay playsinline muted></video>
+  <div id="callStatus"></div>
+  <button id="hangupBtn" class="stop">End call</button>
+</section>
+
+<!-- Screen 5: ended -->
+<section id="ended" class="screen">
+  <h1>Call ended</h1>
+  <p>You can close this page now.</p>
+  <button id="againBtn" class="secondary">Start a new call</button>
+</section>
+
+<script>
+"use strict";
+
+/* ================= config ================= */
+const MAX_RETRIES = 8;        // AIDEV-NOTE: reconnect limit requested by user
+const RETRY_DELAY_MS = 3000;
+const ROOM_PREFIX = "famcall-";
+// AIDEV-NOTE: default PeerJS ICE = Google STUN only. Works for most home networks.
+// If calls fail on strict/symmetric NATs, add a TURN server here, e.g. a free tier
+// from metered.ca (verify current credentials before use):
+// const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" },
+//   { urls: "turn:...", username: "...", credential: "..." }] };
+const ICE = null; // null = PeerJS defaults
+
+/* ================= state ================= */
+const params   = new URLSearchParams(location.search);
+const hostId   = params.get("call");     // present => this browser is the guest
+const isGuest  = !!hostId;
+let peer = null, call = null, localStream = null;
+let retries = 0, retryTimer = null, hungUp = false, inCall = false;
+
+/* ================= helpers ================= */
+const $ = id => document.getElementById(id);
+function showScreen(id){
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("on"));
+  $(id).classList.add("on");
+}
+function setCallStatus(t){ $("callStatus").textContent = t; }
+
+/* ================= boot ================= */
+if (isGuest) $("setupText").textContent = "Someone wants to video call with you. Press the green button to answer.";
+if (isGuest) $("startBtn").textContent = "Start the call";
+
+$("startBtn").addEventListener("click", begin);
+$("hangupBtn").addEventListener("click", hangUp);
+$("againBtn").addEventListener("click", () => location.href = location.pathname); // drop ?call=
+$("retryBtn").addEventListener("click", () => { retries = 0; $("retryBtn").hidden = true; connectAsGuest(); });
+
+async function begin(){
+  $("startBtn").disabled = true;
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  }catch(e){
+    $("setupText").textContent =
+      "The camera could not start. Please press Allow when the browser asks, then reload this page.";
+    $("startBtn").disabled = false;
+    return;
+  }
+  $("localVideo").srcObject = localStream;
+  isGuest ? startGuest() : startHost();
+}
+
+/* ================= host side ================= */
+function startHost(){
+  const myId = ROOM_PREFIX + Math.random().toString(36).slice(2, 10);
+  peer = makePeer(myId);
+
+  peer.on("open", id => {
+    const link = location.origin + location.pathname + "?call=" + id;
+    $("linkBox").textContent = link;
+    if (navigator.share) $("shareBtn").hidden = false;
+    $("copyBtn").onclick = async () => {
+      try{ await navigator.clipboard.writeText(link); $("copyBtn").textContent = "Copied ✓"; }
+      catch(e){ /* linkbox is user-select:all as fallback */ }
+      setTimeout(() => $("copyBtn").textContent = "Copy link", 2000);
+    };
+    $("shareBtn").onclick = () => navigator.share({ title: "Video call", url: link }).catch(()=>{});
+    showScreen("share");
+  });
+
+  peer.on("call", incoming => {
+    // AIDEV-NOTE: guest re-calls the same host ID on reconnect; always answer fresh
+    if (call) try{ call.close(); }catch(e){}
+    call = incoming;
+    call.answer(localStream);
+    wireCall(call, /*isHost=*/true);
+  });
+}
+
+/* ================= guest side ================= */
+function startGuest(){
+  peer = makePeer(); // random id from server
+  peer.on("open", connectAsGuest);
+}
+
+function connectAsGuest(){
+  if (hungUp) return;
+  showScreen("connecting");
+  $("connTitle").textContent = retries === 0 ? "Connecting…" : "Reconnecting…";
+  $("connText").textContent  = retries === 0 ? "One moment."
+    : "Trying again (" + retries + " of " + MAX_RETRIES + ")…";
+  if (call) try{ call.close(); }catch(e){}
+  call = peer.call(hostId, localStream);
+  if (!call){ scheduleRetry(); return; }
+  wireCall(call, /*isHost=*/false);
+}
+
+function scheduleRetry(){
+  if (hungUp) return;
+  clearTimeout(retryTimer);
+  retries++;
+  if (retries > MAX_RETRIES){
+    $("connTitle").textContent = "Could not connect";
+    $("connText").textContent  = "Please ask them to send you a new link, or press the button below.";
+    $("retryBtn").hidden = false;
+    return;
+  }
+  retryTimer = setTimeout(connectAsGuest, RETRY_DELAY_MS);
+}
+
+/* ================= shared call wiring ================= */
+function makePeer(id){
+  const opts = { debug: 1 };
+  if (ICE) opts.config = ICE;
+  const p = id ? new Peer(id, opts) : new Peer(opts);
+
+  // AIDEV-NOTE: 'disconnected' = lost signaling server, not the call itself.
+  // Reconnect keeps the same ID so the shared link stays valid.
+  p.on("disconnected", () => { if (!hungUp && !p.destroyed) p.reconnect(); });
+
+  p.on("error", err => {
+    if (hungUp) return;
+    if (err.type === "peer-unavailable"){
+      // guest called before host was ready, or host refreshed — retry
+      if (isGuest) scheduleRetry();
+      return;
+    }
+    if (isGuest){ scheduleRetry(); }
+    else { $("waitText").textContent = "Connection problem. Please reload this page and send a new link."; }
+  });
+  return p;
+}
+
+function wireCall(c, isHost){
+  let dropped = false;
+  const onDrop = () => {
+    if (dropped || hungUp || c !== call) return;
+    dropped = true;
+    inCall = false;
+    if (isHost){
+      setTimeout(() => { if (!hungUp && !inCall) showScreen("share");
+        $("waitText").textContent = "They left or lost connection. Waiting for them to come back…"; }, 500);
+    } else {
+      scheduleRetry();
+    }
+  };
+
+  c.on("stream", remote => {
+    retries = 0;
+    inCall = true;
+    $("remoteVideo").srcObject = remote;
+    setCallStatus("Connected");
+    setTimeout(() => { if (inCall) setCallStatus(""); }, 3000);
+    showScreen("incall");
+  });
+
+  c.on("close", onDrop);
+  c.on("error", onDrop);
+
+  // AIDEV-NOTE: 'close' is unreliable cross-browser; watch ICE state as backup
+  const pc = c.peerConnection;
+  if (pc){
+    pc.oniceconnectionstatechange = () => {
+      if (["failed", "disconnected", "closed"].includes(pc.iceConnectionState)) onDrop();
+    };
+  }
+}
+
+/* ================= hang up ================= */
+function hangUp(){
+  hungUp = true;
+  clearTimeout(retryTimer);
+  if (call)  try{ call.close(); }catch(e){}
+  if (peer)  try{ peer.destroy(); }catch(e){}
+  if (localStream) localStream.getTracks().forEach(t => t.stop());
+  showScreen("ended");
+}
+window.addEventListener("beforeunload", () => { if (peer) try{ peer.destroy(); }catch(e){} });
+</script>
+</body>
+</html>
