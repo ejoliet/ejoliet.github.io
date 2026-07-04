@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The arrow points at you</title>
+<meta name="theme-color" content="#0b0e1d">
+<!-- AIDEV-NOTE: single-file P2P "arrow points at you". PeerJS 1.5.5 + free PeerJS Cloud
+     signaling. Each peer streams its GPS position over a reliable DataConnection; both
+     sides compute great-circle bearing + haversine distance locally. Compass heading
+     (webkitCompassHeading on iOS, absolute alpha on Android) rotates the arrow so it
+     physically points at the other person. Without a compass (desktop), the arrow is
+     north-up and a hint explains it. Must be served over HTTPS (geolocation requirement). -->
+<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<style>
+  :root{
+    --ink:#eef0ff;
+    --soft:#8e94b8;
+    --glow:#ffd27d;
+    --glow-deep:#ff9d5c;
+    --ring:#2b3157;
+    --card:#151936;
+    --accent:#7da2ff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,"SF Pro Rounded",system-ui,"Segoe UI",Roboto,Arial,sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(120% 90% at 50% 110%, #2b1f4e 0%, rgba(43,31,78,0) 60%),
+      radial-gradient(100% 70% at 80% -10%, #14264d 0%, rgba(20,38,77,0) 55%),
+      linear-gradient(180deg, #070a18 0%, #0b0e1d 45%, #141230 100%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:24px;gap:22px;overflow:hidden;
+  }
+  /* star field: two drifting layers of box-shadow dots, generated in JS */
+  .stars{position:fixed;inset:0;pointer-events:none;z-index:0}
+  .stars i{position:absolute;top:0;left:0;width:2px;height:2px;border-radius:50%;background:transparent}
+  #stars1 i{animation:twinkle 4.5s ease-in-out infinite}
+  #stars2 i{width:1px;height:1px;animation:twinkle 6s ease-in-out infinite reverse}
+  @keyframes twinkle{0%,100%{opacity:.9}50%{opacity:.35}}
+  @media (prefers-reduced-motion: reduce){.stars i{animation:none}}
+
+  .screen{display:none;flex-direction:column;align-items:center;gap:22px;width:100%;max-width:26rem;z-index:1}
+  .screen.on{display:flex}
+  h1{font-size:1.9rem;font-weight:800;letter-spacing:-.02em;line-height:1.2}
+  h1 .you{color:var(--glow)}
+  p{font-size:1.05rem;line-height:1.55;color:var(--soft)}
+
+  input{
+    font:inherit;font-size:1.15rem;text-align:center;color:var(--ink);
+    background:var(--card);border:1px solid var(--ring);border-radius:14px;
+    padding:14px 18px;width:100%;
+  }
+  input::placeholder{color:#5a608a}
+  input:focus{outline:2px solid var(--accent)}
+  button{
+    font:inherit;font-size:1.2rem;font-weight:700;color:#1b1230;
+    background:linear-gradient(180deg,#ffe3a8,var(--glow) 55%,var(--glow-deep));
+    border:none;border-radius:16px;padding:16px 36px;cursor:pointer;
+    box-shadow:0 6px 24px rgba(255,166,87,.35), inset 0 1px 0 rgba(255,255,255,.6);
+  }
+  button:active{transform:translateY(2px)}
+  button:disabled{opacity:.55;cursor:default;transform:none}
+  button.ghost{
+    background:var(--card);color:var(--ink);font-size:.95rem;font-weight:600;
+    border:1px solid var(--ring);box-shadow:none;padding:10px 18px;border-radius:12px;
+  }
+  .linkbox{
+    background:var(--card);border:1px dashed #3c4373;border-radius:14px;
+    padding:14px 16px;font-size:.95rem;word-break:break-all;user-select:all;color:var(--soft);
+    width:100%;
+  }
+  .row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .pulse{width:18px;height:18px;border-radius:50%;background:var(--glow);
+    animation:pulse 1.4s ease-in-out infinite;flex:none}
+  @keyframes pulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+  .waitrow{display:flex;gap:12px;align-items:center;color:var(--soft)}
+
+  /* ---------- the arrow screen ---------- */
+  #live{max-width:none;gap:0;justify-content:space-between;min-height:100%;padding:12px 0}
+  #liveTop{min-height:3.2rem;display:flex;flex-direction:column;gap:4px;align-items:center;justify-content:center}
+  #peerName{font-size:1.25rem;font-weight:700;letter-spacing:.01em}
+  #liveStatus{font-size:.9rem;color:var(--soft)}
+
+  #compass{
+    position:relative;width:min(78vw,340px);aspect-ratio:1;flex:none;
+    display:flex;align-items:center;justify-content:center;
+  }
+  #ring{position:absolute;inset:0;border-radius:50%;
+    border:1.5px solid var(--ring);
+    box-shadow:inset 0 0 60px rgba(125,162,255,.07), 0 0 80px rgba(125,162,255,.06);
+  }
+  .tick{position:absolute;left:50%;top:0;width:2px;height:12px;background:var(--ring);
+    transform-origin:50% calc(min(78vw,340px)/2);border-radius:2px}
+  .tick.major{height:18px;background:#3d4677}
+  #northTag{
+    position:absolute;left:50%;top:-30px;transform:translateX(-50%);
+    font-size:.8rem;font-weight:700;color:var(--soft);letter-spacing:.2em;
+  }
+  #arrowWrap{width:72%;height:72%;will-change:transform}
+  #arrowWrap svg{width:100%;height:100%;display:block;overflow:visible}
+  #heart{
+    position:absolute;width:100%;text-align:center;
+    font-size:1rem;color:var(--glow);opacity:0;transition:opacity .6s;
+    top:50%;transform:translateY(-50%);pointer-events:none;font-weight:700;
+  }
+
+  #liveBottom{display:flex;flex-direction:column;gap:6px;align-items:center;padding:0 24px}
+  #distance{
+    font-size:clamp(2.6rem,12vw,4rem);font-weight:800;letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums;cursor:pointer;
+    background:linear-gradient(180deg,#fff 20%,#ffd9a0 90%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    text-shadow:0 0 40px rgba(255,210,125,.25);
+  }
+  #distanceSub{font-size:1rem;color:var(--soft)}
+  #hint{font-size:.82rem;color:#5a608a;max-width:22rem;min-height:2.2em;padding-top:6px}
+</style>
+</head>
+<body>
+
+<div class="stars" id="stars1"></div>
+<div class="stars" id="stars2"></div>
+
+<!-- Screen 1: start -->
+<section id="setup" class="screen on">
+  <h1 id="setupTitle">The arrow points<br>at <span class="you">you</span></h1>
+  <p id="setupText">Share a link with someone far away. Each of you gets a live arrow pointing at the other — across the room or across an ocean.</p>
+  <input id="nameInput" placeholder="Your name" maxlength="24" autocomplete="given-name">
+  <button id="startBtn">Light my arrow</button>
+  <p style="font-size:.85rem">Your browser will ask for your location — that's what the arrow is made of. It's shared only with the person you invite, never with a server.</p>
+</section>
+
+<!-- Screen 2 (host): share link -->
+<section id="share" class="screen">
+  <h1>Send this link</h1>
+  <p>Send it to the person your arrow should find. Everything starts by itself when they open it.</p>
+  <div class="linkbox" id="linkBox">…</div>
+  <div class="row">
+    <button id="copyBtn" class="ghost">Copy link</button>
+    <button id="shareBtn" class="ghost" hidden>Share…</button>
+  </div>
+  <div class="waitrow"><div class="pulse"></div><span id="waitText">Waiting for them…</span></div>
+</section>
+
+<!-- Screen 3: live arrow -->
+<section id="live" class="screen">
+  <div id="liveTop">
+    <div id="peerName">&nbsp;</div>
+    <div id="liveStatus">connecting…</div>
+  </div>
+
+  <div id="compass">
+    <div id="ring"></div>
+    <div id="northTag">N</div>
+    <div id="arrowWrap">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <defs>
+          <linearGradient id="ag" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#ffe9bd"/>
+            <stop offset=".55" stop-color="#ffd27d"/>
+            <stop offset="1" stop-color="#ff9d5c"/>
+          </linearGradient>
+          <filter id="aglow" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="4" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <!-- comet-tail arrow: broad fletch fading in, sharp luminous head -->
+        <g filter="url(#aglow)">
+          <path d="M50 4 L64 46 L54 42 L54 82 Q54 90 50 96 Q46 90 46 82 L46 42 L36 46 Z"
+                fill="url(#ag)"/>
+          <circle cx="50" cy="4" r="3.4" fill="#fff"/>
+        </g>
+      </svg>
+    </div>
+    <div id="heart">you're right here, together</div>
+  </div>
+
+  <div id="liveBottom">
+    <div id="distance">…</div>
+    <div id="distanceSub">&nbsp;</div>
+    <div id="hint">&nbsp;</div>
+  </div>
+</section>
+
+<script>
+"use strict";
+
+/* ================= config ================= */
+const MAX_RETRIES = 8;
+const RETRY_DELAY_MS = 3000;
+const ROOM_PREFIX = "arrow-";
+const SEND_MIN_MS = 1500;          // throttle position messages
+const NEAR_METERS = 40;            // "you found each other" state
+const ICE = null;                  // null = PeerJS defaults
+
+/* ================= state ================= */
+const params  = new URLSearchParams(location.search);
+const hostId  = params.get("to");
+const isGuest = !!hostId;
+let peer = null, conn = null;
+let retries = 0, retryTimer = null, closed = false;
+let myName = "", peerName = "";
+let myPos = null, theirPos = null;   // {lat, lon, acc}
+let lastSend = 0, sendTimer = null;
+let heading = null;                  // compass heading in degrees, null = no compass
+let useMiles = localStorage.getItem("arrow:mi") === "1";
+
+/* arrow animation: unwrapped current/target angles so 359->0 doesn't spin the long way */
+let angleNow = 0, angleTarget = 0, angleInit = false;
+
+/* ================= helpers ================= */
+const $ = id => document.getElementById(id);
+function showScreen(id){
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("on"));
+  $(id).classList.add("on");
+}
+const rad = d => d * Math.PI / 180;
+
+/* great-circle initial bearing, degrees clockwise from north */
+function bearingTo(a, b){
+  const φ1 = rad(a.lat), φ2 = rad(b.lat), Δλ = rad(b.lon - a.lon);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+/* haversine distance in meters */
+function distanceTo(a, b){
+  const R = 6371008.8;
+  const φ1 = rad(a.lat), φ2 = rad(b.lat);
+  const dφ = rad(b.lat - a.lat), dλ = rad(b.lon - a.lon);
+  const h = Math.sin(dφ/2)**2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function compassPoint(deg){
+  const pts = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+  return pts[Math.round(deg / 22.5) % 16];
+}
+function fmtDistance(m){
+  if (useMiles){
+    const mi = m / 1609.344;
+    if (mi < 0.19) return { n: Math.round(m * 3.28084).toLocaleString(), u: "feet" };
+    return { n: mi < 10 ? mi.toFixed(1) : Math.round(mi).toLocaleString(), u: mi < 1.05 && mi >= 0.95 ? "mile" : "miles" };
+  }
+  if (m < 1000) return { n: String(Math.round(m)), u: "meters" };
+  const km = m / 1000;
+  return { n: km < 10 ? km.toFixed(1) : Math.round(km).toLocaleString(), u: "km" };
+}
+
+/* ================= star field ================= */
+(function stars(){
+  for (const [id, count, size] of [["stars1", 90, 2], ["stars2", 140, 1]]){
+    const layer = $(id);
+    let shadows = [];
+    for (let i = 0; i < count; i++){
+      const x = (Math.random() * 100).toFixed(2), y = (Math.random() * 100).toFixed(2);
+      const o = (0.25 + Math.random() * 0.75).toFixed(2);
+      shadows.push(`${x}vw ${y}vh 0 rgba(238,240,255,${o})`);
+    }
+    const dot = document.createElement("i");
+    dot.style.boxShadow = shadows.join(",");
+    dot.style.animationDelay = (Math.random() * 4).toFixed(2) + "s";
+    layer.appendChild(dot);
+  }
+})();
+
+/* ================= boot ================= */
+myName = localStorage.getItem("arrow:name") || "";
+$("nameInput").value = myName;
+if (isGuest){
+  $("setupTitle").innerHTML = 'Someone\'s arrow<br>is looking for <span class="you">you</span>';
+  $("setupText").textContent = "Enter your name and your arrows will find each other.";
+  $("startBtn").textContent = "Find them";
+}
+$("startBtn").addEventListener("click", begin);
+$("nameInput").addEventListener("keydown", e => { if (e.key === "Enter") begin(); });
+$("distance").addEventListener("click", () => {
+  useMiles = !useMiles;
+  localStorage.setItem("arrow:mi", useMiles ? "1" : "0");
+  render();
+});
+
+async function begin(){
+  const name = $("nameInput").value.trim();
+  if (!name){ $("nameInput").focus(); return; }
+  myName = name;
+  localStorage.setItem("arrow:name", name);
+  $("startBtn").disabled = true;
+
+  // AIDEV-NOTE: iOS requires DeviceOrientationEvent.requestPermission() inside a
+  // user gesture, so compass setup must happen in this click handler.
+  startCompass();
+
+  if (!("geolocation" in navigator)){
+    $("setupText").textContent = "This browser can't share location, so the arrow can't work here. Try on a phone.";
+    return;
+  }
+  navigator.geolocation.watchPosition(onPosition, onPositionError,
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+
+  isGuest ? startGuest() : startHost();
+}
+
+function onPosition(p){
+  myPos = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy };
+  queueSend();
+  render();
+}
+function onPositionError(e){
+  if (!myPos){
+    $("setupText").textContent = "The arrow needs your location to point. Please press Allow when the browser asks, then reload this page.";
+    $("startBtn").disabled = false;
+    showScreen("setup");
+  }
+}
+
+/* ================= compass ================= */
+function startCompass(){
+  const D = window.DeviceOrientationEvent;
+  if (!D) return;
+  if (typeof D.requestPermission === "function"){
+    D.requestPermission().then(r => { if (r === "granted") listenOrientation(); }).catch(()=>{});
+  } else {
+    listenOrientation();
+  }
+}
+function listenOrientation(){
+  if ("ondeviceorientationabsolute" in window)
+    window.addEventListener("deviceorientationabsolute", onOrientation, true);
+  window.addEventListener("deviceorientation", onOrientation, true);
+}
+function onOrientation(e){
+  let h = null;
+  if (typeof e.webkitCompassHeading === "number" && !isNaN(e.webkitCompassHeading)){
+    h = e.webkitCompassHeading;                    // iOS: degrees from north, already screen-adjusted? no — adjust below
+  } else if (e.absolute === true && e.alpha != null){
+    h = (360 - e.alpha) % 360;                     // Android absolute frame
+  }
+  if (h == null) return;
+  const screenAngle = (screen.orientation && screen.orientation.angle) || 0;
+  heading = (h + screenAngle) % 360;
+  render();
+}
+
+/* ================= host side ================= */
+function startHost(){
+  const myId = ROOM_PREFIX + Math.random().toString(36).slice(2, 10);
+  peer = makePeer(myId);
+  peer.on("open", id => {
+    const link = location.origin + location.pathname + "?to=" + id;
+    $("linkBox").textContent = link;
+    if (navigator.share) $("shareBtn").hidden = false;
+    $("copyBtn").onclick = async () => {
+      try{ await navigator.clipboard.writeText(link); $("copyBtn").textContent = "Copied ✓"; }catch(e){}
+      setTimeout(() => $("copyBtn").textContent = "Copy link", 2000);
+    };
+    $("shareBtn").onclick = () => navigator.share({ title: "The arrow points at you", url: link }).catch(()=>{});
+    showScreen("share");
+  });
+  peer.on("connection", c => {
+    if (conn) try{ conn.close(); }catch(e){}
+    wireConn(c);
+  });
+}
+
+/* ================= guest side ================= */
+function startGuest(){
+  peer = makePeer();
+  peer.on("open", connectAsGuest);
+}
+function connectAsGuest(){
+  if (closed) return;
+  showScreen("live");
+  $("liveStatus").textContent = retries === 0 ? "connecting…" : "reconnecting…";
+  if (conn) try{ conn.close(); }catch(e){}
+  const c = peer.connect(hostId, { reliable: true });
+  if (!c){ scheduleRetry(); return; }
+  wireConn(c);
+}
+function scheduleRetry(){
+  if (closed) return;
+  clearTimeout(retryTimer);
+  retries++;
+  if (retries > MAX_RETRIES){
+    $("liveStatus").textContent = "couldn't reach them — ask for a fresh link";
+    return;
+  }
+  $("liveStatus").textContent = "reconnecting…";
+  retryTimer = setTimeout(connectAsGuest, RETRY_DELAY_MS);
+}
+
+/* ================= shared wiring ================= */
+function makePeer(id){
+  const opts = { debug: 1 };
+  if (ICE) opts.config = ICE;
+  const p = id ? new Peer(id, opts) : new Peer(opts);
+  p.on("disconnected", () => { if (!closed && !p.destroyed) p.reconnect(); });
+  p.on("error", err => {
+    if (closed) return;
+    if (err.type === "peer-unavailable"){ if (isGuest) scheduleRetry(); return; }
+    if (isGuest) scheduleRetry();
+    else $("waitText").textContent = "Connection problem — reload and send a new link.";
+  });
+  return p;
+}
+
+function wireConn(c){
+  conn = c;
+  c.on("open", () => {
+    retries = 0;
+    showScreen("live");
+    $("liveStatus").textContent = "linked — waiting for their location…";
+    c.send({ type: "hello", name: myName });
+    lastSend = 0;
+    queueSend();
+  });
+  c.on("data", msg => {
+    if (!msg || typeof msg !== "object") return;
+    if (msg.type === "hello"){
+      peerName = String(msg.name || "").slice(0, 24);
+      render();
+    } else if (msg.type === "pos"){
+      theirPos = { lat: +msg.lat, lon: +msg.lon, acc: +msg.acc || 0 };
+      render();
+    }
+  });
+  const drop = () => {
+    if (closed || c !== conn) return;
+    theirPos = null;
+    if (isGuest) scheduleRetry();
+    else { $("liveStatus").textContent = "they left — the link still works if they come back"; render(); }
+  };
+  c.on("close", drop);
+  c.on("error", drop);
+  const pc = c.peerConnection;
+  if (pc) pc.oniceconnectionstatechange = () => {
+    if (["failed","disconnected","closed"].includes(pc.iceConnectionState)) drop();
+  };
+}
+
+function queueSend(){
+  if (!conn || !conn.open || !myPos) return;
+  const now = Date.now();
+  const wait = Math.max(0, SEND_MIN_MS - (now - lastSend));
+  clearTimeout(sendTimer);
+  sendTimer = setTimeout(() => {
+    if (!conn || !conn.open || !myPos) return;
+    lastSend = Date.now();
+    try{ conn.send({ type: "pos", lat: myPos.lat, lon: myPos.lon, acc: Math.round(myPos.acc) }); }catch(e){}
+  }, wait);
+}
+
+/* ================= render ================= */
+function render(){
+  if (!$("live").classList.contains("on")) return;
+  $("peerName").textContent = peerName || "…";
+
+  if (!myPos || !theirPos){
+    $("distance").textContent = "…";
+    $("distanceSub").textContent = !myPos ? "finding your location…" : "waiting for theirs…";
+    if (conn && conn.open) $("liveStatus").textContent = "linked — waiting for locations…";
+    return;
+  }
+
+  const meters  = distanceTo(myPos, theirPos);
+  const bearing = bearingTo(myPos, theirPos);
+  const near    = meters < NEAR_METERS;
+
+  const d = fmtDistance(meters);
+  $("distance").textContent = d.n + " " + d.u;
+  $("distanceSub").textContent = near
+    ? "close enough to stop looking at your phone"
+    : "between you and " + (peerName || "them");
+  $("liveStatus").textContent = "linked";
+
+  angleTarget = unwrap(heading == null ? bearing : bearing - heading);
+
+  $("heart").style.opacity = near ? 1 : 0;
+  $("arrowWrap").style.opacity = near ? .15 : 1;
+
+  $("hint").textContent = near ? "" :
+    heading == null
+      ? "No compass here, so north is up — they're to your " + compassPoint(bearing) + " (" + Math.round(bearing) + "°). On a phone, the arrow turns with you."
+      : "accurate to about ±" + Math.round(Math.max(myPos.acc, theirPos.acc)) + " m";
+}
+
+/* keep the arrow turning the short way around */
+function unwrap(targetDeg){
+  if (!angleInit){ angleInit = true; angleNow = targetDeg; return targetDeg; }
+  let base = angleTarget;
+  let delta = ((targetDeg - base) % 360 + 540) % 360 - 180;
+  return base + delta;
+}
+
+(function animate(){
+  angleNow += (angleTarget - angleNow) * 0.12;
+  $("arrowWrap").style.transform = "rotate(" + angleNow.toFixed(2) + "deg)";
+  requestAnimationFrame(animate);
+})();
+
+/* compass ring ticks */
+(function ticks(){
+  const ring = $("compass");
+  for (let a = 0; a < 360; a += 15){
+    const t = document.createElement("div");
+    t.className = "tick" + (a % 90 === 0 ? " major" : "");
+    t.style.transform = "translateX(-50%) rotate(" + a + "deg)";
+    ring.appendChild(t);
+  }
+})();
+
+window.addEventListener("beforeunload", () => { if (peer) try{ peer.destroy(); }catch(e){} });
+</script>
+</body>
+</html>
