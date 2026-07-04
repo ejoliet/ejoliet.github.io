@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Family Video Call</title>
+<!-- AIDEV-NOTE: single-file P2P mesh video call (2-4 people). PeerJS 1.5.5 + free PeerJS Cloud.
+     Topology: full mesh for media (everyone calls everyone). One "anchor" peer holds the
+     room ID and brokers the roster over data connections. If the anchor leaves, remaining
+     members elect a new anchor by re-claiming the room ID (media calls are unaffected).
+     Must be served over HTTPS (getUserMedia requirement). -->
+<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<style>
+  :root{
+    --ink:#1c1a17; --paper:#faf7f0;
+    --go:#1e7a3c; --go-press:#155c2c;
+    --stop:#b3261e; --soft:#8a857c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,"SF Pro Rounded",system-ui,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--paper);color:var(--ink);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:24px;gap:24px;
+  }
+  h1{font-size:2rem;font-weight:700;letter-spacing:-.01em}
+  p{font-size:1.4rem;line-height:1.45;max-width:34rem}
+  .soft{color:var(--soft);font-size:1.1rem}
+  .screen{display:none;flex-direction:column;align-items:center;gap:24px;width:100%;max-width:40rem}
+  .screen.on{display:flex}
+  button{
+    font:inherit;font-size:1.6rem;font-weight:700;color:#fff;
+    background:var(--go);border:none;border-radius:20px;
+    padding:22px 40px;min-width:16rem;cursor:pointer;
+    box-shadow:0 4px 0 var(--go-press);
+  }
+  button:active{transform:translateY(3px);box-shadow:0 1px 0 var(--go-press)}
+  button.secondary{background:#fff;color:var(--ink);box-shadow:0 4px 0 #d8d2c6;border:2px solid #d8d2c6;font-size:1.2rem;padding:14px 24px;min-width:0}
+  button.stop{background:var(--stop);box-shadow:0 4px 0 #7c1712}
+  input[type=text]{
+    font:inherit;font-size:1.4rem;text-align:center;
+    padding:14px 18px;border:2px solid #d8d2c6;border-radius:14px;
+    width:100%;max-width:22rem;background:#fff;
+  }
+  .pulse{width:22px;height:22px;border-radius:50%;background:var(--go);animation:pulse 1.4s ease-in-out infinite;flex:none}
+  @keyframes pulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+  @media (prefers-reduced-motion: reduce){.pulse{animation:none;opacity:1}}
+  .row{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;align-items:center}
+
+  /* ---- in-call: responsive tile grid ---- */
+  #incall{position:fixed;inset:0;background:#000;max-width:none;padding:0;gap:0;justify-content:flex-start}
+  #grid{
+    flex:1;width:100%;display:grid;gap:6px;padding:6px;
+    grid-template-columns:repeat(auto-fit,minmax(min(46vw,340px),1fr));
+    align-content:center;
+  }
+  .tile{position:relative;border-radius:14px;overflow:hidden;background:#1b1b1b;aspect-ratio:4/3}
+  .tile video{width:100%;height:100%;object-fit:cover}
+  .tile .tag{
+    position:absolute;left:10px;bottom:8px;color:#fff;font-weight:600;font-size:1.05rem;
+    text-shadow:0 1px 4px rgba(0,0,0,.8);
+  }
+  #topbar{
+    width:100%;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;
+    padding:calc(max(10px,env(safe-area-inset-top))) 12px 10px;
+    background:rgba(0,0,0,.55);color:#fff;
+  }
+  #topbar .soft{color:#cfcabf}
+  #statusLine{color:#ffd88a;font-size:1.1rem;font-weight:600;min-height:0}
+  #bottombar{
+    width:100%;display:flex;justify-content:center;
+    padding:12px 12px max(20px,env(safe-area-inset-bottom));
+    background:rgba(0,0,0,.55);
+  }
+</style>
+</head>
+<body>
+
+<!-- Screen 1: start -->
+<section id="setup" class="screen on">
+  <h1>Family Video Call</h1>
+  <p id="setupText">Press the green button to begin.</p>
+  <input type="text" id="nameInput" placeholder="Your name (optional)" maxlength="20" autocomplete="off">
+  <button id="startBtn">Start</button>
+  <p class="soft">Your browser will ask to use the camera and microphone. Press <b>Allow</b>.</p>
+</section>
+
+<!-- Screen 2: joining / retrying -->
+<section id="connecting" class="screen">
+  <h1 id="connTitle">Connecting…</h1>
+  <div class="pulse"></div>
+  <p id="connText">One moment.</p>
+  <button id="retryBtn" hidden>Try again</button>
+</section>
+
+<!-- Screen 3: in call -->
+<section id="incall" class="screen">
+  <div id="topbar">
+    <span class="soft" id="shareHint">Invite someone:</span>
+    <button id="copyBtn" class="secondary">Copy link</button>
+    <button id="shareBtn" class="secondary" hidden>Share…</button>
+    <span id="statusLine"></span>
+  </div>
+  <div id="grid"></div>
+  <div id="bottombar">
+    <button id="hangupBtn" class="stop">Leave call</button>
+  </div>
+</section>
+
+<!-- Screen 4: ended -->
+<section id="ended" class="screen">
+  <h1>Call ended</h1>
+  <p>You can close this page now.</p>
+  <button id="againBtn" class="secondary">Start a new call</button>
+</section>
+
+<script>
+"use strict";
+
+/* ================= config ================= */
+const MAX_JOIN_RETRIES = 8;     // attempts to (re)join the room / roster
+const MAX_CALL_RETRIES = 5;     // attempts to re-establish media with one peer
+const RETRY_DELAY_MS   = 3000;
+const ROOM_PREFIX      = "famroom-";
+// AIDEV-NOTE: mesh bandwidth control — each person uploads (n-1) copies of this stream.
+// 640x480@24 keeps a 4-person call viable on ordinary home upload speeds.
+const MEDIA = { video: { width:{ideal:640}, height:{ideal:480}, frameRate:{ideal:24} }, audio: true };
+// AIDEV-NOTE: default PeerJS ICE = Google STUN only. If calls fail on strict/symmetric
+// NATs, add a TURN server (e.g. metered.ca free tier — verify current creds):
+// const ICE = { iceServers:[{urls:"stun:stun.l.google.com:19302"},
+//   {urls:"turn:...", username:"...", credential:"..."}] };
+const ICE = null;
+
+/* ================= state ================= */
+const params  = new URLSearchParams(location.search);
+const roomId  = params.get("room") || (ROOM_PREFIX + Math.random().toString(36).slice(2, 10));
+const roomURL = location.origin + location.pathname + "?room=" + roomId;
+
+let myName = "";
+let localStream = null;
+let mediaPeer = null;         // my identity in the mesh (random ID)
+let brokerPeer = null;        // held ONLY while I am the anchor (ID = roomId)
+let brokerConn = null;        // member -> anchor data connection (null while anchor)
+let iAmAnchor = false;
+let roster = {};              // anchor only: mediaId -> {name, conn|null}
+let knownMembers = {};        // everyone: mediaId -> name (last roster received)
+let calls = {};               // mediaId -> MediaConnection
+let callRetries = {};         // mediaId -> count
+let callTimers = {};          // mediaId -> timeout handle
+let joinRetries = 0, joinTimer = null;
+let hungUp = false;
+
+/* ================= helpers ================= */
+const $ = id => document.getElementById(id);
+function showScreen(id){
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("on"));
+  $(id).classList.add("on");
+}
+let statusTimer = null;
+function status(msg, sticky){
+  $("statusLine").textContent = msg;
+  clearTimeout(statusTimer);
+  if (msg && !sticky) statusTimer = setTimeout(() => $("statusLine").textContent = "", 5000);
+}
+function peerOpts(){ const o = { debug: 1 }; if (ICE) o.config = ICE; return o; }
+
+/* ================= boot ================= */
+if (params.get("room")){
+  $("setupText").textContent = "Someone wants to video call with you. Press the green button to join.";
+  $("startBtn").textContent = "Join the call";
+}
+$("startBtn").addEventListener("click", begin);
+$("hangupBtn").addEventListener("click", hangUp);
+$("againBtn").addEventListener("click", () => location.href = location.pathname);
+$("retryBtn").addEventListener("click", () => { joinRetries = 0; $("retryBtn").hidden = true; startMesh(); });
+
+async function begin(){
+  $("startBtn").disabled = true;
+  myName = $("nameInput").value.trim();
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia(MEDIA);
+  }catch(e){
+    $("setupText").textContent =
+      "The camera could not start. Please press Allow when the browser asks, then reload this page.";
+    $("startBtn").disabled = false;
+    return;
+  }
+  addTile("me", localStream, "You", true);
+  setupShareButtons();
+  showScreen("connecting");
+  startMesh();
+}
+
+function setupShareButtons(){
+  $("copyBtn").onclick = async () => {
+    try{ await navigator.clipboard.writeText(roomURL); $("copyBtn").textContent = "Copied ✓"; }catch(e){}
+    setTimeout(() => $("copyBtn").textContent = "Copy link", 2000);
+  };
+  if (navigator.share){
+    $("shareBtn").hidden = false;
+    $("shareBtn").onclick = () => navigator.share({ title:"Video call", url: roomURL }).catch(()=>{});
+  }
+}
+
+/* ================= mesh bootstrap ================= */
+// 1) create my media identity  2) claim the room ID (anchor) or connect to whoever holds it
+function startMesh(){
+  if (hungUp) return;
+  $("connTitle").textContent = joinRetries === 0 ? "Connecting…" : "Reconnecting…";
+  $("connText").textContent  = joinRetries === 0 ? "One moment."
+      : "Trying again (" + joinRetries + " of " + MAX_JOIN_RETRIES + ")…";
+
+  if (mediaPeer && !mediaPeer.destroyed){ claimOrJoin(); return; }
+
+  mediaPeer = new Peer(peerOpts());
+  mediaPeer.on("open", claimOrJoin);
+  mediaPeer.on("call", incoming => {
+    // AIDEV-NOTE: always answer; dedupe by closing any stale call from the same peer
+    const from = incoming.peer;
+    if (calls[from]) try{ calls[from].close(); }catch(e){}
+    calls[from] = incoming;
+    incoming.answer(localStream);
+    wireCall(incoming);
+  });
+  mediaPeer.on("disconnected", () => { if (!hungUp && !mediaPeer.destroyed) mediaPeer.reconnect(); });
+  mediaPeer.on("error", err => {
+    if (hungUp) return;
+    if (err.type === "peer-unavailable") return; // handled per-call in wireCall/retry
+    // fatal identity loss: rebuild everything
+    scheduleJoinRetry(true);
+  });
+}
+
+function claimOrJoin(){
+  if (hungUp) return;
+  // Try to become the anchor by claiming the room ID.
+  const b = new Peer(roomId, peerOpts());
+  b.on("open", () => { brokerPeer = b; becomeAnchor(); });
+  b.on("error", err => {
+    if (err.type === "unavailable-id"){       // someone else is anchor — join them
+      try{ b.destroy(); }catch(e){}
+      joinAsMember();
+    } else if (!hungUp){
+      try{ b.destroy(); }catch(e){}
+      scheduleJoinRetry(false);
+    }
+  });
+}
+
+function scheduleJoinRetry(rebuildMediaPeer){
+  clearTimeout(joinTimer);
+  joinRetries++;
+  if (joinRetries > MAX_JOIN_RETRIES){
+    showScreen("connecting");
+    $("connTitle").textContent = "Could not connect";
+    $("connText").textContent  = "Please ask them to send you a new link, or press the button below.";
+    $("retryBtn").hidden = false;
+    return;
+  }
+  if (rebuildMediaPeer && mediaPeer){ try{ mediaPeer.destroy(); }catch(e){} mediaPeer = null; }
+  joinTimer = setTimeout(startMesh, RETRY_DELAY_MS);
+}
+
+/* ================= anchor role ================= */
+function becomeAnchor(){
+  iAmAnchor = true;
+  roster = {};
+  roster[mediaPeer.id] = { name: myName, conn: null };   // myself
+  // Re-add members I already know (anchor takeover keeps the room alive)
+  for (const [id, name] of Object.entries(knownMembers)){
+    if (id !== mediaPeer.id && calls[id]) roster[id] = { name, conn: null };
+  }
+  brokerPeer.on("connection", conn => {
+    conn.on("data", msg => {
+      if (msg && msg.t === "hello"){
+        roster[msg.id] = { name: msg.name || "", conn };
+        broadcastRoster();
+      }
+    });
+    conn.on("close", () => dropFromRoster(conn));
+    conn.on("error", () => dropFromRoster(conn));
+  });
+  brokerPeer.on("disconnected", () => { if (!hungUp && !brokerPeer.destroyed) brokerPeer.reconnect(); });
+  joinRetries = 0;
+  onRoster(currentRosterMembers());   // apply to myself
+  showScreen("incall");
+  status(Object.keys(roster).length === 1 ? "Send the link so others can join" : "");
+}
+
+function currentRosterMembers(){
+  const m = {};
+  for (const [id, v] of Object.entries(roster)) m[id] = v.name;
+  return m;
+}
+function broadcastRoster(){
+  const members = currentRosterMembers();
+  for (const v of Object.values(roster)){
+    if (v.conn && v.conn.open) try{ v.conn.send({ t:"roster", members }); }catch(e){}
+  }
+  onRoster(members);
+}
+function dropFromRoster(conn){
+  for (const [id, v] of Object.entries(roster)){
+    if (v.conn === conn){ delete roster[id]; broadcastRoster(); break; }
+  }
+}
+
+/* ================= member role ================= */
+function joinAsMember(){
+  iAmAnchor = false;
+  brokerConn = mediaPeer.connect(roomId, { reliable: true });
+  let opened = false;
+  brokerConn.on("open", () => {
+    opened = true;
+    joinRetries = 0;
+    brokerConn.send({ t:"hello", id: mediaPeer.id, name: myName });
+    showScreen("incall");
+  });
+  brokerConn.on("data", msg => { if (msg && msg.t === "roster") onRoster(msg.members); });
+  const lost = () => {
+    if (hungUp) return;
+    // AIDEV-NOTE: anchor left. Media calls keep running P2P; we only lost the roster
+    // broker. Election: wait a slot based on my position among known members, then
+    // try to claim the room ID. Losers reconnect to the winner.
+    if (!opened){ scheduleJoinRetry(false); return; }
+    status("Reorganizing the room…");
+    const ids = Object.keys(knownMembers).sort();
+    const slot = Math.max(0, ids.indexOf(mediaPeer.id));
+    setTimeout(() => { if (!hungUp && !iAmAnchor) claimOrJoin(); },
+               400 + slot * 700 + Math.random() * 300);
+  };
+  brokerConn.on("close", lost);
+  brokerConn.on("error", lost);
+}
+
+/* ================= roster -> media mesh ================= */
+function onRoster(members){
+  knownMembers = members;
+  // connect to newcomers
+  for (const id of Object.keys(members)){
+    if (id === mediaPeer.id) continue;
+    if (!calls[id]) maybeCall(id);
+  }
+  // clean up peers that left for good
+  for (const id of Object.keys(calls)){
+    if (!members[id]){
+      try{ calls[id].close(); }catch(e){}
+      delete calls[id]; delete callRetries[id];
+      clearTimeout(callTimers[id]); delete callTimers[id];
+      removeTile(id);
+    }
+  }
+  refreshTags();
+  if (Object.keys(members).length === 1) status("Send the link so others can join");
+}
+
+// AIDEV-NOTE: glare avoidance — for each pair, only the peer with the smaller ID
+// initiates the call; the other side just answers. Deterministic, no races.
+function maybeCall(id){
+  if (mediaPeer.id < id) placeCall(id);
+  // else: they will call me; if their call never lands, their retry loop handles it
+}
+
+function placeCall(id){
+  if (hungUp || calls[id]) return;
+  const c = mediaPeer.call(id, localStream);
+  if (!c){ scheduleCallRetry(id); return; }
+  calls[id] = c;
+  wireCall(c);
+}
+
+function scheduleCallRetry(id){
+  if (hungUp || !knownMembers[id]) return;        // left the room — stop trying
+  clearTimeout(callTimers[id]);
+  callRetries[id] = (callRetries[id] || 0) + 1;
+  if (callRetries[id] > MAX_CALL_RETRIES){
+    status("Could not reach " + (knownMembers[id] || "someone") + ".");
+    return;
+  }
+  status("Reconnecting with " + (knownMembers[id] || "someone")
+         + " (" + callRetries[id] + " of " + MAX_CALL_RETRIES + ")…");
+  callTimers[id] = setTimeout(() => { delete calls[id]; maybeCall(id); }, RETRY_DELAY_MS);
+}
+
+function wireCall(c){
+  const id = c.peer;
+  let dropped = false;
+  const onDrop = () => {
+    if (dropped || hungUp || calls[id] !== c) return;
+    dropped = true;
+    removeTile(id);
+    delete calls[id];
+    if (knownMembers[id]){
+      if (mediaPeer.id < id) scheduleCallRetry(id);       // I am the initiator for this pair
+      else status("Waiting for " + (knownMembers[id] || "someone") + " to reconnect…");
+    }
+  };
+  c.on("stream", remote => {
+    callRetries[id] = 0;
+    addTile(id, remote, knownMembers[id] || "…", false);
+    status("");
+  });
+  c.on("close", onDrop);
+  c.on("error", onDrop);
+  const pc = c.peerConnection;   // 'close' is unreliable cross-browser; watch ICE too
+  if (pc) pc.oniceconnectionstatechange = () => {
+    if (["failed","disconnected","closed"].includes(pc.iceConnectionState)) onDrop();
+  };
+}
+
+/* ================= tiles ================= */
+function addTile(id, stream, label, isLocal){
+  removeTile(id);
+  const tile = document.createElement("div");
+  tile.className = "tile"; tile.dataset.peer = id;
+  const v = document.createElement("video");
+  v.autoplay = true; v.playsInline = true; if (isLocal) v.muted = true;
+  v.srcObject = stream;
+  const tag = document.createElement("span");
+  tag.className = "tag"; tag.textContent = label || "";
+  tile.append(v, tag);
+  $("grid").appendChild(tile);
+}
+function removeTile(id){
+  const t = document.querySelector('.tile[data-peer="' + id + '"]');
+  if (t) t.remove();
+}
+function refreshTags(){
+  document.querySelectorAll(".tile").forEach(t => {
+    const id = t.dataset.peer;
+    if (id !== "me") t.querySelector(".tag").textContent = knownMembers[id] || "";
+  });
+}
+
+/* ================= hang up ================= */
+function hangUp(){
+  hungUp = true;
+  clearTimeout(joinTimer);
+  Object.values(callTimers).forEach(clearTimeout);
+  Object.values(calls).forEach(c => { try{ c.close(); }catch(e){} });
+  if (brokerConn) try{ brokerConn.close(); }catch(e){}
+  if (brokerPeer) try{ brokerPeer.destroy(); }catch(e){}   // frees roomId -> members elect new anchor
+  if (mediaPeer)  try{ mediaPeer.destroy(); }catch(e){}
+  if (localStream) localStream.getTracks().forEach(t => t.stop());
+  showScreen("ended");
+}
+window.addEventListener("beforeunload", () => {
+  if (brokerPeer) try{ brokerPeer.destroy(); }catch(e){}
+  if (mediaPeer)  try{ mediaPeer.destroy(); }catch(e){}
+});
+</script>
+</body>
+</html>
