@@ -1,0 +1,9 @@
+# Python virtual environment (dev setup)
+.venv/
+
+# Generated MFA QR artifact
+mfa/mfa_qr.png
+
+# Python caches
+__pycache__/
+*.pyc
