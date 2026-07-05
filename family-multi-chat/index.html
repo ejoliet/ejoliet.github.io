@@ -53,7 +53,8 @@
   #grid{
     flex:1;width:100%;display:grid;gap:6px;padding:6px;
     grid-template-columns:repeat(auto-fit,minmax(min(46vw,340px),1fr));
-    align-content:center;
+    align-content:center;align-content:safe center;
+    min-height:0;overflow-y:auto;  /* oversized tiles scroll instead of pushing the buttons off-screen */
   }
   .tile{position:relative;border-radius:14px;overflow:hidden;background:#1b1b1b;aspect-ratio:4/3}
   .tile video{width:100%;height:100%;object-fit:cover}
@@ -69,10 +70,42 @@
   #topbar .soft{color:#cfcabf}
   #statusLine{color:#ffd88a;font-size:1.1rem;font-weight:600;min-height:0}
   #bottombar{
-    width:100%;display:flex;justify-content:center;
+    width:100%;display:flex;justify-content:center;align-items:center;
+    gap:10px;flex-wrap:wrap;
     padding:12px 12px max(20px,env(safe-area-inset-bottom));
     background:rgba(0,0,0,.55);
   }
+
+  /* ---- shared files tray ---- */
+  #filesTray{
+    width:100%;display:flex;gap:12px;align-items:flex-start;overflow-x:auto;
+    padding:8px 12px;background:rgba(0,0,0,.55);
+  }
+  .fitem{
+    flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;
+    color:#fff;font-size:.85rem;max-width:9rem;text-decoration:none;
+  }
+  .fitem img{width:72px;height:72px;object-fit:cover;border-radius:10px;background:#222}
+  .fitem .fdoc{
+    width:72px;height:72px;display:flex;align-items:center;justify-content:center;
+    font-size:2rem;background:#222;border-radius:10px;
+  }
+  .fitem span{max-width:9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* ---- big-file (share via link) overlay ---- */
+  #bigfile{
+    position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.7);padding:20px;
+  }
+  #bigfile[hidden]{display:none}
+  #bigfile .card{
+    background:var(--paper);color:var(--ink);border-radius:20px;padding:24px;
+    max-width:28rem;width:100%;display:flex;flex-direction:column;gap:14px;text-align:center;
+    max-height:100%;overflow-y:auto;
+  }
+  #bigfile p{font-size:1.05rem;line-height:1.45}
+  #bigfile ol{text-align:left;font-size:1.05rem;line-height:1.5;padding-left:1.6rem}
+  #bigfile .err{color:var(--stop);font-size:1rem;min-height:1.2rem;margin:0}
 </style>
 </head>
 <body>
@@ -103,7 +136,31 @@
     <span id="statusLine"></span>
   </div>
   <div id="grid"></div>
+  <div id="filesTray" hidden></div>
+  <div id="bigfile" hidden>
+    <div class="card">
+      <p id="bigfileText"></p>
+      <p>Share it as a private link instead — it keeps working even after the call:</p>
+      <ol>
+        <li>Press <b>Open Wormhole</b> and put the file there. It is end-to-end encrypted.</li>
+        <li>Copy the link Wormhole gives you.</li>
+        <li>Paste it below and press <b>Share link</b>.</li>
+      </ol>
+      <button id="wormholeBtn">Open Wormhole</button>
+      <input type="text" id="linkInput" placeholder="Paste the link here" autocomplete="off">
+      <p class="err" id="linkErr"></p>
+      <div class="row">
+        <button id="shareLinkBtn" class="secondary">Share link</button>
+        <button id="bigfileCancel" class="secondary">Cancel</button>
+      </div>
+      <p class="soft">The link stops working after 24 hours.</p>
+    </div>
+  </div>
   <div id="bottombar">
+    <button id="flipBtn" class="secondary" hidden>Flip camera</button>
+    <button id="screenBtn" class="secondary" hidden>Share screen</button>
+    <button id="fileBtn" class="secondary">Send photo/file</button>
+    <input type="file" id="fileInput" hidden>
     <button id="hangupBtn" class="stop">Leave call</button>
   </div>
 </section>
@@ -126,6 +183,14 @@ const ROOM_PREFIX      = "famroom-";
 // AIDEV-NOTE: mesh bandwidth control — each person uploads (n-1) copies of this stream.
 // 640x480@24 keeps a 4-person call viable on ordinary home upload speeds.
 const MEDIA = { video: { width:{ideal:640}, height:{ideal:480}, frameRate:{ideal:24} }, audio: true };
+// AIDEV-NOTE: screen share is sent sharp but slow (high res, low fps) so text stays
+// readable while the mesh upload cost stays close to a camera stream.
+const SCREEN_MEDIA = { video: { frameRate:{ideal:5, max:5}, width:{max:1920} }, audio: false };
+const MAX_FILE_MB  = 25;        // per-file cap; sender uploads one copy per participant
+// AIDEV-NOTE: bigger files hand off to an E2EE expiring-link service (no account
+// needed, one upload serves everyone, works after the call). Only the link travels
+// through our data channels; the decryption key stays in the URL fragment.
+const BIG_FILE_URL = "https://wormhole.app";
 // AIDEV-NOTE: default PeerJS ICE = Google STUN only. If calls fail on strict/symmetric
 // NATs, add a TURN server (e.g. metered.ca free tier — verify current creds):
 // const ICE = { iceServers:[{urls:"stun:stun.l.google.com:19302"},
@@ -139,6 +204,13 @@ const roomURL = location.origin + location.pathname + "?room=" + roomId;
 
 let myName = "";
 let localStream = null;
+let cameraTrack = null;       // live camera video track (kept while screen sharing)
+let screenTrack = null;       // non-null while sharing the screen
+let facing = "user";          // current camera facing on phones
+let dataConns = {};           // mediaId -> DataConnection (file transfers)
+let myLinks = [];             // links I shared: {url, name} — re-sent to late joiners
+let seenLinks = new Set();    // received link URLs (dedupes re-broadcasts)
+let bigFileName = "";         // file that triggered the big-file overlay
 let mediaPeer = null;         // my identity in the mesh (random ID)
 let brokerPeer = null;        // held ONLY while I am the anchor (ID = roomId)
 let brokerConn = null;        // member -> anchor data connection (null while anchor)
@@ -172,6 +244,13 @@ if (params.get("room")){
 }
 $("startBtn").addEventListener("click", begin);
 $("hangupBtn").addEventListener("click", hangUp);
+$("flipBtn").addEventListener("click", flipCamera);
+$("screenBtn").addEventListener("click", toggleScreen);
+$("fileBtn").addEventListener("click", () => $("fileInput").click());
+$("fileInput").addEventListener("change", onFilePicked);
+$("wormholeBtn").addEventListener("click", () => window.open(BIG_FILE_URL, "_blank", "noopener"));
+$("shareLinkBtn").addEventListener("click", shareLink);
+$("bigfileCancel").addEventListener("click", () => $("bigfile").hidden = true);
 $("againBtn").addEventListener("click", () => location.href = location.pathname);
 $("retryBtn").addEventListener("click", () => { joinRetries = 0; $("retryBtn").hidden = true; startMesh(); });
 
@@ -186,10 +265,22 @@ async function begin(){
     $("startBtn").disabled = false;
     return;
   }
+  cameraTrack = localStream.getVideoTracks()[0];
   addTile("me", localStream, "You", true);
   setupShareButtons();
+  setupControls();
   showScreen("connecting");
   startMesh();
+}
+
+// Show the flip button only when there is more than one camera, and the
+// screen-share button only where the browser supports it (desktop).
+async function setupControls(){
+  if (navigator.mediaDevices.getDisplayMedia) $("screenBtn").hidden = false;
+  try{
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    if (devs.filter(d => d.kind === "videoinput").length > 1) $("flipBtn").hidden = false;
+  }catch(e){}
 }
 
 function setupShareButtons(){
@@ -215,6 +306,7 @@ function startMesh(){
 
   mediaPeer = new Peer(peerOpts());
   mediaPeer.on("open", claimOrJoin);
+  mediaPeer.on("connection", wireData);   // peer-to-peer file transfers
   mediaPeer.on("call", incoming => {
     // AIDEV-NOTE: always answer; dedupe by closing any stale call from the same peer
     const from = incoming.peer;
@@ -336,7 +428,16 @@ function joinAsMember(){
 
 /* ================= roster -> media mesh ================= */
 function onRoster(members){
+  // AIDEV-NOTE: shared links (unlike file payloads) are re-sent to people who
+  // join later — each author delivers their own links to newcomers, and
+  // receivers dedupe by URL.
+  const newcomers = Object.keys(members)
+    .filter(id => id !== mediaPeer.id && !(id in knownMembers));
   knownMembers = members;
+  if (myLinks.length){
+    for (const id of newcomers)
+      for (const item of myLinks) sendLinkTo(id, item);
+  }
   // connect to newcomers
   for (const id of Object.keys(members)){
     if (id === mediaPeer.id) continue;
@@ -409,6 +510,197 @@ function wireCall(c){
   };
 }
 
+/* ================= camera & screen controls ================= */
+// AIDEV-NOTE: track swap — RTCRtpSender.replaceTrack() changes what everyone
+// receives without renegotiation, so flip camera / screen share never
+// interrupt the call. localStream is also updated so that new joiners and
+// re-connects (which are answered with localStream) get the current track.
+async function swapOutgoingVideo(newTrack){
+  const old = localStream.getVideoTracks()[0];
+  if (old === newTrack) return;
+  if (old) localStream.removeTrack(old);
+  localStream.addTrack(newTrack);
+  for (const c of Object.values(calls)){
+    const pc = c.peerConnection;
+    if (!pc) continue;
+    const sender = pc.getSenders().find(s => s.track && s.track.kind === "video");
+    if (sender) try{ await sender.replaceTrack(newTrack); }catch(e){}
+  }
+  const v = document.querySelector('.tile[data-peer="me"] video');
+  if (v) v.srcObject = localStream;
+}
+
+function getCam(mode){
+  return navigator.mediaDevices.getUserMedia(
+    { video: Object.assign({}, MEDIA.video, { facingMode: { ideal: mode } }), audio: false });
+}
+
+async function flipCamera(){
+  if (screenTrack) return;
+  $("flipBtn").disabled = true;
+  const want = facing === "user" ? "environment" : "user";
+  // AIDEV-NOTE: stop the current camera BEFORE opening the other one —
+  // iPhones refuse to run two cameras at once.
+  if (cameraTrack) try{ cameraTrack.stop(); }catch(e){}
+  let s = null;
+  try{ s = await getCam(want); facing = want; }
+  catch(e){ try{ s = await getCam(facing); }catch(e2){} }   // recover the old camera
+  if (s){
+    cameraTrack = s.getVideoTracks()[0];
+    await swapOutgoingVideo(cameraTrack);
+  } else {
+    status("Could not switch camera.");
+  }
+  $("flipBtn").disabled = false;
+}
+
+async function toggleScreen(){
+  if (screenTrack){ stopScreenShare(); return; }
+  let s;
+  try{ s = await navigator.mediaDevices.getDisplayMedia(SCREEN_MEDIA); }
+  catch(e){ return; }                       // user cancelled the picker
+  screenTrack = s.getVideoTracks()[0];
+  screenTrack.addEventListener("ended", stopScreenShare);  // browser's own Stop button
+  await swapOutgoingVideo(screenTrack);
+  $("screenBtn").textContent = "Stop sharing";
+  $("flipBtn").disabled = true;             // camera track stays live for instant return
+  status("You are sharing your screen", true);
+}
+
+function stopScreenShare(){
+  if (!screenTrack) return;
+  try{ screenTrack.stop(); }catch(e){}
+  screenTrack = null;
+  swapOutgoingVideo(cameraTrack);
+  $("screenBtn").textContent = "Share screen";
+  $("flipBtn").disabled = false;
+  status("");
+}
+
+/* ================= file sharing ================= */
+// AIDEV-NOTE: files go directly peer-to-peer over PeerJS data connections
+// (binary serialization auto-chunks big payloads) — no server ever sees them.
+// Mesh cost: the sender uploads one copy per other participant.
+function wireData(conn){
+  dataConns[conn.peer] = conn;
+  conn.on("data", msg => onFileMsg(conn.peer, msg));
+  const gone = () => { if (dataConns[conn.peer] === conn) delete dataConns[conn.peer]; };
+  conn.on("close", gone);
+  conn.on("error", gone);
+}
+
+function getDataConn(id, cb){
+  const c = dataConns[id];
+  if (c && c.open){ cb(c); return; }
+  const nc = mediaPeer.connect(id, { reliable: true });
+  wireData(nc);
+  nc.on("open", () => cb(nc));
+}
+
+async function onFilePicked(){
+  const f = $("fileInput").files[0];
+  $("fileInput").value = "";
+  if (!f) return;
+  if (f.size > MAX_FILE_MB * 1024 * 1024){ openBigFile(f.name); return; }
+  const others = Object.keys(knownMembers).filter(id => id !== mediaPeer.id);
+  if (!others.length){ status("No one else is in the call yet."); return; }
+  status("Sending " + f.name + "…");
+  const buf = await f.arrayBuffer();
+  for (const id of others){
+    getDataConn(id, conn => {
+      try{ conn.send({ t:"file", name: f.name, mime: f.type, data: buf }); }catch(e){}
+    });
+  }
+  addFileItem(f.name, f.type, new Blob([buf], { type: f.type }), "You");
+}
+
+function onFileMsg(fromId, msg){
+  if (!msg) return;
+  const who = knownMembers[fromId] || "Someone";
+  if (msg.t === "link"){
+    if (typeof msg.url !== "string" || !/^https:\/\//i.test(msg.url) || seenLinks.has(msg.url)) return;
+    seenLinks.add(msg.url);
+    addLinkItem(String(msg.name || "shared link"), msg.url, who);
+    status(who + " shared a link");
+    return;
+  }
+  if (msg.t !== "file" || !msg.data) return;
+  const blob = new Blob([msg.data], { type: msg.mime || "application/octet-stream" });
+  addFileItem(msg.name || "file", msg.mime || "", blob, who);
+  status(who + " shared " + (msg.name || "a file"));
+}
+
+/* ---- big files: hand off to an E2EE expiring-link service ---- */
+function openBigFile(name){
+  bigFileName = name;
+  $("bigfileText").textContent = "";
+  const b = document.createElement("b");
+  b.textContent = name;
+  $("bigfileText").append(b, " is too big to send directly (over " + MAX_FILE_MB + " MB).");
+  $("linkInput").value = "";
+  $("linkErr").textContent = "";
+  $("bigfile").hidden = false;
+}
+
+function shareLink(){
+  const url = $("linkInput").value.trim();
+  if (!/^https:\/\/\S+$/i.test(url)){
+    $("linkErr").textContent = "That does not look like a link — it should start with https://";
+    return;
+  }
+  $("bigfile").hidden = true;
+  const item = { url, name: bigFileName || "shared link" };
+  myLinks.push(item);
+  seenLinks.add(url);
+  for (const id of Object.keys(knownMembers)){
+    if (id !== mediaPeer.id) sendLinkTo(id, item);
+  }
+  addLinkItem(item.name, url, "You");
+  status("Link shared with everyone");
+}
+
+function sendLinkTo(id, item){
+  getDataConn(id, conn => {
+    try{ conn.send({ t:"link", url: item.url, name: item.name }); }catch(e){}
+  });
+}
+
+function addLinkItem(name, url, from){
+  const a = document.createElement("a");
+  a.className = "fitem";
+  a.href = url; a.target = "_blank"; a.rel = "noopener";
+  const d = document.createElement("div");
+  d.className = "fdoc"; d.textContent = "🔗";
+  const s = document.createElement("span");
+  s.textContent = (from ? from + ": " : "") + name;
+  a.append(d, s);
+  $("filesTray").appendChild(a);
+  $("filesTray").hidden = false;
+}
+
+function addFileItem(name, mime, blob, from){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.className = "fitem";
+  a.href = url;
+  if ((mime || "").startsWith("image/")){
+    a.target = "_blank";                    // open to view; long-press/right-click to save
+    const img = document.createElement("img");
+    img.src = url; img.alt = name;
+    a.appendChild(img);
+  } else {
+    a.download = name;
+    const d = document.createElement("div");
+    d.className = "fdoc"; d.textContent = "📄";
+    a.appendChild(d);
+  }
+  const s = document.createElement("span");
+  s.textContent = (from ? from + ": " : "") + name;
+  a.appendChild(s);
+  $("filesTray").appendChild(a);
+  $("filesTray").hidden = false;
+}
+
 /* ================= tiles ================= */
 function addTile(id, stream, label, isLocal){
   removeTile(id);
@@ -417,6 +709,11 @@ function addTile(id, stream, label, isLocal){
   const v = document.createElement("video");
   v.autoplay = true; v.playsInline = true; if (isLocal) v.muted = true;
   v.srcObject = stream;
+  // Wide frames (screen shares) are letterboxed so text stays readable;
+  // camera frames fill the tile. Fires again when a track is swapped mid-call.
+  v.addEventListener("resize", () => {
+    v.style.objectFit = v.videoWidth / Math.max(1, v.videoHeight) > 1.55 ? "contain" : "cover";
+  });
   const tag = document.createElement("span");
   tag.className = "tag"; tag.textContent = label || "";
   tile.append(v, tag);
@@ -439,6 +736,9 @@ function hangUp(){
   clearTimeout(joinTimer);
   Object.values(callTimers).forEach(clearTimeout);
   Object.values(calls).forEach(c => { try{ c.close(); }catch(e){} });
+  Object.values(dataConns).forEach(c => { try{ c.close(); }catch(e){} });
+  if (screenTrack) try{ screenTrack.stop(); }catch(e){}
+  if (cameraTrack) try{ cameraTrack.stop(); }catch(e){}   // may be outside localStream while sharing
   if (brokerConn) try{ brokerConn.close(); }catch(e){}
   if (brokerPeer) try{ brokerPeer.destroy(); }catch(e){}   // frees roomId -> members elect new anchor
   if (mediaPeer)  try{ mediaPeer.destroy(); }catch(e){}
