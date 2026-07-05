@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Pop Rumble</title>
+<!-- AIDEV-NOTE: single-file P2P multiplayer emoji-pop game.
+     Companion to video-call.html: same PeerJS 1.5.5 + free PeerJS Cloud signaling,
+     same link-to-join onboarding. Only tiny JSON messages travel over data channels
+     (star topology, host relays) - no media, so ~8 players is fine.
+     Stack per js13kgames resources: vanilla Canvas 2D + ZzFX synth (embedded, MIT).
+     Must be served over HTTPS for clipboard/share APIs. -->
+<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<style>
+  :root{
+    --sky1:#170f2e; --sky2:#312051;
+    --ink:#fff8f0; --soft:#b7a9d9;
+    --coral:#ff5d73; --coral-press:#d93e55;
+    --gold:#ffd166; --mint:#3ddc97;
+    --card:rgba(255,255,255,.07);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,"SF Pro Rounded",system-ui,"Segoe UI",Roboto,Arial,sans-serif;
+    background:linear-gradient(180deg,var(--sky1),var(--sky2));
+    color:var(--ink);overflow:hidden;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:20px;gap:20px;
+  }
+  h1{font-size:2.6rem;font-weight:800;letter-spacing:-.02em}
+  h1 .o{color:var(--coral)} h1 .p{color:var(--gold)}
+  p{font-size:1.25rem;line-height:1.45;max-width:32rem}
+  .soft{color:var(--soft);font-size:1.05rem}
+  .screen{display:none;flex-direction:column;align-items:center;gap:20px;width:100%;max-width:36rem}
+  .screen.on{display:flex}
+  button{
+    font:inherit;font-size:1.45rem;font-weight:800;color:#fff;
+    background:var(--coral);border:none;border-radius:20px;
+    padding:20px 38px;min-width:16rem;cursor:pointer;
+    box-shadow:0 6px 0 var(--coral-press);
+    transition:transform .06s;
+  }
+  button:active{transform:translateY(4px);box-shadow:0 2px 0 var(--coral-press)}
+  button.ghost{background:var(--card);box-shadow:none;color:var(--ink);font-size:1.1rem;padding:14px 24px;min-width:0}
+  button:disabled{opacity:.4;pointer-events:none}
+  input{
+    font:inherit;font-size:1.4rem;text-align:center;color:var(--ink);
+    background:var(--card);border:2px solid var(--soft);border-radius:16px;
+    padding:14px 18px;width:16rem;outline:none;
+  }
+  input:focus{border-color:var(--gold)}
+  .card{background:var(--card);border-radius:20px;padding:18px 24px;max-width:32rem;width:100%}
+  .stats{display:flex;gap:24px;justify-content:center;font-size:1.05rem;color:var(--soft)}
+  .stats b{color:var(--gold);font-size:1.5rem;display:block}
+  .players{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+  .chip{background:var(--card);border-radius:999px;padding:8px 18px;font-weight:700}
+  #linkBox{font-size:1rem;word-break:break-all;color:var(--gold)}
+  /* ---- game screen ---- */
+  #game{position:fixed;inset:0;display:none}
+  #game.on{display:block}
+  #cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+  #hud{
+    position:absolute;top:env(safe-area-inset-top,0);left:0;right:0;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    padding:14px 18px;pointer-events:none;font-weight:800;
+  }
+  #hudScore{font-size:2.2rem;color:var(--gold);text-shadow:0 2px 8px #0008}
+  #hudTime{font-size:2.2rem;text-shadow:0 2px 8px #0008}
+  #hudTime.low{color:var(--coral)}
+  #board{
+    position:absolute;bottom:calc(10px + env(safe-area-inset-bottom,0));left:50%;
+    transform:translateX(-50%);
+    display:flex;gap:8px;pointer-events:none;flex-wrap:wrap;justify-content:center;max-width:96%;
+  }
+  #board .bp{
+    background:#0006;border-radius:999px;padding:6px 14px;
+    font-size:.95rem;font-weight:700;backdrop-filter:blur(4px);
+  }
+  #board .bp.me{outline:2px solid var(--gold)}
+  #combo{
+    position:absolute;top:38%;left:50%;transform:translate(-50%,-50%) scale(0);
+    font-size:3.4rem;font-weight:900;color:var(--gold);
+    text-shadow:0 4px 0 var(--coral),0 8px 24px #000a;
+    pointer-events:none;transition:transform .18s cubic-bezier(.2,2.4,.4,1);
+  }
+  #combo.pop{transform:translate(-50%,-50%) scale(1)}
+  #count{
+    position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    font-size:8rem;font-weight:900;color:var(--gold);text-shadow:0 6px 0 var(--coral);
+    background:#0005;
+  }
+  table{width:100%;border-collapse:collapse;font-size:1.2rem}
+  td{padding:8px 6px}
+  td:first-child{text-align:left}
+  td:last-child{text-align:right;font-weight:800;color:var(--gold)}
+  tr.win td{color:var(--mint)}
+  tr.win td:last-child{color:var(--mint)}
+  @media (prefers-reduced-motion: reduce){ #combo{transition:none} }
+</style>
+</head>
+<body>
+
+<!-- ============ HOME (host) ============ -->
+<div class="screen on" id="home">
+  <h1>P<span class="o">o</span>p Rumble<span class="p">!</span></h1>
+  <p>Pop the emojis. Beat your family. 45&nbsp;seconds of chaos.</p>
+  <input id="hostName" maxlength="12" placeholder="Your name">
+  <button id="btnHost">Start a game</button>
+  <div class="stats">
+    <span><b id="stBest">0</b>best score</span>
+    <span><b id="stGames">0</b>games</span>
+    <span><b id="stWins">0</b>wins</span>
+  </div>
+  <button class="ghost" id="btnSound">Sound: on</button>
+</div>
+
+<!-- ============ SHARE / LOBBY (host) ============ -->
+<div class="screen" id="share">
+  <h1>Invite players</h1>
+  <p>Send this link. Anyone who taps it joins.</p>
+  <div class="card"><div id="linkBox">…</div></div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+    <button class="ghost" id="btnCopy">Copy link</button>
+    <button class="ghost" id="btnShare">Share…</button>
+  </div>
+  <div class="players" id="lobbyList"></div>
+  <button id="btnStart">Start round</button>
+  <p class="soft" id="lobbyHint">You can play solo, but it's more fun with family.</p>
+</div>
+
+<!-- ============ JOIN (guest) ============ -->
+<div class="screen" id="join">
+  <h1>P<span class="o">o</span>p Rumble<span class="p">!</span></h1>
+  <p>You're invited to a game.</p>
+  <input id="guestName" maxlength="12" placeholder="Your name">
+  <button id="btnJoin">Join the game</button>
+  <p class="soft" id="joinStatus"></p>
+</div>
+
+<!-- ============ WAIT (guest, in lobby) ============ -->
+<div class="screen" id="wait">
+  <h1>You're in! 🎉</h1>
+  <p>Waiting for the host to start the round…</p>
+  <div class="players" id="waitList"></div>
+</div>
+
+<!-- ============ GAME ============ -->
+<div id="game">
+  <canvas id="cv"></canvas>
+  <div id="hud">
+    <div id="hudScore">0</div>
+    <div id="hudTime">45</div>
+  </div>
+  <div id="combo"></div>
+  <div id="board"></div>
+  <div id="count"></div>
+</div>
+
+<!-- ============ RESULTS ============ -->
+<div class="screen" id="results">
+  <h1 id="resTitle">Round over!</h1>
+  <div class="card"><table id="resTable"></table></div>
+  <button id="btnAgain">Play again</button>
+  <p class="soft" id="resHint"></p>
+</div>
+
+<script>
+/* ================= ZzFX (embedded, MIT) =================
+   ZzFXMicro - Zuper Zmall Zound Zynth - v1.3.2 by Frank Force
+   https://github.com/KilledByAPixel/ZzFX — listed on js13kgames.com/resources */
+let
+zzfxV=.3,zzfxX,
+zzfx=
+(p=1,k=.05,b=220,e=0,r=0,t=.1,q=0,D=1,u=0,y=0,v=0,z=0,l=0,E=0,A=0,F=0,c=0,w=1,m=0,B=0
+,N=0)=>{zzfxX||(zzfxX=new AudioContext);let M=Math,d=2*M.PI,R=44100,G=u*=500*d/R/R,C=b*=(1-k+2*k*M.random(k=[]))*d/R,
+g=0,H=0,a=0,n=1,I=0,J=0,f=0,h=N<0?-1:1,x=d*h*N*2/R,L=M.cos(x),Z=M.sin,K=Z(x)/4,O=1+K,
+X=-2*L/O,Y=(1-K)/O,P=(1+h*L)/2/O,Q=-(h+L)/O,S=P,T=0,U=0,V=0,W=0;e=R*e+9;m*=R;r*=R;t*=R;
+c*=R;y*=500*d/R**3;A*=d/R;v*=d/R;z*=R;l=R*l|0;p*=zzfxV;for(let f=e+m+r+t+c|0;a<f;k[a++]=
+f*p)++J%(100*F|0)||(f=q?1<q?2<q?3<q?Z(g**3):M.max(M.min(M.tan(g),1),-1):1-(2*g/d%2+2)%2:
+1-4*M.abs(M.round(g/d)-g/d):Z(g),f=(l?1-B+B*Z(d*a/l):1)*(f<0?-1:1)*M.abs(f)**D*(a<e?a/e:
+a<e+m?1-(a-e)/m*(1-w):a<e+m+r?w:a<f-c?(f-a-c)/t*w:0),f=c?f/2+(c>a?0:(a<f-c?1:(f-a)/c)*
+k[a-c|0]/2/p):f,N?f=W=S*T+Q*(T=U)+P*(U=f)-Y*V-X*(V=W):0),x=(b+=u+=y)*M.cos(A*H++),g+=x+
+x*E*Z(a**5),n&&++n>z&&(b+=v,C+=v,n=0),!l||++I%l||(b=C,u=G,n=n||1);p=zzfxX.createBuffer(1,
+k.length,R);p.getChannelData(0).set(k);b=zzfxX.createBufferSource();b.buffer=p;b.connect(
+zzfxX.destination);b.start()};
+
+/* ================= persistence (localStorage) ================= */
+// AIDEV-NOTE: all keys namespaced pr.* — safe defaults if storage is blocked
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem('pr.'+k); return v===null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem('pr.'+k, JSON.stringify(v)); }catch(e){} }
+};
+let soundOn = store.get('sound', true);
+
+function sfx(name){
+  if (!soundOn) return;
+  try{
+    if (name==='pop')   zzfx(1,.05,540,.01,.03,.13,0,2.2,0,0,150,.06);
+    if (name==='gold')  zzfx(1,.05,1046,.01,.09,.24,0,1.4,0,0,300,.08);
+    if (name==='skull') zzfx(1,.05,120,.02,.12,.22,2,.6,0,0,0,0,0,.4);
+    if (name==='tick')  zzfx(.5,.05,880,0,.01,.05,0,1.8);
+    if (name==='win')   { zzfx(1,.05,523,.01,.1,.2); setTimeout(()=>zzfx(1,.05,659,.01,.1,.2),140); setTimeout(()=>zzfx(1,.05,784,.01,.18,.3),280); }
+  }catch(e){}
+}
+
+/* ================= tiny helpers ================= */
+const $ = id => document.getElementById(id);
+const screens = ['home','share','join','wait','results'];
+function show(name){
+  screens.forEach(s => $(s).classList.toggle('on', s===name));
+  $('game').classList.toggle('on', name==='game');
+}
+// seeded PRNG so every player sees the exact same emoji field
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; } }
+
+/* ================= state ================= */
+const qs = new URLSearchParams(location.search);
+const roomParam = qs.get('room');
+const isHost = !roomParam;
+let peer=null, hostConn=null;             // guest side
+const conns = new Map();                  // host side: peerId -> conn
+let myName = store.get('name','');
+let playing=false, roundSeed=0, roundEndsAt=0, score=0, streak=0, lastPop=0, maxStreak=0;
+let boardData=[];                          // [{n,s}] live scores
+let retries=0; const MAX_RETRIES=6, RETRY_MS=2500;
+
+/* ================= stats UI ================= */
+function refreshStats(){
+  $('stBest').textContent  = store.get('best',0);
+  $('stGames').textContent = store.get('games',0);
+  $('stWins').textContent  = store.get('wins',0);
+  $('btnSound').textContent = 'Sound: ' + (soundOn?'on':'off');
+}
+refreshStats();
+$('hostName').value = myName;
+$('guestName').value = myName;
+$('btnSound').onclick = () => { soundOn=!soundOn; store.set('sound',soundOn); refreshStats(); sfx('pop'); };
+
+/* ================= HOST flow ================= */
+function startHost(){
+  myName = ($('hostName').value.trim() || 'Player').slice(0,12);
+  store.set('name', myName);
+  const id = 'pr-' + Math.random().toString(36).slice(2,8);
+  peer = new Peer(id);
+  peer.on('open', () => {
+    const link = location.origin + location.pathname + '?room=' + id;
+    $('linkBox').textContent = link;
+    $('btnCopy').onclick  = () => { navigator.clipboard?.writeText(link); $('btnCopy').textContent='Copied ✓'; setTimeout(()=>$('btnCopy').textContent='Copy link',1500); };
+    $('btnShare').onclick = () => { if(navigator.share) navigator.share({title:'Pop Rumble', text:'Play with me!', url:link}); else $('btnCopy').onclick(); };
+    show('share'); renderLobby();
+  });
+  peer.on('connection', c => {
+    c.on('open', () => { conns.set(c.peer, c); });
+    c.on('data', d => onHostData(c, d));
+    const drop = () => { conns.delete(c.peer); if(!playing) renderLobby(); broadcastLobby(); };
+    c.on('close', drop); c.on('error', drop);
+  });
+  peer.on('error', e => { $('linkBox').textContent = 'Connection problem ('+e.type+'). Reload and try again.'; });
+}
+function playerNames(){ return [myName, ...[...conns.values()].map(c=>c._name||'…')]; }
+function renderLobby(){
+  $('lobbyList').innerHTML = playerNames().map(n=>`<span class="chip">${esc(n)}</span>`).join('');
+  $('lobbyHint').textContent = conns.size ? (conns.size+1)+' players ready.' : "You can play solo, but it's more fun with family.";
+}
+function broadcast(msg){ conns.forEach(c => { try{ c.send(msg); }catch(e){} }); }
+function broadcastLobby(){ broadcast({t:'lobby', p:playerNames()}); }
+function onHostData(c, d){
+  if (d.t==='hi'){ c._name = String(d.name||'Player').slice(0,12); renderLobby(); broadcastLobby(); }
+  if (d.t==='sc'){ c._score = d.s|0; c._streak = d.c|0; }
+}
+$('btnHost').onclick = startHost;
+$('btnStart').onclick = () => hostStartRound();
+$('btnAgain').onclick = () => { if(isHost) hostStartRound(); };
+
+function hostStartRound(){
+  roundSeed = (Math.random()*1e9)|0;
+  conns.forEach(c => { c._score=0; c._streak=0; });
+  broadcast({t:'start', seed:roundSeed, dur:ROUND_S});
+  beginRound(roundSeed);
+  // live scoreboard sync
+  clearInterval(hostBoardTimer);
+  hostBoardTimer = setInterval(() => {
+    if(!playing){ clearInterval(hostBoardTimer); return; }
+    boardData = compileBoard();
+    broadcast({t:'board', b:boardData});
+    renderBoard();
+  }, 350);
+}
+let hostBoardTimer=null;
+function compileBoard(){
+  const rows = [{n:myName, s:score, c:maxStreak, me:1}];
+  conns.forEach(c => rows.push({n:c._name||'…', s:c._score|0, c:c._streak|0}));
+  rows.sort((a,b)=>b.s-a.s);
+  return rows;
+}
+function hostEndRound(){
+  // small grace period so last guest score updates arrive
+  setTimeout(() => {
+    const results = compileBoard();
+    broadcast({t:'end', b:results});
+    showResults(results);
+  }, 700);
+}
+
+/* ================= GUEST flow ================= */
+if (!isHost) show('join');
+$('btnJoin').onclick = () => {
+  myName = ($('guestName').value.trim() || 'Player').slice(0,12);
+  store.set('name', myName);
+  $('btnJoin').disabled = true;
+  connectGuest();
+};
+function connectGuest(){
+  $('joinStatus').textContent = 'Connecting…';
+  if (!peer){
+    peer = new Peer();
+    peer.on('error', e => { if(e.type==='peer-unavailable') scheduleGuestRetry(); });
+  }
+  const go = () => {
+    hostConn = peer.connect(roomParam, {reliable:true});
+    hostConn.on('open', () => { retries=0; hostConn.send({t:'hi', name:myName}); show('wait'); });
+    hostConn.on('data', onGuestData);
+    const drop = () => { if(playing) return; scheduleGuestRetry(); };
+    hostConn.on('close', drop); hostConn.on('error', drop);
+  };
+  if (peer.open) go(); else peer.once('open', go);
+}
+let retryPending = false;
+function scheduleGuestRetry(){
+  if (retryPending) return;                 // AIDEV-NOTE: PeerJS can fire close+error together
+  if (retries >= MAX_RETRIES){
+    show('join'); $('btnJoin').disabled=false;
+    $('joinStatus').textContent = "Couldn't reach the game. Ask for a fresh link, then tap Join again.";
+    return;
+  }
+  retryPending = true;
+  retries++;
+  $('joinStatus').textContent = 'Reconnecting… (try '+retries+' of '+MAX_RETRIES+')';
+  show('join');
+  setTimeout(() => { retryPending = false; connectGuest(); }, RETRY_MS);
+}
+function onGuestData(d){
+  if (d.t==='lobby'){ $('waitList').innerHTML = d.p.map(n=>`<span class="chip">${esc(n)}</span>`).join(''); }
+  if (d.t==='start'){ beginRound(d.seed); }
+  if (d.t==='board'){ boardData = d.b; renderBoard(); }
+  if (d.t==='end'){ endLocalRound(); showResults(d.b); }
+}
+let guestScoreTimer=null;
+
+/* ================= GAME ================= */
+const ROUND_S = 45;
+const cv = $('cv'), ctx = cv.getContext('2d');
+let W=0,H=0,DPR=1;
+function resize(){
+  DPR = Math.min(devicePixelRatio||1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W*DPR; cv.height = H*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize', resize); resize();
+
+const EMOJI = ['🎈','🍉','⭐','🐙','🍩','🦄','🐸','🍕'];
+let bubbles=[], parts=[], rng=null, spawnAcc=0, elapsed=0, lastT=0, rafId=0;
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function beginRound(seed){
+  rng = mulberry32(seed);
+  bubbles=[]; parts=[]; spawnAcc=0; elapsed=0;
+  score=0; streak=0; maxStreak=0; lastPop=0;
+  boardData=[]; renderBoard();
+  $('hudScore').textContent='0';
+  $('hudTime').textContent=ROUND_S; $('hudTime').classList.remove('low');
+  show('game');
+  // 3-2-1 countdown, then play
+  const cd = $('count'); cd.style.display='flex';
+  let n=3; cd.textContent=n; sfx('tick');
+  const iv = setInterval(() => {
+    n--;
+    if (n>0){ cd.textContent=n; sfx('tick'); }
+    else {
+      clearInterval(iv); cd.style.display='none';
+      playing = true;
+      roundEndsAt = performance.now() + ROUND_S*1000;
+      lastT = performance.now();
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(loop);
+      if (!isHost){
+        clearInterval(guestScoreTimer);
+        guestScoreTimer = setInterval(() => {
+          if (hostConn?.open) hostConn.send({t:'sc', s:score, c:maxStreak});
+        }, 400);
+      }
+    }
+  }, 800);
+}
+
+function spawn(){
+  const r = rng();
+  const kind = r < .10 ? 'skull' : r < .24 ? 'gold' : 'norm';
+  const size = 26 + rng()*18;
+  bubbles.push({
+    x: 30 + rng()*(W-60),
+    y: H + size*2,
+    vy: -(60 + rng()*70 + elapsed*1.2),        // rises faster late-round
+    wob: rng()*Math.PI*2,
+    wobAmp: 10 + rng()*22,
+    size,
+    kind,
+    emo: kind==='skull' ? '💀' : kind==='gold' ? '🌟' : EMOJI[(rng()*EMOJI.length)|0],
+  });
+}
+
+function loop(t){
+  const dt = Math.min((t-lastT)/1000, .05); lastT = t;
+  elapsed += dt;
+  // spawn rate ramps: 1.0/s -> ~3.2/s
+  spawnAcc += dt * (1 + Math.min(elapsed/ROUND_S, 1)*2.2);
+  while (spawnAcc >= 1){ spawnAcc -= 1; spawn(); }
+
+  ctx.clearRect(0,0,W,H);
+  // bubbles
+  for (let i=bubbles.length-1; i>=0; i--){
+    const b = bubbles[i];
+    b.y += b.vy*dt;
+    b.wob += dt*2.2;
+    const x = b.x + Math.sin(b.wob)*b.wobAmp;
+    if (b.y < -b.size*2){ bubbles.splice(i,1); continue; }
+    ctx.font = (b.size*2)+'px serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    if (b.kind==='gold'){ ctx.shadowColor='#ffd166'; ctx.shadowBlur=18; }
+    ctx.fillText(b.emo, x, b.y);
+    ctx.shadowBlur=0;
+    b._x = x; // hit-test position
+  }
+  // particles
+  for (let i=parts.length-1; i>=0; i--){
+    const p = parts[i];
+    p.x += p.vx*dt; p.y += p.vy*dt; p.vy += 300*dt; p.life -= dt;
+    if (p.life<=0){ parts.splice(i,1); continue; }
+    ctx.globalAlpha = Math.max(p.life/p.max, 0);
+    ctx.fillStyle = p.col;
+    ctx.fillRect(p.x, p.y, p.s, p.s);
+    ctx.globalAlpha = 1;
+  }
+  // timer
+  const left = Math.max(0, (roundEndsAt - t)/1000);
+  const leftS = Math.ceil(left);
+  const ht = $('hudTime');
+  if (ht.textContent != leftS){
+    ht.textContent = leftS;
+    if (leftS<=5 && leftS>0){ ht.classList.add('low'); sfx('tick'); }
+  }
+  if (left <= 0){
+    endLocalRound();
+    if (isHost) hostEndRound();
+    else if (hostConn?.open) hostConn.send({t:'sc', s:score, c:maxStreak});
+    return;
+  }
+  rafId = requestAnimationFrame(loop);
+}
+
+function endLocalRound(){
+  playing = false;
+  cancelAnimationFrame(rafId);
+  clearInterval(guestScoreTimer);
+}
+
+function burst(x,y,col,n){
+  if (reduced) n = Math.min(n,4);
+  for (let i=0;i<n;i++){
+    const a = Math.random()*Math.PI*2, v = 80+Math.random()*220;
+    parts.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-60,s:4+Math.random()*5,col,life:.5+Math.random()*.4,max:.9});
+  }
+}
+
+cv.addEventListener('pointerdown', e => {
+  if (!playing) return;
+  const x = e.clientX, y = e.clientY;
+  // nearest bubble within generous radius (family-friendly hit box)
+  let best=null, bd=1e9;
+  for (const b of bubbles){
+    const dx=(b._x??b.x)-x, dy=b.y-y, d=dx*dx+dy*dy, r=(b.size+26)**2;
+    if (d<r && d<bd){ bd=d; best=b; }
+  }
+  if (!best) return;
+  bubbles.splice(bubbles.indexOf(best),1);
+  const now = performance.now();
+  if (best.kind==='skull'){
+    score = Math.max(0, score-3); streak=0;
+    burst(best._x, best.y, '#ff5d73', 14); sfx('skull');
+    flashCombo('💀 -3');
+  } else {
+    streak = (now-lastPop<1300) ? streak+1 : 1;
+    maxStreak = Math.max(maxStreak, streak);
+    const bonus = Math.floor(streak/5);
+    const pts = (best.kind==='gold'?5:1) + bonus;
+    score += pts;
+    burst(best._x, best.y, best.kind==='gold' ? '#ffd166' : '#3ddc97', best.kind==='gold'?18:9);
+    sfx(best.kind==='gold'?'gold':'pop');
+    if (streak>0 && streak%5===0) flashCombo(streak+'× STREAK!');
+  }
+  lastPop = now;
+  $('hudScore').textContent = score;
+}, {passive:true});
+
+let comboTimer=null;
+function flashCombo(txt){
+  const c = $('combo');
+  c.textContent = txt;
+  c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop');
+  clearTimeout(comboTimer);
+  comboTimer = setTimeout(()=>c.classList.remove('pop'), 900);
+}
+
+function renderBoard(){
+  $('board').innerHTML = boardData.map(r =>
+    `<span class="bp${r.n===myName?' me':''}">${esc(r.n)} ${r.s}</span>`).join('');
+}
+
+/* ================= results ================= */
+function showResults(rows){
+  const top = rows[0];
+  const iWon = top && top.n===myName && top.s>0;
+  $('resTitle').textContent = iWon ? '🏆 You win!' : (top ? top.n+' wins!' : 'Round over!');
+  $('resTable').innerHTML = rows.map((r,i) =>
+    `<tr class="${i===0?'win':''}"><td>${i===0?'🏆':(i+1)+'.'} ${esc(r.n)}</td><td class="soft">best streak ${r.c||0}</td><td>${r.s}</td></tr>`).join('');
+  // persist stats
+  store.set('games', store.get('games',0)+1);
+  if (score > store.get('best',0)) store.set('best', score);
+  if (iWon){ store.set('wins', store.get('wins',0)+1); sfx('win'); }
+  refreshStats();
+  $('btnAgain').style.display = isHost ? '' : 'none';
+  $('resHint').textContent = isHost ? '' : 'The host can start the next round — stay on this page.';
+  show('results');
+  if (iWon && !reduced) confetti();
+}
+function confetti(){
+  // AIDEV-NOTE: cheap one-shot confetti on the game canvas behind the results screen
+  const g = $('game');
+  g.classList.add('on'); g.style.pointerEvents = 'none';
+  for (let i=0;i<80;i++) burst(Math.random()*W, -10, ['#ffd166','#ff5d73','#3ddc97','#fff'][i%4], 1);
+  let t0 = performance.now(), last=t0;
+  const cf = t => {
+    const dt=Math.min((t-last)/1000,.05); last=t;
+    ctx.clearRect(0,0,W,H);
+    for (let i=parts.length-1;i>=0;i--){
+      const p=parts[i];
+      p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=250*dt; p.life-=dt*.5;
+      if(p.life<=0){parts.splice(i,1);continue;}
+      ctx.globalAlpha=Math.max(p.life/p.max,0); ctx.fillStyle=p.col; ctx.fillRect(p.x,p.y,p.s,p.s); ctx.globalAlpha=1;
+    }
+    if (parts.length && t-t0<3000) requestAnimationFrame(cf);
+    else { ctx.clearRect(0,0,W,H); g.classList.remove('on'); g.style.pointerEvents = ''; }
+  };
+  requestAnimationFrame(cf);
+}
+
+/* ================= misc ================= */
+function esc(s){ return String(s).replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+addEventListener('beforeunload', () => { try{ peer?.destroy(); }catch(e){} });
+</script>
+</body>
+</html>
