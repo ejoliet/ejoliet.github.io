@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<title>Tilt GP P2P</title>
+<style>
+  :root{--bg:#080914;--fg:#f7f7ff;--mut:#9aa3bd;--hot:#ff315a;--cyan:#26e6ff;--gold:#ffe66d;--ok:#5cff9d}
+  *{box-sizing:border-box} html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  canvas{position:fixed;inset:0;width:100vw;height:100vh;touch-action:none;background:#050612}
+  .hud{position:fixed;inset:0;pointer-events:none;padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom);display:flex;flex-direction:column;justify-content:space-between}
+  .top{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding-top:10px}.pill{pointer-events:auto;border:1px solid #ffffff24;background:#0d1028aa;backdrop-filter:blur(16px);border-radius:18px;padding:9px 12px;box-shadow:0 8px 30px #0008}.brand{font-weight:900;letter-spacing:.5px}.brand b{color:var(--hot)}.stat{font-variant-numeric:tabular-nums;color:#e9ecff}.mini{font-size:12px;color:var(--mut)}
+  .rank{min-width:108px}.rankline{display:flex;align-items:center;gap:7px;margin:4px 0;font-weight:800}.dot{width:10px;height:10px;border-radius:50%;box-shadow:0 0 18px currentColor}.dot.me{color:var(--cyan);background:var(--cyan)}.dot.rival{color:var(--hot);background:var(--hot)}
+  .bottom{display:flex;gap:8px;align-items:end;justify-content:space-between;padding-bottom:12px}.tilt{flex:1;max-width:340px}.bar{height:9px;border-radius:99px;background:#ffffff1a;overflow:hidden}.bar i{display:block;height:100%;width:50%;background:linear-gradient(90deg,var(--cyan),var(--gold),var(--hot));border-radius:inherit}.btn{pointer-events:auto;border:0;color:white;background:#ffffff16;border:1px solid #ffffff24;border-radius:14px;padding:10px 12px;font-weight:800}.btn.primary{background:linear-gradient(135deg,#1adfff,#ff315a);border:0;color:#04050a}.btn:active{transform:scale(.98)}
+  .panel{position:fixed;inset:0;display:grid;place-items:center;background:radial-gradient(circle at 50% 0,#15205bee,#04050cf4 58%,#02030aff);padding:18px}.card{width:min(720px,100%);border:1px solid #ffffff20;background:linear-gradient(180deg,#121737e6,#080a18e6);border-radius:26px;padding:18px;box-shadow:0 28px 90px #000b}.title{font-size:clamp(32px,10vw,76px);line-height:.9;margin:0 0 8px;font-weight:1000;letter-spacing:-2px}.title span{background:linear-gradient(90deg,#26e6ff,#ffe66d,#ff315a);-webkit-background-clip:text;color:transparent}.lead{color:#cdd4ff;margin:0 0 14px;line-height:1.35}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:650px){.grid{grid-template-columns:1fr}.title{letter-spacing:-1px}}
+  textarea{width:100%;min-height:100px;resize:vertical;border:1px solid #ffffff24;border-radius:16px;background:#060817;color:#f6f7ff;padding:12px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace}.row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.hide{display:none!important}.hint{font-size:12px;color:#9aa3bd;line-height:1.35}.badge{display:inline-block;padding:3px 8px;border-radius:999px;background:#ffffff12;color:#cfd6ff;font-size:12px;margin:2px}.toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 16px);transform:translateX(-50%);background:#0b0e25e8;border:1px solid #ffffff24;border-radius:999px;padding:9px 13px;font-weight:800;box-shadow:0 14px 50px #000b;opacity:0;transition:.25s;pointer-events:none}.toast.show{opacity:1}.count{position:fixed;inset:0;display:grid;place-items:center;font-size:22vw;font-weight:1000;text-shadow:0 10px 50px #000;color:white;pointer-events:none;opacity:0;transform:scale(.8);transition:.18s}.count.show{opacity:1;transform:scale(1)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud">
+  <div class="top">
+    <div class="pill"><div class="brand">TILT <b>GP</b></div><div id="status" class="mini">offline demo</div></div>
+    <div class="pill rank" id="rank"><div class="rankline"><i class="dot me"></i><span>YOU</span><span id="mePos" style="margin-left:auto">1</span></div><div class="rankline"><i class="dot rival"></i><span>RIVAL</span><span id="rvPos" style="margin-left:auto">2</span></div></div>
+  </div>
+  <div class="bottom">
+    <div class="pill tilt"><div class="mini">tilt / drag steering</div><div class="bar"><i id="steerBar"></i></div><div class="mini"><span id="speed">0</span> km/h · <span id="lap">0</span>%</div></div>
+    <button id="motion" class="btn primary">Enable tilt</button>
+    <button id="reset" class="btn">Restart</button>
+  </div>
+</div>
+<div class="panel" id="menu">
+  <div class="card">
+    <h1 class="title"><span>Tilt GP</span></h1>
+    <p class="lead">Mobile-first MotoGP-style micro racer. Tilt to lean, draft through glowing racing lines, and race P2P with no server-side game logic.</p>
+    <div><span class="badge">static hosting</span><span class="badge">WebRTC P2P</span><span class="badge">Device tilt</span><span class="badge">copy/paste pairing</span></div>
+    <div class="grid" style="margin-top:12px">
+      <div class="pill">
+        <b>Host a race</b><p class="hint">Tap Host, copy the offer to the other player. Paste their answer here and start racing.</p>
+        <div class="row"><button id="host" class="btn primary">Host</button><button id="copyOffer" class="btn">Copy offer</button></div>
+        <textarea id="offer" placeholder="Host offer appears here"></textarea>
+        <textarea id="answerIn" placeholder="Paste joiner's answer here"></textarea>
+        <div class="row"><button id="acceptAnswer" class="btn">Accept answer</button></div>
+      </div>
+      <div class="pill">
+        <b>Join a race</b><p class="hint">Paste the host offer, create an answer, copy it back to the host.</p>
+        <textarea id="offerIn" placeholder="Paste host offer here"></textarea>
+        <div class="row"><button id="join" class="btn primary">Join</button><button id="copyAnswer" class="btn">Copy answer</button></div>
+        <textarea id="answer" placeholder="Join answer appears here"></textarea>
+      </div>
+    </div>
+    <div class="row"><button id="solo" class="btn primary">Play solo with ghost</button><button id="close" class="btn">Close menu</button></div>
+    <p class="hint">For the lowest-friction public version, add a tiny signaling relay later; the game state already travels P2P after pairing.</p>
+  </div>
+</div>
+<div class="toast" id="toast"></div><div class="count" id="count"></div>
+<script>
+(()=>{
+'use strict';
+const $=id=>document.getElementById(id), cvs=$('c'), x=cvs.getContext('2d');
+let W=0,H=0,DPR=1,last=0, steer=0, targetSteer=0, dragging=false, dc=null, pc=null, role='solo', connected=false, started=false, countdown=0, winner='';
+const RACE=4200;
+const me={id:Math.random().toString(36).slice(2,7),name:'YOU',p:0,v:0,lane:0,lean:0,boost:0,done:false};
+const rv={id:'rival',name:'RIVAL',p:0,v:0,lane:.18,lean:0,boost:0,done:false,t:0};
+function resize(){DPR=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;cvs.width=W*DPR;cvs.height=H*DPR;x.setTransform(DPR,0,0,DPR,0,0)} addEventListener('resize',resize);resize();
+function toast(s){const t=$('toast');t.textContent=s;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1500)}
+function enc(o){return btoa(unescape(encodeURIComponent(JSON.stringify(o))))} function dec(s){return JSON.parse(decodeURIComponent(escape(atob(s.trim()))))}
+async function clip(id){try{await navigator.clipboard.writeText($(id).value);toast('Copied')}catch(e){toast('Select and copy manually')}}
+function mkpc(){ pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]}); pc.onconnectionstatechange=()=>{connected=pc.connectionState==='connected';$('status').textContent=connected?'p2p connected':pc.connectionState}; pc.onicecandidate=e=>{}; pc.ondatachannel=e=>wire(e.channel); return pc}
+function wire(ch){dc=ch; dc.onopen=()=>{connected=true; $('status').textContent='p2p connected'; $('menu').classList.add('hide'); startRace()}; dc.onmessage=e=>{try{const m=JSON.parse(e.data); if(m.type==='state') Object.assign(rv,m.s); if(m.type==='restart') hardReset(true)}catch(_){}}; dc.onclose=()=>{connected=false;$('status').textContent='peer disconnected'}}
+async function waitIce(p){ if(p.iceGatheringState==='complete')return; await new Promise(r=>{p.addEventListener('icegatheringstatechange',()=>p.iceGatheringState==='complete'&&r(),{once:false}); setTimeout(r,2200)})}
+$('host').onclick=async()=>{role='host';mkpc();wire(pc.createDataChannel('race',{ordered:false,maxRetransmits:0}));await pc.setLocalDescription(await pc.createOffer());await waitIce(pc);$('offer').value=enc(pc.localDescription);toast('Offer ready')};
+$('acceptAnswer').onclick=async()=>{await pc.setRemoteDescription(dec($('answerIn').value));toast('Answer accepted')};
+$('join').onclick=async()=>{role='join';mkpc();await pc.setRemoteDescription(dec($('offerIn').value));await pc.setLocalDescription(await pc.createAnswer());await waitIce(pc);$('answer').value=enc(pc.localDescription);toast('Answer ready')};
+$('copyOffer').onclick=()=>clip('offer'); $('copyAnswer').onclick=()=>clip('answer'); $('close').onclick=()=>$('menu').classList.add('hide'); $('solo').onclick=()=>{$('menu').classList.add('hide');startRace()};
+$('reset').onclick=()=>{hardReset(false); if(dc&&dc.readyState==='open')dc.send(JSON.stringify({type:'restart'}))};
+function hardReset(remote){Object.assign(me,{p:0,v:0,lane:0,lean:0,boost:0,done:false});Object.assign(rv,{p:0,v:0,lane:.18,lean:0,boost:0,done:false,t:0});winner='';started=false; if(!remote)startRace()}
+function startRace(){countdown=3.1;started=false;winner=''}
+async function enableMotion(){try{ if(DeviceOrientationEvent&&typeof DeviceOrientationEvent.requestPermission==='function'){ const r=await DeviceOrientationEvent.requestPermission(); if(r!=='granted')return toast('Motion denied') } toast('Tilt enabled') }catch(e){toast('Tilt unavailable')}} $('motion').onclick=enableMotion;
+addEventListener('deviceorientation',e=>{ if(e.gamma!=null) targetSteer=Math.max(-1,Math.min(1,e.gamma/28)) });
+cvs.addEventListener('pointerdown',e=>{dragging=true; targetSteer=(e.clientX/W-.5)*2}); cvs.addEventListener('pointermove',e=>{if(dragging)targetSteer=(e.clientX/W-.5)*2}); addEventListener('pointerup',()=>dragging=false);
+function curve(z){return Math.sin(z*.0022)*.8+Math.sin(z*.00073)*1.1} function widthAt(y){return 90+(1-y/H)*260} function roadCenter(y,p){let z=p+(H-y)*3.6;return W/2+curve(z)*W*.13*(1-y/H)}
+function drawRoad(t){x.fillStyle='#050612';x.fillRect(0,0,W,H);let sky=x.createLinearGradient(0,0,0,H*.55);sky.addColorStop(0,'#101a44');sky.addColorStop(1,'#070815');x.fillStyle=sky;x.fillRect(0,0,W,H);for(let i=0;i<90;i++){let xx=(i*97+t*.012)%W, yy=(i*53+t*.02)%(H*.56);x.fillStyle=`rgba(255,255,255,${.05+(i%7)*.025})`;x.fillRect(xx,yy,1.5,1.5)}
+ for(let y=H;y>H*.2;y-=8){let k=(H-y)/H,c=roadCenter(y,me.p),w=widthAt(y),c2=roadCenter(y-8,me.p),w2=widthAt(y-8);let g=x.createLinearGradient(0,y-8,0,y);g.addColorStop(0,`hsl(${235+k*30} 45% ${12+k*16}%)`);g.addColorStop(1,`hsl(${230+k*20} 45% ${8+k*12}%)`);x.fillStyle=g;x.beginPath();x.moveTo(c-w,y);x.lineTo(c+w,y);x.lineTo(c2+w2,y-8);x.lineTo(c2-w2,y-8);x.closePath();x.fill(); if(((me.p+y*5)|0)%180<70){x.strokeStyle='#ffffff24';x.lineWidth=2;x.beginPath();x.moveTo(c,y);x.lineTo(c2,y-8);x.stroke()} if(((me.p+y*4)|0)%220<80){x.strokeStyle='#26e6ff55';x.lineWidth=3;x.beginPath();x.moveTo(c-w*.55,y);x.lineTo(c2-w2*.55,y-8);x.stroke();x.strokeStyle='#ff315a55';x.beginPath();x.moveTo(c+w*.55,y);x.lineTo(c2+w2*.55,y-8);x.stroke()} }
+ x.fillStyle='#04050b';x.fillRect(0,H*.78,W,H*.22)}
+function bike(b,local){let y=local?H*.72:H*.46, scale=local?1:.58; let c=roadCenter(y,me.p), w=widthAt(y); let sx=c+b.lane*w*.72; x.save(); x.translate(sx,y);x.rotate(b.lean*.28);x.scale(scale,scale);x.shadowBlur=22;x.shadowColor=local?'#26e6ff':'#ff315a'; x.fillStyle=local?'#26e6ff':'#ff315a';x.beginPath();x.ellipse(0,18,34,10,0,0,7);x.fill(); x.fillStyle='#101322';x.fillRect(-9,-42,18,48);x.fillStyle='#f7f7ff';x.beginPath();x.moveTo(0,-66);x.lineTo(18,-18);x.lineTo(-18,-18);x.closePath();x.fill(); x.strokeStyle='#0a0b11';x.lineWidth=8;x.beginPath();x.arc(-20,32,14,0,7);x.arc(20,32,14,0,7);x.stroke(); x.restore(); return {x:sx,y};}
+function drawTags(a,b){let ahead=me.p>=rv.p; $('mePos').textContent=ahead?'1':'2';$('rvPos').textContent=ahead?'2':'1'; let arr=[[me,'YOU','#26e6ff'],[rv,'RIVAL','#ff315a']]; arr.forEach(([o,n,col],i)=>{let yy=70+i*34+(ahead===(o===me)?0:16);let pct=Math.min(100,o.p/RACE*100);x.fillStyle='#0a0d22cc';round(W-132,yy,112,22,11);x.fill();x.fillStyle=col;x.fillRect(W-124,yy+16,Math.max(4,pct),3);x.fillStyle='#fff';x.font='800 12px system-ui';x.fillText((ahead===(o===me)?'P1 ':'P2 ')+n,W-122,yy+14)})}
+function round(x0,y0,w,h,r){x.beginPath();x.moveTo(x0+r,y0);x.arcTo(x0+w,y0,x0+w,y0+h,r);x.arcTo(x0+w,y0+h,x0,y0+h,r);x.arcTo(x0,y0+h,x0,y0,r);x.arcTo(x0,y0,x0+w,y0,r);x.closePath()}
+function update(dt,t){steer+=((targetSteer||0)-steer)*Math.min(1,dt*7);$('steerBar').style.width=(50+steer*50)+'%'; if(countdown>0){countdown-=dt;let v=Math.ceil(countdown);$('count').textContent=v>0?v:'GO';$('count').classList.add('show');if(countdown<=0){started=true;setTimeout(()=>$('count').classList.remove('show'),350)}}
+ if(started&&!winner){me.lean=steer;me.lane+=steer*dt*1.65;me.lane*=.992; if(Math.abs(me.lane)>.95){me.v*=.965; me.lane=Math.max(-.98,Math.min(.98,me.lane))} let racingLine=Math.sin((me.p+400)*.0022)*.22; let lineBonus=1-Math.min(1,Math.abs(me.lane-racingLine)); me.v+=(210+lineBonus*90-me.v)*dt*.9; me.p+=me.v*dt; if(!connected){rv.t+=dt;rv.lean=Math.sin(rv.t*1.9)*.25;rv.lane=Math.sin(rv.t*.9)*.38;rv.v+=(260+Math.sin(rv.t*1.3)*28-rv.v)*dt*.65;rv.p+=rv.v*dt} if(me.p>=RACE||rv.p>=RACE){winner=me.p>=rv.p?'YOU WIN':'RIVAL WINS';toast(winner);started=false} }
+ if(dc&&dc.readyState==='open'&&t%3<1){dc.send(JSON.stringify({type:'state',s:{p:me.p,v:me.v,lane:me.lane,lean:me.lean,done:me.done}}))}
+ $('speed').textContent=Math.round(me.v*1.2);$('lap').textContent=Math.min(100,Math.round(me.p/RACE*100));}
+function frame(ts){let dt=Math.min(.033,(ts-last)/1000||.016);last=ts;update(dt,ts/1000);drawRoad(ts);bike(rv,false);bike(me,true);drawTags(); if(winner){x.fillStyle='#ffffff';x.font='1000 42px system-ui';x.textAlign='center';x.fillText(winner,W/2,H*.34);x.textAlign='left'} requestAnimationFrame(frame)} requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
