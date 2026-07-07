@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launch Room — P2P mission control for SpaceX launches</title>
+<!--
+  LAUNCH ROOM — zero-backend P2P launch watch room.
+  Host = hub (star topology). Host polls Launch Library 2 (only 1 client ever
+  hits the API — free tier is 15 req/h) and broadcasts to all spectators.
+  Stack: vanilla JS, single file, PeerJS 1.5.5 CDN-pinned, Canvas 2D, WebAudio synth.
+  AIDEV-NOTE: no build step. Rename to index.html, drop on GitHub Pages / Netlify.
+-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+<style>
+:root{
+  --bg:#060A12; --panel:#0D1420; --panel2:#0A101B; --line:#1B2A3E;
+  --ink:#EAF2FC; --mut:#7E92A8; --dim:#54677D;
+  --tel:#6FD3FF; --go:#59D98C; --hold:#FFC14D; --scrub:#FF7A7A;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,Menlo,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:
+    radial-gradient(1200px 600px at 70% -10%, #0C1626 0%, transparent 60%),
+    var(--bg);
+  color:var(--ink); font-family:var(--sans); -webkit-font-smoothing:antialiased;
+  min-height:100dvh;
+}
+.eyebrow{font:600 11px/1 var(--sans);letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,select{font:inherit;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 12px;outline:none}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--tel);outline-offset:2px}
+a{color:var(--tel)}
+.hidden{display:none!important}
+
+/* ---------- landing ---------- */
+#landing{max-width:520px;margin:0 auto;padding:9dvh 24px 48px;display:flex;flex-direction:column;gap:28px}
+#landing h1{font-size:clamp(34px,7vw,46px);font-weight:800;letter-spacing:-.02em;line-height:1.02}
+#landing h1 .t{color:var(--tel)}
+#landing p.sub{color:var(--mut);font-size:15px;line-height:1.5;max-width:42ch}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+.card h2{font-size:14px;margin-bottom:12px;letter-spacing:.02em}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn{background:var(--tel);color:#04121D;font-weight:700;border-radius:10px;padding:11px 18px;transition:transform .08s}
+.btn:active{transform:scale(.97)}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+#joinCode{width:110px;text-transform:uppercase;letter-spacing:.3em;font-family:var(--mono)}
+.foot{color:var(--dim);font-size:12px;line-height:1.6}
+
+/* ---------- room shell ---------- */
+#room{display:none;min-height:100dvh;flex-direction:column}
+#room.on{display:flex}
+header{
+  display:grid;grid-template-columns:auto 1fr auto;gap:12px 20px;align-items:center;
+  padding:14px 20px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(13,20,32,.9),rgba(13,20,32,.55));
+  position:sticky;top:0;z-index:5;backdrop-filter:blur(6px);
+}
+#roomTag{display:flex;flex-direction:column;gap:3px}
+#roomCodeEl{font-family:var(--mono);font-size:18px;letter-spacing:.25em;color:var(--tel)}
+#missionBox{min-width:0}
+#missionName{font-weight:800;font-size:clamp(15px,2.2vw,20px);letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#missionMeta{color:var(--mut);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#hdrRight{display:flex;align-items:center;gap:14px}
+.pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:6px 13px;font:600 12px var(--sans);letter-spacing:.06em}
+.pill .dot{width:8px;height:8px;border-radius:50%;background:var(--mut)}
+.pill.go{color:var(--go);border-color:rgba(89,217,140,.4)} .pill.go .dot{background:var(--go);box-shadow:0 0 8px var(--go)}
+.pill.hold{color:var(--hold);border-color:rgba(255,193,77,.4)} .pill.hold .dot{background:var(--hold)}
+.pill.scrub{color:var(--scrub);border-color:rgba(255,122,122,.4)} .pill.scrub .dot{background:var(--scrub)}
+.pill.flight{color:var(--tel);border-color:rgba(111,211,255,.45)} .pill.flight .dot{background:var(--tel);box-shadow:0 0 8px var(--tel)}
+#viewersEl{color:var(--mut);font-size:12px}
+
+/* ---------- T clock ---------- */
+#clockWrap{display:flex;flex-direction:column;align-items:center;padding:26px 16px 8px;gap:6px}
+#tClock{
+  font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:clamp(52px,11vw,104px);font-weight:700;letter-spacing:.03em;line-height:1;
+  color:var(--ink);text-shadow:0 0 34px rgba(111,211,255,.25);
+}
+#tClock.hold{color:var(--hold);text-shadow:0 0 34px rgba(255,193,77,.25)}
+#tClock.flight{color:var(--tel)}
+#tClock.scrub{color:var(--scrub);text-shadow:none}
+#tClockSub{color:var(--mut);font-size:13px}
+
+/* ---------- main grid ---------- */
+main{flex:1;display:grid;grid-template-columns:1.35fr 1fr;gap:16px;padding:12px 20px 20px;max-width:1500px;margin:0 auto;width:100%}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.panel .ph{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+#trajPanel{grid-row:span 2;min-height:420px}
+#trajCanvas{width:100%;height:100%;flex:1;display:block}
+#videoPanel .vwrap{position:relative;aspect-ratio:16/9;background:#000}
+#videoPanel iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+#videoEmpty{position:absolute;inset:0;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;color:var(--dim);font-size:13px;text-align:center;padding:20px}
+#commsPanel{min-height:220px}
+#feed{flex:1;overflow-y:auto;padding:10px 16px;display:flex;flex-direction:column-reverse;gap:2px;scrollbar-width:thin}
+.fitem{display:grid;grid-template-columns:74px 1fr;gap:12px;padding:6px 0;border-bottom:1px dashed rgba(27,42,62,.6);font-size:13.5px;line-height:1.45}
+.fitem .ft{font-family:var(--mono);color:var(--dim);font-size:12px;padding-top:2px;white-space:nowrap}
+.fitem.sys .fm{color:var(--tel)}
+.fitem.host .fm{color:var(--ink)}
+.fitem.host .fm b{color:var(--hold);font-weight:600}
+.fitem.note .fm{color:var(--mut)}
+
+/* ---------- host console ---------- */
+#console{border-top:1px solid var(--line);background:var(--panel2);padding:14px 20px;display:none;flex-direction:column;gap:12px}
+#console.on{display:flex}
+#console .crow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.cbtn{border:1px solid var(--line);border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;color:var(--ink);background:var(--panel)}
+.cbtn:hover{border-color:var(--tel)}
+.cbtn.warn{color:var(--hold)} .cbtn.bad{color:var(--scrub)} .cbtn.good{color:var(--go)}
+.cbtn.active{background:var(--tel);color:#04121D;border-color:var(--tel)}
+#launchSel{max-width:420px;flex:1}
+#calloutIn{flex:1;min-width:220px}
+#apiNote{color:var(--dim);font-size:11.5px}
+
+/* toast */
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(12px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 18px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:20}
+#toast.on{opacity:1;transform:translateX(-50%)}
+
+@media (max-width:980px){
+  main{grid-template-columns:1fr}
+  #trajPanel{grid-row:auto;min-height:340px;order:2}
+  #videoPanel{order:1} #commsPanel{order:3}
+  header{grid-template-columns:1fr auto}
+  #missionBox{grid-column:1 / -1;order:3}
+}
+@media (prefers-reduced-motion:reduce){ *{transition:none!important} }
+</style>
+</head>
+<body>
+
+<!-- ================= LANDING ================= -->
+<section id="landing">
+  <div>
+    <div class="eyebrow">Zero backend &middot; peer-to-peer</div>
+    <h1>Launch<span class="t"> Room</span></h1>
+    <p class="sub">A shared mission-control room for any SpaceX launch. One host pulls live launch data; everyone else joins with a link and watches the countdown, ascent telemetry, comms loop and webcast together.</p>
+  </div>
+  <div class="card">
+    <h2>Host a launch room</h2>
+    <div class="row">
+      <input id="hostName" placeholder="Your callsign (optional)" maxlength="24" style="flex:1;min-width:160px">
+      <button class="btn" id="btnHost">Create room</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Join as spectator</h2>
+    <div class="row">
+      <input id="joinCode" placeholder="CODE" maxlength="4" autocapitalize="characters">
+      <input id="joinName" placeholder="Your callsign (optional)" maxlength="24" style="flex:1;min-width:160px">
+      <button class="btn ghost" id="btnJoin">Join room</button>
+    </div>
+  </div>
+  <p class="foot">Launch data: Launch Library 2 (The Space Devs) &mdash; polled by the host only. Ascent profile is a simulated Falcon&nbsp;9 reference trajectory synced to T-0, not live vehicle telemetry. Webcast plays per-viewer via the official stream link.</p>
+</section>
+
+<!-- ================= ROOM ================= -->
+<section id="room">
+  <header>
+    <div id="roomTag">
+      <span class="eyebrow">Room</span>
+      <span id="roomCodeEl">----</span>
+    </div>
+    <div id="missionBox">
+      <div id="missionName">Awaiting mission data&hellip;</div>
+      <div id="missionMeta"></div>
+    </div>
+    <div id="hdrRight">
+      <span id="viewersEl" class="mono">1 watching</span>
+      <span class="pill" id="statusPill"><span class="dot"></span><span id="statusTxt">STANDBY</span></span>
+      <button class="cbtn" id="btnShare">Share link</button>
+    </div>
+  </header>
+
+  <div id="clockWrap">
+    <div id="tClock" class="mono">T&#8211; --:--:--</div>
+    <div id="tClockSub">&nbsp;</div>
+  </div>
+
+  <main>
+    <div class="panel" id="trajPanel">
+      <div class="ph"><span class="eyebrow">Ascent profile &middot; simulated</span><span class="eyebrow mono" id="trajStage"></span></div>
+      <canvas id="trajCanvas"></canvas>
+    </div>
+
+    <div class="panel" id="videoPanel">
+      <div class="ph"><span class="eyebrow">Webcast</span><button class="cbtn" id="btnUnhide" style="display:none">Load webcast</button></div>
+      <div class="vwrap">
+        <div id="videoEmpty">
+          <span>No webcast linked yet.</span>
+          <span id="videoHint"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="commsPanel">
+      <div class="ph"><span class="eyebrow">Comms loop</span>
+        <button class="cbtn" id="btnMute">Sound: on</button></div>
+      <div id="feed"></div>
+    </div>
+  </main>
+
+  <!-- host-only console -->
+  <div id="console">
+    <div class="crow">
+      <span class="eyebrow">Mission</span>
+      <select id="launchSel"><option>Loading upcoming SpaceX launches&hellip;</option></select>
+      <button class="cbtn" id="btnRefresh">Refresh data</button>
+      <span id="apiNote"></span>
+    </div>
+    <div class="crow">
+      <span class="eyebrow">Range</span>
+      <button class="cbtn warn" id="btnHold">Hold</button>
+      <button class="cbtn good" id="btnResume">Resume count</button>
+      <button class="cbtn bad" id="btnScrub">Scrub</button>
+      <button class="cbtn" id="btnLiftoff">Liftoff now</button>
+      <button class="cbtn" id="btnDemo">Demo T&#8211;60s</button>
+      <button class="cbtn" id="btnMic">Mic commentary: off</button>
+    </div>
+    <div class="crow">
+      <span class="eyebrow">Callout</span>
+      <input id="calloutIn" placeholder="Broadcast a comms callout to the room&hellip;" maxlength="180">
+      <button class="cbtn" id="btnCallout">Send</button>
+    </div>
+  </div>
+</section>
+
+<div id="toast"></div>
+<script>
+'use strict';
+/* ============================================================
+   CONFIG + STATE
+============================================================ */
+const CFG = {
+  peerPrefix: 'lroom-',
+  api: 'https://ll.thespacedevs.com/2.3.0',
+  provider: 'SpaceX',            // change to reuse for any provider, or '' for all
+  pollMs: 5 * 60e3,              // AIDEV-NOTE: LL2 free tier = 15 req/h TOTAL; host-only polling @5min = 12/h + picker fetch. Do not lower without an LL2 API key.
+  maxGuests: 80,                 // star ceiling ~50-150 conns per host tab
+  maxMsgBytes: 2048,             // cap inbound guest messages (security preflight #2)
+  maxRatePerSec: 5,
+  micGuestCap: 25,               // ~35kbps/guest audio upstream from host
+};
+const $ = id => document.getElementById(id);
+
+// AIDEV-NOTE: localStorage namespaced lr.* with in-memory fallback (blocked in claude.ai preview)
+const store = (() => {
+  const mem = {};
+  let ok = true;
+  try { localStorage.setItem('lr._t','1'); localStorage.removeItem('lr._t'); } catch(e){ ok = false; }
+  return {
+    get: k => { try { return ok ? localStorage.getItem('lr.'+k) : (mem[k] ?? null); } catch(e){ return mem[k] ?? null; } },
+    set: (k,v) => { mem[k]=v; try { if(ok) localStorage.setItem('lr.'+k, v); } catch(e){} },
+  };
+})();
+
+const S = {
+  role: null,               // 'host' | 'guest'
+  code: null,
+  name: '',
+  peer: null,
+  conns: new Map(),         // host: peerId -> {conn, name, msgTimes[]}
+  hostConn: null,           // guest: DataConnection to host
+  launch: null,             // normalized launch payload (see normalizeLaunch)
+  phase: { mode:'auto', t0:null, holdT:null, scrub:false }, // host-authoritative
+  count: 1,
+  sound: true,
+  micStream: null,
+  micCalls: new Map(),
+  firedEvents: new Set(),
+  pollTimer: null,
+  retryPending: false,      // AIDEV-NOTE: guard vs stacked reconnect loops (burned: Pop Rumble)
+  retries: 0,
+  demo: false,
+};
+
+/* ============================================================
+   SMALL UTILS
+============================================================ */
+const CODE_ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O 1/l/I
+const makeCode = () => Array.from({length:4}, () => CODE_ALPHA[Math.random()*CODE_ALPHA.length|0]).join('');
+const cleanName = s => String(s||'').replace(/[\u0000-\u001f]/g,'').slice(0,24).trim();
+const fmtHMS = sec => {
+  sec = Math.max(0, Math.floor(Math.abs(sec)));
+  const h = String(sec/3600|0).padStart(2,'0'), m = String(sec/60%60|0).padStart(2,'0'), s = String(sec%60|0).padStart(2,'0');
+  return `${h}:${m}:${s}`;
+};
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('on'); clearTimeout(toast._i); toast._i=setTimeout(()=>t.classList.remove('on'),2600); }
+
+async function copyText(txt){
+  try { await navigator.clipboard.writeText(txt); return true; }
+  catch(e){ // execCommand fallback
+    const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta);
+    ta.select(); let ok=false; try{ ok=document.execCommand('copy'); }catch(_){}
+    ta.remove(); return ok;
+  }
+}
+
+/* ============================================================
+   AUDIO — quindar-style beeps + liftoff rumble, WebAudio synth only
+============================================================ */
+let AC = null;
+const audioCtx = () => AC || (AC = new (window.AudioContext||window.webkitAudioContext)());
+function quindar(){
+  if (!S.sound) return;
+  try {
+    const ac = audioCtx(), t = ac.currentTime;
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type='sine'; o.frequency.value=2525;                    // NASA quindar tone freq
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.12,t+0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.25);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t+0.27);
+  } catch(e){}
+}
+function rumble(){
+  if (!S.sound) return;
+  try {
+    const ac = audioCtx(), t = ac.currentTime, dur = 4;
+    const buf = ac.createBuffer(1, ac.sampleRate*dur, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i=0;i<d.length;i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
+    const src = ac.createBufferSource(); src.buffer = buf;
+    const f = ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=120;
+    const g = ac.createGain(); g.gain.value=0.35;
+    src.connect(f).connect(g).connect(ac.destination); src.start(t);
+  } catch(e){}
+}
+
+/* ============================================================
+   FALCON 9 REFERENCE ASCENT PROFILE (simulated — labeled as such in UI)
+   [t seconds after T0, altitude km, speed km/h] — approximate LEO profile
+============================================================ */
+const PROF = [
+  [0,0,0],[15,0.6,320],[45,4.2,950],[72,12.8,1710],[100,26,3300],[130,46,5700],
+  [155,64,8050],[162,66,7940],[165,68,7900],[210,95,9200],[300,138,13100],
+  [420,185,19800],[510,215,25600],[540,225,27350]
+];
+const PROF_END = 540;
+function profileAt(t){
+  if (t <= 0) return {alt:0, kmh:0};
+  if (t >= PROF_END){ const l = PROF[PROF.length-1]; return {alt:l[1], kmh:l[2]}; }
+  let i = 1; while (PROF[i][0] < t) i++;
+  const [t0,a0,v0] = PROF[i-1], [t1,a1,v1] = PROF[i], k = (t-t0)/(t1-t0);
+  return { alt: a0+(a1-a0)*k, kmh: v0+(v1-v0)*k };
+}
+// comms timeline: [tOffset s, callout] — negative = before T0
+const EVT = [
+  [-2400,'Launch director verifies go for propellant load'],
+  [-2100,'RP-1 (rocket grade kerosene) loading underway'],
+  [-960,'LOX loading has started'],
+  [-420,'Falcon 9 begins engine chill'],
+  [-60,'Falcon 9 is in startup'],
+  [-45,'Launch director verifies go for launch'],
+  [-3,'Ignition'],
+  [0,'Liftoff'],
+  [58,'Vehicle is supersonic'],
+  [72,'Max-Q — maximum aerodynamic pressure'],
+  [155,'MECO — main engine cutoff'],
+  [162,'Stage separation confirmed'],
+  [165,'Second engine start'],
+  [195,'Fairing separation confirmed'],
+  [400,'Stage 1 entry burn startup'],
+  [495,'Stage 1 landing burn'],
+  [515,'Stage 1 has landed'],
+  [540,'SECO — nominal orbit insertion'],
+];
+
+/* ============================================================
+   CLOCK / PHASE MODEL (host-authoritative, replicated to guests)
+   phase.mode: auto | hold | scrub | liftoff(override/demo)
+============================================================ */
+function effectiveT0(){
+  if (S.phase.mode === 'liftoff' && S.phase.t0) return S.phase.t0;
+  if (S.launch && S.launch.net) return Date.parse(S.launch.net);
+  return null;
+}
+// seconds relative to T0 (negative = countdown). Frozen during hold/scrub.
+function tRel(){
+  if (S.phase.mode === 'hold' || S.phase.mode === 'scrub') return S.phase.holdT ?? null;
+  const t0 = effectiveT0();
+  return t0 ? (Date.now() - t0)/1000 : null;
+}
+function inFlight(){ const t = tRel(); return t !== null && t > 0 && S.phase.mode !== 'hold' && S.phase.mode !== 'scrub'; }
+
+function renderClock(){
+  const t = tRel(), el = $('tClock'), sub = $('tClockSub');
+  el.classList.remove('hold','flight','scrub');
+  if (t === null){ el.textContent = 'T\u2013 --:--:--'; sub.textContent = 'Awaiting mission data'; return; }
+  el.textContent = (t < 0 ? 'T\u2013 ' : 'T+ ') + fmtHMS(t);
+  if (S.phase.mode === 'hold'){ el.classList.add('hold'); sub.textContent = 'Countdown holding'; }
+  else if (S.phase.mode === 'scrub'){ el.classList.add('scrub'); sub.textContent = 'Launch scrubbed'; }
+  else if (t > 0){ el.classList.add('flight'); sub.textContent = S.launch ? `${S.launch.rocket} in flight` : 'In flight'; }
+  else sub.textContent = S.launch ? `Targeting ${new Date(effectiveT0()).toLocaleString()}` : '';
+}
+
+function renderStatusPill(){
+  const p = $('statusPill'), tx = $('statusTxt');
+  p.className = 'pill';
+  let label = 'STANDBY';
+  if (S.phase.mode === 'hold'){ p.classList.add('hold'); label='HOLD'; }
+  else if (S.phase.mode === 'scrub'){ p.classList.add('scrub'); label='SCRUB'; }
+  else if (inFlight()){ p.classList.add('flight'); label='IN FLIGHT'; }
+  else if (S.launch){
+    const a = (S.launch.statusAbbrev||'').toLowerCase();
+    if (a === 'go'){ p.classList.add('go'); label='GO FOR LAUNCH'; }
+    else if (a === 'success'){ p.classList.add('go'); label='SUCCESS'; }
+    else if (a === 'failure'){ p.classList.add('scrub'); label='FAILURE'; }
+    else label = (S.launch.statusName||'STANDBY').toUpperCase();
+  }
+  tx.textContent = label;
+}
+
+/* comms feed */
+function feedAdd(kind, who, msg, tstamp){
+  const t = tRel();
+  const f = document.createElement('div'); f.className = 'fitem ' + kind;
+  const ft = document.createElement('span'); ft.className = 'ft';
+  ft.textContent = tstamp || (t === null ? '--:--' : (t<0?'T\u2013':'T+') + fmtHMS(t).slice(3));
+  const fm = document.createElement('span'); fm.className = 'fm';
+  if (who){ const b = document.createElement('b'); b.textContent = who + ' \u2022 '; fm.appendChild(b); }
+  fm.appendChild(document.createTextNode(msg));   // AIDEV-NOTE: textContent path — no HTML escaping needed, don't double-escape
+  $('feed').prepend(f); f.append(ft, fm);
+  while ($('feed').children.length > 200) $('feed').lastChild.remove();
+}
+function checkEvents(){
+  const t = tRel();
+  if (t === null || S.phase.mode==='hold' || S.phase.mode==='scrub') return;
+  for (const [et, msg] of EVT){
+    if (t >= et && t < et + 600 && !S.firedEvents.has(et)){   // 10-min grace so late joiners don't replay whole history
+      S.firedEvents.add(et);
+      feedAdd('sys', null, msg);
+      quindar();
+      if (et === 0) rumble();
+    }
+  }
+}
+
+/* ============================================================
+   TRAJECTORY CANVAS — ascent arc, vehicle, plume, corner gauges
+============================================================ */
+const cv = $('trajCanvas'), cx = cv.getContext('2d');
+let CW=0, CH=0, DPR=1;
+const STARS = (() => { // seeded star field (mulberry32)
+  let a = 20260707;
+  const rnd = () => { a|=0; a = a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+  return Array.from({length:140}, () => ({x:rnd(), y:rnd(), r:rnd()*1.1+0.2, tw:rnd()*6.28}));
+})();
+function sizeCanvas(){
+  const r = cv.getBoundingClientRect();
+  DPR = Math.min(devicePixelRatio||1, 2);
+  if (!r.width || !r.height) return;
+  cv.width = r.width*DPR|0; cv.height = r.height*DPR|0;
+  CW = r.width; CH = r.height; cx.setTransform(DPR,0,0,DPR,0,0);
+}
+new ResizeObserver(sizeCanvas).observe(cv);
+
+// map flight time -> canvas point (x eased downrange, y log altitude)
+const ALT_MAX = 230;
+function arcPoint(t){
+  const p = profileAt(t);
+  const fx = Math.pow(Math.min(t,PROF_END)/PROF_END, 0.72);
+  const fy = Math.log10(1+p.alt)/Math.log10(1+ALT_MAX);
+  const padX = CW*0.10, padTop = CH*0.10, ground = CH*0.80;
+  return { x: padX + fx*(CW - padX - CW*0.08), y: ground - fy*(ground - padTop), alt:p.alt, kmh:p.kmh };
+}
+function gauge(cxr, cyr, R, frac, label, valueTxt, unit){
+  const a0 = Math.PI*0.75, a1 = Math.PI*2.25;
+  cx.lineWidth = 5; cx.lineCap='round';
+  cx.strokeStyle = 'rgba(27,42,62,.9)';
+  cx.beginPath(); cx.arc(cxr,cyr,R,a0,a1); cx.stroke();
+  cx.strokeStyle = '#6FD3FF';
+  cx.shadowColor='rgba(111,211,255,.5)'; cx.shadowBlur=8;
+  cx.beginPath(); cx.arc(cxr,cyr,R,a0,a0+(a1-a0)*Math.min(1,Math.max(0,frac))); cx.stroke();
+  cx.shadowBlur=0;
+  cx.fillStyle = '#EAF2FC'; cx.textAlign='center';
+  cx.font = `700 ${R*0.42|0}px ui-monospace,Consolas,monospace`;
+  cx.fillText(valueTxt, cxr, cyr+R*0.08);
+  cx.fillStyle = '#7E92A8';
+  cx.font = `600 ${Math.max(9,R*0.17)|0}px system-ui`;
+  cx.fillText(unit, cxr, cyr+R*0.34);
+  cx.fillText(label.toUpperCase(), cxr, cyr-R*0.42);
+}
+function drawScene(){
+  if (!CW) sizeCanvas();
+  if (!CW) return;
+  const t = tRel(), flying = inFlight();
+  const now = performance.now()/1000;
+  cx.clearRect(0,0,CW,CH);
+
+  // sky gradient darkens as vehicle climbs
+  const altN = flying ? Math.min(1, profileAt(t).alt/120) : 0;
+  const g = cx.createLinearGradient(0,0,0,CH);
+  g.addColorStop(0, '#04060C');
+  g.addColorStop(1, `rgba(18,36,60,${0.55*(1-altN)+0.08})`);
+  cx.fillStyle = g; cx.fillRect(0,0,CW,CH);
+
+  // stars (twinkle)
+  for (const s of STARS){
+    cx.globalAlpha = 0.35 + 0.4*Math.abs(Math.sin(now*0.7 + s.tw)) * (0.4+0.6*altN);
+    cx.fillStyle = '#CFE6FF';
+    cx.beginPath(); cx.arc(s.x*CW, s.y*CH*0.78, s.r, 0, 6.28); cx.fill();
+  }
+  cx.globalAlpha = 1;
+
+  const ground = CH*0.80;
+  // ground + pad
+  cx.strokeStyle = '#1B2A3E'; cx.lineWidth = 1.5;
+  cx.beginPath(); cx.moveTo(0, ground); cx.lineTo(CW, ground); cx.stroke();
+  cx.fillStyle = '#54677D';
+  cx.fillRect(CW*0.10-8, ground-16, 3, 16); cx.fillRect(CW*0.10+6, ground-16, 3, 16); // strongback towers
+
+  // altitude gridlines (log)
+  cx.font = '10px ui-monospace,monospace'; cx.fillStyle = '#54677D'; cx.textAlign='left';
+  for (const a of [10,50,100,200]){
+    const y = ground - (Math.log10(1+a)/Math.log10(1+ALT_MAX)) * (ground - CH*0.10);
+    cx.strokeStyle = 'rgba(27,42,62,.5)'; cx.setLineDash([3,5]);
+    cx.beginPath(); cx.moveTo(CW*0.10, y); cx.lineTo(CW*0.94, y); cx.stroke(); cx.setLineDash([]);
+    cx.fillText(a+' km', 8, y+3);
+  }
+
+  // full predicted arc (faint)
+  cx.strokeStyle = 'rgba(111,211,255,.22)'; cx.lineWidth = 1.2; cx.setLineDash([2,6]);
+  cx.beginPath();
+  for (let tt=0; tt<=PROF_END; tt+=6){ const p = arcPoint(tt); tt?cx.lineTo(p.x,p.y):cx.moveTo(p.x,p.y); }
+  cx.stroke(); cx.setLineDash([]);
+
+  let alt = 0, kmh = 0, stage = '';
+  if (flying){
+    const tc = Math.min(t, PROF_END);
+    // flown trail
+    cx.strokeStyle = '#6FD3FF'; cx.lineWidth = 2; cx.shadowColor='rgba(111,211,255,.6)'; cx.shadowBlur=6;
+    cx.beginPath();
+    for (let tt=0; tt<=tc; tt+=3){ const p = arcPoint(tt); tt?cx.lineTo(p.x,p.y):cx.moveTo(p.x,p.y); }
+    const v = arcPoint(tc); cx.lineTo(v.x,v.y); cx.stroke(); cx.shadowBlur=0;
+    alt = v.alt; kmh = v.kmh;
+
+    // vehicle marker + plume (engines: S1 burn <155s, coast 155-165, S2 165..540)
+    const burning = t < 155 || (t >= 165 && t < PROF_END);
+    if (burning){
+      const p2 = arcPoint(Math.max(0,tc-4));
+      const ang = Math.atan2(v.y-p2.y, v.x-p2.x) + Math.PI;
+      const L = 14 + Math.sin(now*30)*3;
+      const pg = cx.createLinearGradient(v.x, v.y, v.x+Math.cos(ang)*L, v.y+Math.sin(ang)*L);
+      pg.addColorStop(0,'rgba(255,217,138,.95)'); pg.addColorStop(1,'rgba(255,138,61,0)');
+      cx.strokeStyle = pg; cx.lineWidth = 4; cx.lineCap='round';
+      cx.beginPath(); cx.moveTo(v.x,v.y); cx.lineTo(v.x+Math.cos(ang)*L, v.y+Math.sin(ang)*L); cx.stroke();
+    }
+    cx.fillStyle = '#EAF2FC'; cx.shadowColor='rgba(234,242,252,.8)'; cx.shadowBlur=10;
+    cx.beginPath(); cx.arc(v.x, v.y, 3.4, 0, 6.28); cx.fill(); cx.shadowBlur=0;
+
+    stage = t < 162 ? 'STAGE 1 BURN' : t < 165 ? 'STAGE SEP' : t < PROF_END ? 'STAGE 2 BURN' : 'ORBIT INSERTION';
+    if (t >= PROF_END) stage = 'MISSION TIMELINE COMPLETE';
+  } else {
+    // vehicle on pad
+    const p0 = arcPoint(0);
+    cx.fillStyle = '#EAF2FC'; cx.fillRect(p0.x-1.5, ground-18, 3, 18);
+    stage = S.phase.mode==='scrub' ? 'SCRUBBED' : S.phase.mode==='hold' ? 'HOLDING' : 'ON PAD';
+  }
+  $('trajStage').textContent = stage;
+
+  // corner gauges (drawn in-canvas — no overlay element, avoids pointer-events pitfalls)
+  const R = Math.min(CW,CH)*0.13;
+  gauge(R*1.4, CH-R*1.25, R, kmh/28000, 'speed', String(Math.round(kmh)), 'KM/H');
+  gauge(CW-R*1.4, CH-R*1.25, R, Math.log10(1+alt)/Math.log10(1+ALT_MAX), 'altitude', alt.toFixed(alt<10?1:0), 'KM');
+}
+
+/* main loop: 30fps draw, 1Hz-ish logic */
+let lastSec = -1;
+(function loop(){
+  requestAnimationFrame(loop);
+  drawScene();
+  const s = Date.now()/1000|0;
+  if (s !== lastSec){ lastSec = s; renderClock(); renderStatusPill(); checkEvents(); }
+})();
+
+/* ============================================================
+   LAUNCH DATA — Launch Library 2 (host only)
+============================================================ */
+function normalizeLaunch(L){
+  const vids = L.vid_urls || L.vidURLs || [];
+  let webcast = '';
+  for (const v of vids){ const u = (v && (v.url||v)) || ''; if (/youtu\.?be/.test(u)){ webcast = u; break; } if (!webcast) webcast = u; }
+  return {
+    id: L.id,
+    name: L.name || 'Unknown mission',
+    net: L.net,
+    statusAbbrev: L.status && L.status.abbrev || '',
+    statusName: L.status && L.status.name || '',
+    rocket: L.rocket && L.rocket.configuration && (L.rocket.configuration.full_name || L.rocket.configuration.name) || 'Falcon 9',
+    pad: L.pad && L.pad.name || '',
+    padLoc: L.pad && L.pad.location && L.pad.location.name || '',
+    orbit: L.mission && L.mission.orbit && L.mission.orbit.name || '',
+    desc: (L.mission && L.mission.description || '').slice(0, 400),
+    provider: L.launch_service_provider && L.launch_service_provider.name || CFG.provider,
+    webcast,
+  };
+}
+async function apiGet(path){
+  const r = await fetch(CFG.api + path, { headers: { 'Accept': 'application/json' } });
+  if (r.status === 429) throw new Error('LL2 rate limit hit (15/h free) — try later or add an API key');
+  if (!r.ok) throw new Error('LL2 HTTP ' + r.status);
+  return r.json();
+}
+async function hostFetchUpcoming(){
+  $('apiNote').textContent = 'Fetching upcoming launches\u2026';
+  const q = CFG.provider ? `&search=${encodeURIComponent(CFG.provider)}` : '';
+  const d = await apiGet(`/launches/upcoming/?limit=8&hide_recent_previous=true${q}`);
+  const sel = $('launchSel'); sel.textContent = '';
+  for (const L of d.results || []){
+    const o = document.createElement('option');
+    o.value = L.id;
+    o.textContent = `${L.name} — ${new Date(L.net).toLocaleString()}`;
+    sel.appendChild(o);
+  }
+  $('apiNote').textContent = `${(d.results||[]).length} upcoming \u00b7 LL2 \u00b7 host polls every ${CFG.pollMs/60000} min`;
+  if (d.results && d.results.length) await hostSelectLaunch(d.results[0].id, d.results[0]);
+}
+async function hostSelectLaunch(id, prefetched){
+  const raw = prefetched || await apiGet(`/launches/${id}/`);
+  S.launch = normalizeLaunch(raw);
+  S.phase = { mode:'auto', t0:null, holdT:null };
+  S.firedEvents.clear(); S.demo = false;
+  applyLaunch();
+  broadcast({ t:'launch', launch: S.launch });
+  broadcast({ t:'phase', phase: S.phase });
+  feedAdd('sys', null, `Mission set: ${S.launch.name}`);
+  schedulePoll();
+}
+function schedulePoll(){
+  clearInterval(S.pollTimer);
+  S.pollTimer = setInterval(async () => {
+    if (!S.launch || S.demo) return;
+    try {
+      const raw = await apiGet(`/launches/${S.launch.id}/`);
+      const fresh = normalizeLaunch(raw);
+      const changed = fresh.net !== S.launch.net || fresh.statusAbbrev !== S.launch.statusAbbrev || fresh.webcast !== S.launch.webcast;
+      S.launch = fresh;
+      if (changed){
+        applyLaunch();
+        broadcast({ t:'launch', launch: S.launch });
+        feedAdd('sys', null, `Range update: ${fresh.statusName || fresh.statusAbbrev} \u00b7 T-0 ${new Date(fresh.net).toLocaleTimeString()}`);
+        quindar();
+      }
+      $('apiNote').textContent = `LL2 sync ok \u00b7 ${new Date().toLocaleTimeString()}`;
+    } catch(e){ $('apiNote').textContent = 'LL2 sync failed: ' + e.message; }
+  }, CFG.pollMs);
+}
+
+/* apply launch payload to UI (host + guests) */
+function applyLaunch(){
+  const L = S.launch; if (!L) return;
+  $('missionName').textContent = L.name;
+  $('missionMeta').textContent = [L.rocket, L.pad, L.padLoc, L.orbit && ('\u2192 ' + L.orbit)].filter(Boolean).join(' \u00b7 ');
+  document.title = `${L.name} \u2014 Launch Room`;
+  applyWebcast(L.webcast);
+  renderStatusPill(); renderClock();
+}
+
+/* ============================================================
+   WEBCAST — per-viewer embed of the official stream link.
+   AIDEV-NOTE: video is NOT relayed over WebRTC. YouTube live streams can't be
+   captured/rebroadcast P2P (DRM/CORS + host upload would be n full streams).
+   Host broadcasts the URL; each spectator's browser plays it directly.
+============================================================ */
+function ytEmbed(url){
+  try {
+    const u = new URL(url);
+    let id = '';
+    if (u.hostname.includes('youtu.be')) id = u.pathname.slice(1);
+    else if (u.pathname.startsWith('/live/')) id = u.pathname.split('/')[2];
+    else id = u.searchParams.get('v') || '';
+    id = (id||'').split(/[?&#/]/)[0];
+    return /^[\w-]{6,20}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0` : '';
+  } catch(e){ return ''; }
+}
+function applyWebcast(url){
+  const wrap = document.querySelector('#videoPanel .vwrap');
+  const old = wrap.querySelector('iframe'); if (old) old.remove();
+  const empty = $('videoEmpty');
+  if (!url){ empty.style.display='flex'; $('videoHint').textContent='It will appear automatically once the provider publishes the stream.'; return; }
+  const emb = ytEmbed(url);
+  if (emb){
+    empty.style.display='none';
+    const f = document.createElement('iframe');
+    f.src = emb; f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+    f.allowFullscreen = true;
+    wrap.appendChild(f);
+  } else {
+    empty.style.display='flex';
+    $('videoHint').textContent = '';
+    const a = document.createElement('a'); a.href = url; a.target='_blank'; a.rel='noopener';
+    a.textContent = 'Open webcast in new tab \u2197';
+    $('videoHint').textContent=''; $('videoHint').appendChild(a);
+  }
+}
+
+/* ============================================================
+   P2P — star topology, host = hub
+============================================================ */
+function peerOptions(){
+  // AIDEV-NOTE: config seam — self-hosted signaling/TURN via window.LAUNCHROOM_PEER_OPTIONS, not a fork
+  return Object.assign({ debug: 1 }, window.LAUNCHROOM_PEER_OPTIONS || {});
+}
+function send(conn, obj){ try { if (conn && conn.open) conn.send(obj); } catch(e){} }
+function broadcast(obj){ if (S.role === 'host') for (const {conn} of S.conns.values()) send(conn, obj); }
+
+/* ------- HOST ------- */
+function startHost(){
+  S.role = 'host'; S.code = makeCode();
+  enterRoom();
+  $('console').classList.add('on');
+  claimHostId(0);
+  hostFetchUpcoming().catch(e => { $('apiNote').textContent = 'LL2 fetch failed: ' + e.message + ' — use Demo mode or Refresh.'; });
+  window.addEventListener('beforeunload', ev => {  // room dies with host
+    if (S.conns.size){ ev.preventDefault(); ev.returnValue = ''; }
+  });
+}
+function claimHostId(attempt){
+  // AIDEV-NOTE: single peer instance, once('open'); retry own-id claim with backoff (burned: popclass fast-refresh unavailable-id)
+  if (S.peer) try { S.peer.destroy(); } catch(e){}
+  S.peer = new Peer(CFG.peerPrefix + S.code, peerOptions());
+  S.peer.once('open', () => { $('roomCodeEl').textContent = S.code; feedAdd('sys', null, `Room ${S.code} is open. Share the link.`); });
+  S.peer.on('connection', onGuestConn);
+  S.peer.on('call', c => c.close());            // host never answers inbound media
+  S.peer.on('error', err => {
+    if (err.type === 'unavailable-id' && attempt < 6){
+      setTimeout(() => claimHostId(attempt+1), 500 * Math.pow(2, attempt));
+    } else if (err.type === 'unavailable-id'){
+      toast('Room code collision — reloading with a new code'); S.code = makeCode(); claimHostId(0);
+    } else if (err.type !== 'peer-unavailable'){
+      toast('Network: ' + err.type);
+    }
+  });
+}
+function onGuestConn(conn){
+  if (S.conns.size >= CFG.maxGuests){ conn.on('open', () => { send(conn, {t:'full'}); conn.close(); }); return; }
+  const rec = { conn, name: '', msgTimes: [] };
+  conn.on('open', () => {
+    S.conns.set(conn.peer, rec);
+    send(conn, { t:'welcome', launch: S.launch, phase: S.phase, count: S.conns.size + 1 });
+    broadcast({ t:'n', count: S.conns.size + 1 });
+    updateViewers(S.conns.size + 1);
+    if (S.micStream) micCallGuest(conn.peer);
+  });
+  conn.on('data', d => {
+    // security preflight: size cap + rate cap + string hygiene on everything guest-supplied
+    try { if (JSON.stringify(d).length > CFG.maxMsgBytes) return; } catch(e){ return; }
+    const now = Date.now();
+    rec.msgTimes = rec.msgTimes.filter(t => now - t < 1000);
+    if (rec.msgTimes.length >= CFG.maxRatePerSec) return;
+    rec.msgTimes.push(now);
+    if (!d || typeof d !== 'object') return;
+    if (d.t === 'hi'){
+      const nm = cleanName(d.n);
+      if (nm && nm !== rec.name){ rec.name = nm; feedAdd('note', null, `${nm} joined the room`); }
+    }
+  });
+  const drop = () => {
+    if (!S.conns.has(conn.peer)) return;
+    const nm = S.conns.get(conn.peer).name;
+    S.conns.delete(conn.peer);
+    S.micCalls.get(conn.peer)?.close(); S.micCalls.delete(conn.peer);
+    broadcast({ t:'n', count: S.conns.size + 1 });
+    updateViewers(S.conns.size + 1);
+    if (nm) feedAdd('note', null, `${nm} left`);
+  };
+  conn.on('close', drop); conn.on('error', drop);
+}
+
+/* ------- GUEST ------- */
+function startGuest(code){
+  S.role = 'guest'; S.code = code;
+  enterRoom();
+  $('roomCodeEl').textContent = code;
+  S.peer = new Peer(peerOptions());
+  S.peer.once('open', () => connectToHost());
+  S.peer.on('call', call => {          // host mic commentary
+    call.answer();
+    call.on('stream', ms => {
+      let au = $('micAudio');
+      if (!au){ au = document.createElement('audio'); au.id='micAudio'; au.autoplay = true; document.body.appendChild(au); }
+      au.srcObject = ms;
+      feedAdd('sys', null, 'Host commentary audio is live');
+    });
+  });
+  S.peer.on('error', err => {
+    if (err.type === 'peer-unavailable') scheduleReconnect();
+  });
+}
+function connectToHost(){
+  const conn = S.peer.connect(CFG.peerPrefix + S.code, { reliable: true });
+  S.hostConn = conn;
+  conn.on('open', () => {
+    S.retries = 0;
+    send(conn, { t:'hi', n: S.name });
+    feedAdd('sys', null, 'Connected to launch room');
+  });
+  conn.on('data', onHostData);
+  conn.on('close', scheduleReconnect);
+  conn.on('error', scheduleReconnect);
+}
+function scheduleReconnect(){
+  if (S.role !== 'guest' || S.retryPending) return;
+  if (S.retries >= 8){ feedAdd('note', null, 'Room appears to be closed (host offline).'); return; }
+  S.retryPending = true;
+  const wait = Math.min(15000, 1000 * Math.pow(1.7, S.retries++));
+  feedAdd('note', null, `Connection lost — retrying in ${Math.round(wait/1000)}s`);
+  setTimeout(() => { S.retryPending = false; if (S.peer && !S.peer.destroyed) connectToHost(); }, wait);
+}
+function onHostData(d){
+  if (!d || typeof d !== 'object') return;
+  try { if (JSON.stringify(d).length > 65536) return; } catch(e){ return; }
+  switch (d.t){
+    case 'welcome':
+      if (d.launch) S.launch = d.launch;
+      if (d.phase) S.phase = d.phase;
+      updateViewers(d.count); applyLaunch(); break;
+    case 'launch': {
+      const netChanged = !S.launch || (d.launch && d.launch.net !== S.launch.net);
+      S.launch = d.launch;
+      if (netChanged) S.firedEvents.clear();   // AIDEV-NOTE: don't replay callouts on mere status/webcast updates
+      applyLaunch(); break;
+    }
+    case 'phase': S.phase = d.phase || S.phase; renderClock(); renderStatusPill();
+      if (S.phase.mode==='hold') feedAdd('sys',null,'HOLD HOLD HOLD — countdown holding');
+      if (S.phase.mode==='scrub') feedAdd('sys',null,'Launch scrub called for today');
+      if (S.phase.mode==='auto') feedAdd('sys',null,'Countdown has resumed');
+      quindar(); break;
+    case 'call': feedAdd('host', cleanName(d.who) || 'HOST', String(d.s||'').slice(0,180)); quindar(); break;
+    case 'n': updateViewers(d.count); break;
+    case 'full': feedAdd('note', null, 'Room is full.'); break;
+  }
+}
+function updateViewers(n){ S.count = n || 1; $('viewersEl').textContent = `${S.count} watching`; }
+
+/* ============================================================
+   HOST RANGE CONTROLS + CALLOUTS + MIC
+============================================================ */
+function setPhase(p){
+  S.phase = p;
+  broadcast({ t:'phase', phase: p });
+  renderClock(); renderStatusPill(); quindar();
+}
+$('btnHold').onclick = () => { const t = tRel(); if (t===null) return; setPhase({ mode:'hold', t0:S.phase.t0, holdT:Math.min(t,-0.001) }); feedAdd('sys',null,'HOLD HOLD HOLD — countdown holding'); };
+$('btnResume').onclick = () => {
+  const held = S.phase.holdT;
+  if (held !== null && held !== undefined){ // resume: new T0 so clock continues from held value
+    setPhase({ mode:'liftoff', t0: Date.now() - held*1000, holdT:null });
+  } else setPhase({ mode:'auto', t0:null, holdT:null });
+  feedAdd('sys',null,'Countdown has resumed');
+};
+$('btnScrub').onclick = () => { setPhase({ mode:'scrub', t0:null, holdT:tRel() }); feedAdd('sys',null,'Launch scrub called for today'); };
+$('btnLiftoff').onclick = () => { S.firedEvents.clear(); setPhase({ mode:'liftoff', t0:Date.now(), holdT:null }); };
+$('btnDemo').onclick = () => {
+  S.demo = true; S.firedEvents.clear();
+  if (!S.launch) S.launch = { id:'demo', name:'Demo Mission \u00b7 Starlink Group', net:new Date(Date.now()+60e3).toISOString(),
+    statusAbbrev:'Go', statusName:'Go for Launch', rocket:'Falcon 9 Block 5', pad:'SLC-40', padLoc:'Cape Canaveral SFS, FL',
+    orbit:'LEO', desc:'', provider:'SpaceX', webcast:'' };
+  applyLaunch();
+  broadcast({ t:'launch', launch:S.launch });
+  setPhase({ mode:'liftoff', t0: Date.now() + 60e3, holdT:null });
+  feedAdd('sys', null, 'Demo countdown started — T\u201360 seconds');
+};
+$('btnRefresh').onclick = () => hostFetchUpcoming().catch(e => toast(e.message));
+$('launchSel').onchange = e => hostSelectLaunch(e.target.value).catch(err => toast(err.message));
+function sendCallout(){
+  const v = $('calloutIn').value.trim().slice(0,180);
+  if (!v) return;
+  $('calloutIn').value = '';
+  feedAdd('host', S.name || 'HOST', v);
+  broadcast({ t:'call', s:v, who: S.name || 'HOST' });
+  quindar();
+}
+$('btnCallout').onclick = sendCallout;
+$('calloutIn').addEventListener('keydown', e => { if (e.key === 'Enter') sendCallout(); });
+
+async function toggleMic(){
+  if (S.micStream){
+    S.micStream.getTracks().forEach(tr => tr.stop());
+    for (const c of S.micCalls.values()) c.close();
+    S.micCalls.clear(); S.micStream = null;
+    $('btnMic').textContent = 'Mic commentary: off'; $('btnMic').classList.remove('active');
+    return;
+  }
+  if (S.conns.size > CFG.micGuestCap){ toast(`Mic capped at ${CFG.micGuestCap} listeners (host upload limit)`); return; }
+  try {
+    S.micStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    for (const id of S.conns.keys()) micCallGuest(id);
+    $('btnMic').textContent = 'Mic commentary: on'; $('btnMic').classList.add('active');
+    feedAdd('sys', null, 'Host commentary mic is live');
+  } catch(e){ toast('Mic permission denied'); }
+}
+function micCallGuest(peerId){
+  if (!S.micStream || S.micCalls.size >= CFG.micGuestCap) return;
+  const call = S.peer.call(peerId, S.micStream);
+  if (call) S.micCalls.set(peerId, call);
+}
+$('btnMic').onclick = toggleMic;
+
+/* ============================================================
+   ENTRY / SHARE / SOUND
+============================================================ */
+function enterRoom(){
+  $('landing').classList.add('hidden');
+  $('room').classList.add('on');
+  sizeCanvas();
+}
+function shareUrl(){ const u = new URL(location.href); u.search = ''; u.hash=''; u.searchParams.set('j', S.code); return u.toString(); }
+$('btnShare').onclick = async () => {
+  const url = shareUrl();
+  if (navigator.share){ try { await navigator.share({ title:'Launch Room', text:'Join the launch room', url }); return; } catch(e){} }
+  toast((await copyText(url)) ? 'Invite link copied' : url);
+};
+$('btnMute').onclick = () => { S.sound = !S.sound; $('btnMute').textContent = 'Sound: ' + (S.sound?'on':'off'); if (S.sound) audioCtx().resume?.(); };
+
+$('btnHost').onclick = () => {
+  S.name = cleanName($('hostName').value); store.set('name', S.name);
+  startHost();
+};
+$('btnJoin').onclick = () => {
+  const code = $('joinCode').value.trim().toUpperCase();
+  if (!/^[A-Z2-9]{4}$/.test(code)){ toast('Enter the 4-character room code'); return; }
+  S.name = cleanName($('joinName').value); store.set('name', S.name);
+  startGuest(code);
+};
+
+/* boot: ?j=CODE autofill + auto-join */
+(function boot(){
+  const saved = store.get('name') || '';
+  $('hostName').value = saved; $('joinName').value = saved;
+  const j = new URLSearchParams(location.search).get('j');
+  if (j && /^[A-Za-z2-9]{4}$/.test(j)){
+    $('joinCode').value = j.toUpperCase();
+    S.name = saved;
+    startGuest(j.toUpperCase());
+  }
+})();
+</script>
+</body>
+</html>
