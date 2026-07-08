@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FeedGlass — Static RSS Reader</title>
+<meta name="description" content="A zero-backend RSS/Atom feed viewer. Paste a URL, upload a feed file, or paste raw feed text.">
+<style>
+:root{
+  --bg:#0c0f16;
+  --panel:#111827;
+  --panel2:#182131;
+  --text:#eef2ff;
+  --muted:#9aa6bd;
+  --line:#283247;
+  --brand:#8bd3ff;
+  --brand2:#b990ff;
+  --good:#76f7bf;
+  --warn:#ffd479;
+  --bad:#ff8b8b;
+  --shadow:0 24px 80px rgba(0,0,0,.42);
+  --radius:22px;
+}
+[data-theme="light"]{
+  --bg:#f6f7fb;
+  --panel:#ffffff;
+  --panel2:#f0f4fb;
+  --text:#121827;
+  --muted:#596579;
+  --line:#dfe5ef;
+  --brand:#006adc;
+  --brand2:#7248d6;
+  --good:#047857;
+  --warn:#9a5800;
+  --bad:#b42318;
+  --shadow:0 22px 65px rgba(30,42,60,.12);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  color:var(--text);
+  background:
+    radial-gradient(circle at 10% 0%,rgba(139,211,255,.24),transparent 32rem),
+    radial-gradient(circle at 95% 8%,rgba(185,144,255,.20),transparent 34rem),
+    linear-gradient(180deg,var(--bg),var(--bg));
+}
+a{color:inherit}
+button,input,textarea{font:inherit}
+.shell{max-width:1180px;margin:0 auto;padding:24px}
+.hero{
+  display:grid;
+  grid-template-columns:1.05fr .95fr;
+  gap:24px;
+  align-items:stretch;
+  margin-top:10px;
+}
+.card{
+  background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02)),var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+}
+.brand{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:22px;
+}
+.logo{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  font-weight:800;
+  letter-spacing:-.03em;
+  font-size:1.05rem;
+}
+.logoMark{
+  width:38px;height:38px;border-radius:13px;
+  background:conic-gradient(from 190deg,var(--brand),var(--brand2),var(--good),var(--brand));
+  position:relative;
+  box-shadow:0 10px 35px rgba(139,211,255,.22);
+}
+.logoMark:after{
+  content:"";
+  position:absolute;inset:10px;
+  border-radius:50%;
+  background:var(--panel);
+}
+.topActions{display:flex;gap:10px;align-items:center}
+.iconBtn{
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.035);
+  color:var(--text);
+  padding:10px 12px;
+  border-radius:14px;
+  cursor:pointer;
+}
+.iconBtn:hover{border-color:color-mix(in srgb,var(--brand) 55%,var(--line))}
+.intro{padding:32px}
+h1{
+  font-size:clamp(2.1rem,6vw,4.8rem);
+  line-height:.94;
+  letter-spacing:-.075em;
+  margin:0 0 18px;
+}
+.lede{
+  max-width:64ch;
+  color:var(--muted);
+  font-size:1.08rem;
+  line-height:1.55;
+  margin:0 0 24px;
+}
+.badges{display:flex;flex-wrap:wrap;gap:10px}
+.badge{
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.045);
+  color:var(--muted);
+  border-radius:999px;
+  padding:8px 11px;
+  font-size:.88rem;
+}
+.ingest{padding:20px}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.tab{
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.035);
+  color:var(--muted);
+  border-radius:14px;
+  padding:11px;
+  cursor:pointer;
+}
+.tab.active{
+  color:var(--text);
+  border-color:color-mix(in srgb,var(--brand) 60%,var(--line));
+  background:linear-gradient(135deg,rgba(139,211,255,.15),rgba(185,144,255,.11));
+}
+.panel{display:none}
+.panel.active{display:block}
+.row{display:flex;gap:10px}
+input[type="url"],input[type="search"],textarea{
+  width:100%;
+  color:var(--text);
+  background:rgba(255,255,255,.035);
+  border:1px solid var(--line);
+  border-radius:16px;
+  padding:13px 14px;
+  outline:none;
+}
+textarea{
+  min-height:154px;
+  resize:vertical;
+  line-height:1.45;
+}
+input:focus,textarea:focus{
+  border-color:color-mix(in srgb,var(--brand) 68%,var(--line));
+  box-shadow:0 0 0 4px rgba(139,211,255,.10);
+}
+.primary{
+  border:0;
+  background:linear-gradient(135deg,var(--brand),var(--brand2));
+  color:#06111d;
+  font-weight:800;
+  padding:13px 16px;
+  border-radius:16px;
+  cursor:pointer;
+  white-space:nowrap;
+}
+[data-theme="light"] .primary{color:#fff}
+.secondary{
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.04);
+  color:var(--text);
+  padding:13px 14px;
+  border-radius:16px;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.fileBox{
+  border:1px dashed color-mix(in srgb,var(--brand) 45%,var(--line));
+  border-radius:18px;
+  padding:22px;
+  text-align:center;
+  background:rgba(139,211,255,.055);
+}
+.fileBox input{display:none}
+.fileBox label{display:block;cursor:pointer}
+.fileTitle{font-weight:750;margin-bottom:5px}
+.fileHint,.hint{font-size:.9rem;color:var(--muted);line-height:1.4}
+.hint{margin-top:10px}
+.status{
+  margin-top:12px;
+  padding:11px 13px;
+  border-radius:14px;
+  color:var(--muted);
+  background:rgba(255,255,255,.035);
+  border:1px solid var(--line);
+  min-height:43px;
+}
+.status.ok{color:var(--good)}
+.status.warn{color:var(--warn)}
+.status.bad{color:var(--bad)}
+.recent{
+  margin-top:14px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.recent button{
+  border:1px solid var(--line);
+  color:var(--muted);
+  background:transparent;
+  padding:8px 10px;
+  border-radius:999px;
+  cursor:pointer;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.results{
+  margin-top:26px;
+  display:grid;
+  grid-template-columns:330px 1fr;
+  gap:22px;
+}
+.feedMeta{padding:20px;position:sticky;top:18px;align-self:start}
+.feedHero{
+  min-height:130px;
+  border-radius:19px;
+  background:
+    radial-gradient(circle at 20% 20%,rgba(139,211,255,.38),transparent 45%),
+    radial-gradient(circle at 80% 0%,rgba(185,144,255,.32),transparent 40%),
+    linear-gradient(135deg,var(--panel2),var(--panel));
+  padding:18px;
+  display:flex;
+  flex-direction:column;
+  justify-content:flex-end;
+  margin-bottom:16px;
+}
+.feedTitle{font-size:1.32rem;font-weight:850;letter-spacing:-.035em;margin:0 0 6px;line-height:1.1}
+.feedDesc{color:var(--muted);line-height:1.45;font-size:.94rem;margin:0}
+.stats{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin:16px 0;
+}
+.stat{border:1px solid var(--line);border-radius:16px;padding:12px;background:rgba(255,255,255,.028)}
+.stat b{display:block;font-size:1.2rem}
+.stat span{color:var(--muted);font-size:.82rem}
+.controls{display:grid;gap:10px}
+.feedLink{
+  display:block;
+  text-decoration:none;
+  border:1px solid var(--line);
+  padding:12px;
+  border-radius:15px;
+  color:var(--muted);
+  word-break:break-word;
+}
+.toolbar{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  margin-bottom:14px;
+  position:sticky;
+  top:12px;
+  z-index:5;
+  backdrop-filter:blur(14px);
+  background:color-mix(in srgb,var(--bg) 76%,transparent);
+  padding:8px;
+  border-radius:20px;
+  border:1px solid rgba(255,255,255,.04);
+}
+.toolbar input{min-width:0}
+select{
+  color:var(--text);
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:12px;
+}
+.items{display:grid;gap:14px}
+.item{
+  padding:18px;
+  display:grid;
+  grid-template-columns:112px 1fr;
+  gap:16px;
+  overflow:hidden;
+}
+.thumb{
+  width:112px;
+  height:112px;
+  border-radius:19px;
+  background:
+    linear-gradient(135deg,rgba(139,211,255,.28),rgba(185,144,255,.22)),
+    var(--panel2);
+  object-fit:cover;
+  border:1px solid var(--line);
+}
+.itemTitle{
+  display:block;
+  font-size:1.12rem;
+  line-height:1.2;
+  letter-spacing:-.025em;
+  font-weight:800;
+  text-decoration:none;
+  margin-bottom:8px;
+}
+.itemTitle:hover{text-decoration:underline}
+.itemText{color:var(--muted);line-height:1.48;margin:0 0 11px}
+.itemMeta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;color:var(--muted);font-size:.85rem}
+.pill{border:1px solid var(--line);border-radius:999px;padding:5px 8px;background:rgba(255,255,255,.028)}
+.empty{
+  text-align:center;
+  padding:50px 24px;
+  color:var(--muted);
+}
+dialog{
+  width:min(850px,calc(100vw - 28px));
+  border:1px solid var(--line);
+  border-radius:24px;
+  background:var(--panel);
+  color:var(--text);
+  box-shadow:var(--shadow);
+}
+dialog::backdrop{background:rgba(0,0,0,.58);backdrop-filter:blur(4px)}
+.modalHead{display:flex;justify-content:space-between;gap:12px;align-items:start;margin-bottom:12px}
+.readerTitle{font-size:1.5rem;font-weight:850;letter-spacing:-.035em;margin:0}
+.readerBody{color:var(--text);line-height:1.64}
+.readerBody img{max-width:100%;height:auto;border-radius:16px}
+.readerBody a{color:var(--brand)}
+.footer{
+  margin:30px 0 10px;
+  color:var(--muted);
+  font-size:.9rem;
+  text-align:center;
+}
+.hidden{display:none!important}
+@media (max-width:900px){
+  .hero,.results{grid-template-columns:1fr}
+  .feedMeta{position:static}
+  .toolbar{position:static;flex-wrap:wrap}
+  .toolbar input{flex:1 1 100%}
+}
+@media (max-width:560px){
+  .shell{padding:14px}
+  .intro{padding:22px}
+  .ingest{padding:14px}
+  .row{flex-direction:column}
+  .tabs{grid-template-columns:1fr}
+  .item{grid-template-columns:1fr}
+  .thumb{width:100%;height:180px}
+  .brand{align-items:flex-start}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="brand">
+    <div class="logo"><span class="logoMark"></span><span>FeedGlass</span></div>
+    <div class="topActions">
+      <button id="demoBtn" class="iconBtn" title="Load demo feed">Demo</button>
+      <button id="themeBtn" class="iconBtn" title="Toggle theme">Theme</button>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="intro card">
+      <h1>Turn any RSS feed into a clean visual reader.</h1>
+      <p class="lede">Paste a feed URL, upload an RSS/Atom/XML file, or paste raw feed text. Everything runs in the browser. No account, no server, no database.</p>
+      <div class="badges">
+        <span class="badge">RSS 2.0</span>
+        <span class="badge">Atom</span>
+        <span class="badge">JSON Feed</span>
+        <span class="badge">Local files</span>
+        <span class="badge">GitHub Pages ready</span>
+      </div>
+    </div>
+
+    <div class="ingest card">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="url">Feed URL</button>
+        <button class="tab" data-tab="file">Feed file</button>
+        <button class="tab" data-tab="text">Raw text</button>
+      </div>
+
+      <div id="urlPanel" class="panel active">
+        <div class="row">
+          <input id="feedUrl" type="url" placeholder="https://example.com/feed.xml" autocomplete="url">
+          <button id="loadUrl" class="primary">Load</button>
+        </div>
+        <div class="hint">Some publishers block browser fetch with CORS. If that happens, download the feed and use the file/text tabs.</div>
+      </div>
+
+      <div id="filePanel" class="panel">
+        <div class="fileBox" id="dropZone">
+          <label>
+            <input id="feedFile" type="file" accept=".xml,.rss,.atom,.json,.txt,application/rss+xml,application/atom+xml,application/json,text/xml">
+            <div class="fileTitle">Drop a feed file here or click to choose</div>
+            <div class="fileHint">Works offline after the page loads.</div>
+          </label>
+        </div>
+      </div>
+
+      <div id="textPanel" class="panel">
+        <textarea id="feedText" placeholder="Paste RSS, Atom, or JSON Feed text here"></textarea>
+        <div style="height:10px"></div>
+        <button id="loadText" class="primary">Parse text</button>
+      </div>
+
+      <div id="status" class="status">Ready.</div>
+      <div id="recent" class="recent"></div>
+    </div>
+  </section>
+
+  <section id="results" class="results hidden">
+    <aside class="feedMeta card">
+      <div class="feedHero">
+        <h2 id="metaTitle" class="feedTitle">Feed title</h2>
+        <p id="metaDesc" class="feedDesc"></p>
+      </div>
+      <div class="stats">
+        <div class="stat"><b id="statItems">0</b><span>items</span></div>
+        <div class="stat"><b id="statFresh">—</b><span>newest</span></div>
+      </div>
+      <div class="controls">
+        <button id="copySummary" class="secondary">Copy summary</button>
+        <button id="exportJson" class="secondary">Export JSON</button>
+        <a id="metaLink" class="feedLink hidden" target="_blank" rel="noopener">Open original site</a>
+      </div>
+    </aside>
+
+    <main>
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Search title, author, summary...">
+        <select id="sort">
+          <option value="new">Newest first</option>
+          <option value="old">Oldest first</option>
+          <option value="title">Title A-Z</option>
+        </select>
+        <button id="clearSearch" class="secondary">Clear</button>
+      </div>
+      <div id="items" class="items"></div>
+    </main>
+  </section>
+
+  <footer class="footer">
+    Static RSS/Atom/JSON Feed viewer. URL mode depends on publisher CORS; file and paste modes work without network access.
+  </footer>
+</div>
+
+<dialog id="reader">
+  <div class="modalHead">
+    <div>
+      <h3 id="readerTitle" class="readerTitle"></h3>
+      <div id="readerMeta" class="itemMeta"></div>
+    </div>
+    <button id="closeReader" class="iconBtn">Close</button>
+  </div>
+  <div id="readerBody" class="readerBody"></div>
+</dialog>
+
+<script>
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+const state = { feed:null, items:[], filtered:[], source:"" };
+
+const demoFeed = `<?xml version="1.0"?>
+<rss version="2.0">
+<channel>
+<title>Example Product Signals</title>
+<link>https://example.com</link>
+<description>A tiny sample feed for testing FeedGlass.</description>
+<item>
+<title>Zero-backend tools are eating internal dashboards</title>
+<link>https://example.com/zero-backend</link>
+<author>Product Engineering</author>
+<pubDate>Wed, 08 Jul 2026 14:30:00 GMT</pubDate>
+<description><![CDATA[Static browser apps can now parse, store, visualize, and synchronize useful operational data without standing up a backend.]]></description>
+</item>
+<item>
+<title>RSS still works because it is boring</title>
+<link>https://example.com/rss-still-works</link>
+<author>Web Standards Desk</author>
+<pubDate>Tue, 07 Jul 2026 17:10:00 GMT</pubDate>
+<description><![CDATA[RSS and Atom remain useful interchange formats for monitoring, dashboards, newsletters, and local-first readers.]]></description>
+</item>
+<item>
+<title>Design note: reader cards should privilege scannability</title>
+<link>https://example.com/scannability</link>
+<author>UX Notes</author>
+<pubDate>Mon, 06 Jul 2026 09:00:00 GMT</pubDate>
+<description><![CDATA[Use source, date, title, short summary, and a direct action. Hide everything else until requested.]]></description>
+</item>
+</channel>
+</rss>`;
+
+function setStatus(text, kind=""){
+  const el = $("#status");
+  el.textContent = text;
+  el.className = "status " + kind;
+}
+
+function stripHtml(input=""){
+  const doc = new DOMParser().parseFromString(String(input), "text/html");
+  return (doc.body.textContent || "").replace(/\s+/g," ").trim();
+}
+
+function sanitizeHtml(input=""){
+  const doc = new DOMParser().parseFromString(String(input || ""), "text/html");
+  doc.querySelectorAll("script,style,iframe,object,embed,form,input,button,textarea,select,link,meta").forEach(n => n.remove());
+  doc.querySelectorAll("*").forEach(el => {
+    [...el.attributes].forEach(a => {
+      const name = a.name.toLowerCase();
+      const val = a.value || "";
+      if(name.startsWith("on")) el.removeAttribute(a.name);
+      if(["href","src"].includes(name) && /^\s*javascript:/i.test(val)) el.removeAttribute(a.name);
+      if(name === "style") el.removeAttribute(a.name);
+    });
+    if(el.tagName === "A"){
+      el.setAttribute("target","_blank");
+      el.setAttribute("rel","noopener noreferrer");
+    }
+  });
+  return doc.body.innerHTML;
+}
+
+function textOf(parent, selectors){
+  for(const sel of selectors){
+    const node = parent.querySelector(sel);
+    if(node && node.textContent.trim()) return node.textContent.trim();
+  }
+  return "";
+}
+
+function attrOf(parent, selectors, attr){
+  for(const sel of selectors){
+    const node = parent.querySelector(sel);
+    if(node && node.getAttribute(attr)) return node.getAttribute(attr).trim();
+  }
+  return "";
+}
+
+function getAtomLink(el){
+  const alt = el.querySelector("link[rel='alternate']");
+  const any = el.querySelector("link[href]");
+  return (alt || any)?.getAttribute("href") || textOf(el,["link"]);
+}
+
+function getImage(el, html){
+  const media = attrOf(el,["media\\:thumbnail","thumbnail"],"url") ||
+                attrOf(el,["media\\:content[medium='image']","media\\:content","enclosure[type^='image']"],"url");
+  if(media) return media;
+  const doc = new DOMParser().parseFromString(html || "", "text/html");
+  return doc.querySelector("img")?.src || "";
+}
+
+function parseXmlFeed(text){
+  const xml = new DOMParser().parseFromString(text, "application/xml");
+  const parseError = xml.querySelector("parsererror");
+  if(parseError) throw new Error("This does not look like valid XML. Try the raw text again or upload the original feed file.");
+
+  const isAtom = !!xml.querySelector("feed > entry");
+  const channel = xml.querySelector("channel") || xml.querySelector("feed") || xml;
+  const feedTitle = textOf(channel,["title"]) || "Untitled feed";
+  const feedLink = isAtom ? getAtomLink(channel) : textOf(channel,["link"]);
+  const feedDesc = textOf(channel,["description","subtitle","tagline"]) || "";
+  const nodes = isAtom ? [...xml.querySelectorAll("entry")] : [...xml.querySelectorAll("item")];
+
+  const items = nodes.map((el, i) => {
+    const rawHtml = textOf(el,["content","content\\:encoded","summary","description"]) || "";
+    const title = textOf(el,["title"]) || "Untitled item";
+    const link = isAtom ? getAtomLink(el) : textOf(el,["link","guid"]);
+    const dateRaw = textOf(el,["pubDate","published","updated","dc\\:date"]);
+    const date = dateRaw ? new Date(dateRaw) : null;
+    const author = textOf(el,["author name","author","dc\\:creator","creator"]);
+    const categories = [...el.querySelectorAll("category")].map(c => c.textContent.trim()).filter(Boolean);
+    return {
+      id: link || title + i,
+      title,
+      link,
+      date: date && !isNaN(date) ? date.toISOString() : "",
+      author,
+      summary: stripHtml(rawHtml),
+      html: sanitizeHtml(rawHtml),
+      image: getImage(el, rawHtml),
+      categories
+    };
+  });
+
+  return { title: feedTitle, link: feedLink, description: feedDesc, items };
+}
+
+function parseJsonFeed(text){
+  const json = JSON.parse(text);
+  const items = (json.items || []).map((it, i) => {
+    const rawHtml = it.content_html || it.summary || it.content_text || "";
+    const dateRaw = it.date_published || it.date_modified || "";
+    const date = dateRaw ? new Date(dateRaw) : null;
+    return {
+      id: it.id || it.url || String(i),
+      title: it.title || "Untitled item",
+      link: it.url || it.external_url || "",
+      date: date && !isNaN(date) ? date.toISOString() : "",
+      author: it.author?.name || it.authors?.map(a => a.name).join(", ") || "",
+      summary: stripHtml(it.summary || it.content_text || rawHtml),
+      html: it.content_html ? sanitizeHtml(it.content_html) : "",
+      image: it.image || it.banner_image || "",
+      categories: it.tags || []
+    };
+  });
+  return {
+    title: json.title || "Untitled JSON Feed",
+    link: json.home_page_url || json.feed_url || "",
+    description: json.description || "",
+    items
+  };
+}
+
+function parseFeed(text){
+  const trimmed = text.trim();
+  if(!trimmed) throw new Error("Feed input is empty.");
+  if(trimmed[0] === "{" || trimmed[0] === "[") return parseJsonFeed(trimmed);
+  return parseXmlFeed(trimmed);
+}
+
+function hostName(url){
+  try{return new URL(url).hostname.replace(/^www\./,"")}catch{return ""}
+}
+
+function dateLabel(iso){
+  if(!iso) return "No date";
+  const d = new Date(iso);
+  if(isNaN(d)) return "No date";
+  return d.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"});
+}
+
+function relativeNewest(items){
+  const dates = items.map(i => i.date ? +new Date(i.date) : 0).filter(Boolean);
+  if(!dates.length) return "—";
+  const d = new Date(Math.max(...dates));
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
+}
+
+function saveRecent(url){
+  if(!url || !/^https?:\/\//i.test(url)) return;
+  const recent = JSON.parse(localStorage.getItem("feedglass:recent") || "[]");
+  const next = [url, ...recent.filter(x => x !== url)].slice(0,8);
+  localStorage.setItem("feedglass:recent", JSON.stringify(next));
+  renderRecent();
+}
+
+function renderRecent(){
+  const box = $("#recent");
+  const recent = JSON.parse(localStorage.getItem("feedglass:recent") || "[]");
+  box.innerHTML = "";
+  recent.forEach(url => {
+    const b = document.createElement("button");
+    b.textContent = hostName(url) || url;
+    b.title = url;
+    b.onclick = () => { $("#feedUrl").value = url; loadUrl(); };
+    box.appendChild(b);
+  });
+}
+
+function renderFeed(feed, source=""){
+  state.feed = feed;
+  state.items = feed.items || [];
+  state.source = source;
+  $("#results").classList.remove("hidden");
+  $("#metaTitle").textContent = feed.title || "Untitled feed";
+  $("#metaDesc").textContent = feed.description || "";
+  $("#statItems").textContent = state.items.length;
+  $("#statFresh").textContent = relativeNewest(state.items);
+  if(feed.link){
+    $("#metaLink").href = feed.link;
+    $("#metaLink").textContent = "Open " + (hostName(feed.link) || feed.link);
+    $("#metaLink").classList.remove("hidden");
+  } else {
+    $("#metaLink").classList.add("hidden");
+  }
+  applyFilters();
+}
+
+function applyFilters(){
+  const q = $("#search").value.trim().toLowerCase();
+  const sort = $("#sort").value;
+  let items = [...state.items];
+
+  if(q){
+    items = items.filter(it => [it.title,it.summary,it.author,(it.categories||[]).join(" ")].join(" ").toLowerCase().includes(q));
+  }
+  items.sort((a,b) => {
+    if(sort === "title") return a.title.localeCompare(b.title);
+    const da = a.date ? +new Date(a.date) : 0;
+    const db = b.date ? +new Date(b.date) : 0;
+    return sort === "old" ? da - db : db - da;
+  });
+  state.filtered = items;
+  renderItems(items);
+}
+
+function fallbackThumb(title){
+  const canvas = document.createElement("canvas");
+  canvas.width = 224; canvas.height = 224;
+  const ctx = canvas.getContext("2d");
+  const g = ctx.createLinearGradient(0,0,224,224);
+  g.addColorStop(0,"#8bd3ff"); g.addColorStop(.55,"#b990ff"); g.addColorStop(1,"#76f7bf");
+  ctx.fillStyle = g; ctx.fillRect(0,0,224,224);
+  ctx.fillStyle = "rgba(10,14,22,.72)";
+  ctx.beginPath(); ctx.roundRect(24,24,176,176,30); ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 62px system-ui";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const letters = (title || "RSS").split(/\s+/).filter(Boolean).slice(0,2).map(w => w[0]).join("").toUpperCase();
+  ctx.fillText(letters || "RSS",112,112);
+  return canvas.toDataURL();
+}
+
+function renderItems(items){
+  const box = $("#items");
+  box.innerHTML = "";
+  if(!items.length){
+    box.innerHTML = '<div class="empty card">No items match the current filter.</div>';
+    return;
+  }
+  items.forEach(it => {
+    const card = document.createElement("article");
+    card.className = "item card";
+
+    const img = document.createElement("img");
+    img.className = "thumb";
+    img.loading = "lazy";
+    img.alt = "";
+    img.src = it.image || fallbackThumb(it.title);
+    img.onerror = () => { img.src = fallbackThumb(it.title); };
+
+    const body = document.createElement("div");
+    const title = document.createElement(it.link ? "a" : "div");
+    title.className = "itemTitle";
+    title.textContent = it.title;
+    if(it.link){ title.href = it.link; title.target = "_blank"; title.rel = "noopener noreferrer"; }
+
+    const text = document.createElement("p");
+    text.className = "itemText";
+    text.textContent = it.summary ? it.summary.slice(0,260) + (it.summary.length > 260 ? "…" : "") : "No summary available.";
+
+    const meta = document.createElement("div");
+    meta.className = "itemMeta";
+    const source = hostName(it.link || state.feed?.link || "");
+    [dateLabel(it.date), it.author, source].filter(Boolean).forEach(v => {
+      const s = document.createElement("span");
+      s.className = "pill";
+      s.textContent = v;
+      meta.appendChild(s);
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "itemMeta";
+    actions.style.marginTop = "12px";
+    const read = document.createElement("button");
+    read.className = "secondary";
+    read.textContent = "Preview";
+    read.onclick = () => openReader(it);
+    actions.appendChild(read);
+    if(it.link){
+      const open = document.createElement("a");
+      open.className = "secondary";
+      open.style.textDecoration = "none";
+      open.href = it.link;
+      open.target = "_blank";
+      open.rel = "noopener noreferrer";
+      open.textContent = "Open";
+      actions.appendChild(open);
+    }
+
+    body.append(title,text,meta,actions);
+    card.append(img,body);
+    box.appendChild(card);
+  });
+}
+
+function openReader(item){
+  $("#readerTitle").textContent = item.title;
+  $("#readerMeta").innerHTML = "";
+  [dateLabel(item.date), item.author, hostName(item.link)].filter(Boolean).forEach(v => {
+    const s = document.createElement("span");
+    s.className = "pill";
+    s.textContent = v;
+    $("#readerMeta").appendChild(s);
+  });
+  $("#readerBody").innerHTML = item.html || "";
+  if(!$("#readerBody").textContent.trim()){
+    $("#readerBody").textContent = item.summary || "No preview content available.";
+  }
+  if(item.link){
+    const p = document.createElement("p");
+    const a = document.createElement("a");
+    a.href = item.link; a.target = "_blank"; a.rel = "noopener noreferrer";
+    a.textContent = "Open original item";
+    p.appendChild(a);
+    $("#readerBody").appendChild(p);
+  }
+  $("#reader").showModal();
+}
+
+async function loadUrl(){
+  const url = $("#feedUrl").value.trim();
+  if(!url) return setStatus("Enter a feed URL.", "warn");
+  setStatus("Fetching feed URL…");
+  try{
+    const res = await fetch(url, { mode:"cors", cache:"no-store" });
+    if(!res.ok) throw new Error("HTTP " + res.status + " while fetching the feed.");
+    const text = await res.text();
+    const feed = parseFeed(text);
+    renderFeed(feed, url);
+    saveRecent(url);
+    setStatus(`Loaded ${feed.items.length} items from ${hostName(url) || "feed"}.`, "ok");
+  }catch(err){
+    setStatus("Could not load this URL in the browser: " + err.message + " This is usually CORS. Use file upload or paste raw feed text.", "bad");
+  }
+}
+
+function loadText(){
+  try{
+    const feed = parseFeed($("#feedText").value);
+    renderFeed(feed, "pasted text");
+    setStatus(`Parsed ${feed.items.length} items from pasted text.`, "ok");
+  }catch(err){ setStatus(err.message, "bad"); }
+}
+
+async function loadFile(file){
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const feed = parseFeed(text);
+    renderFeed(feed, file.name);
+    setStatus(`Parsed ${feed.items.length} items from ${file.name}.`, "ok");
+  }catch(err){ setStatus(err.message, "bad"); }
+}
+
+function copySummary(){
+  if(!state.feed) return;
+  const lines = [
+    `${state.feed.title || "Feed"} — ${state.items.length} items`,
+    state.feed.description || "",
+    "",
+    ...state.items.slice(0,12).map((it,i) => `${i+1}. ${it.title}${it.date ? " (" + dateLabel(it.date) + ")" : ""}${it.link ? "\n   " + it.link : ""}`)
+  ];
+  navigator.clipboard.writeText(lines.join("\n").trim());
+  setStatus("Copied feed summary to clipboard.", "ok");
+}
+
+function exportJson(){
+  if(!state.feed) return;
+  const blob = new Blob([JSON.stringify({feed:state.feed, exportedAt:new Date().toISOString()}, null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "feedglass-export.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus("Exported normalized feed JSON.", "ok");
+}
+
+$$(".tab").forEach(tab => tab.addEventListener("click", () => {
+  $$(".tab").forEach(t => t.classList.remove("active"));
+  $$(".panel").forEach(p => p.classList.remove("active"));
+  tab.classList.add("active");
+  $("#" + tab.dataset.tab + "Panel").classList.add("active");
+}));
+
+$("#loadUrl").onclick = loadUrl;
+$("#feedUrl").addEventListener("keydown", e => { if(e.key === "Enter") loadUrl(); });
+$("#loadText").onclick = loadText;
+$("#feedFile").onchange = e => loadFile(e.target.files[0]);
+$("#search").oninput = applyFilters;
+$("#sort").onchange = applyFilters;
+$("#clearSearch").onclick = () => { $("#search").value = ""; applyFilters(); };
+$("#copySummary").onclick = copySummary;
+$("#exportJson").onclick = exportJson;
+$("#closeReader").onclick = () => $("#reader").close();
+$("#demoBtn").onclick = () => {
+  const feed = parseFeed(demoFeed);
+  renderFeed(feed, "demo");
+  setStatus("Loaded demo feed.", "ok");
+};
+$("#themeBtn").onclick = () => {
+  const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem("feedglass:theme", next);
+};
+$("#dropZone").addEventListener("dragover", e => {
+  e.preventDefault();
+  $("#dropZone").style.borderColor = "var(--brand)";
+});
+$("#dropZone").addEventListener("dragleave", () => {
+  $("#dropZone").style.borderColor = "";
+});
+$("#dropZone").addEventListener("drop", e => {
+  e.preventDefault();
+  $("#dropZone").style.borderColor = "";
+  loadFile(e.dataTransfer.files[0]);
+});
+
+const savedTheme = localStorage.getItem("feedglass:theme");
+if(savedTheme) document.documentElement.dataset.theme = savedTheme;
+renderRecent();
+</script>
+</body>
+</html>
