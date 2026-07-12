@@ -1,0 +1,17 @@
+CAFE LUNA
+Receipt #00093211
+Order date: 2026-06-01
+
+2 x Latte @ 4.50               9.00
+1 x Croissant                   3.25
+1 x Avocado Toast                8.75
+1 x Orange Juice                 4.00
+
+Subtotal                        25.00
+Discount                        -2.50
+Tax                               1.80
+Gratuity                          4.00
+Total                            28.30
+
+Phone: (555) 019-2231
+Table 12  Server: J.
