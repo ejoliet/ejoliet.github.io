@@ -15,7 +15,7 @@ It accepts a shared photo/screenshot, runs object detection in the browser, and 
 
 ## iOS Shortcut import
 
-1. Download `/home/runner/work/ejoliet.github.io/ejoliet.github.io/picture-inventory/Picture-Inventory.shortcut`, then copy it to iCloud Drive.
+1. Download `picture-inventory/Picture-Inventory.shortcut`, then copy it to iCloud Drive.
 2. On iOS, open Files, tap the `.shortcut` file, then import into Shortcuts.
 3. In Shortcuts, edit the **Replace Text** action and change:
    - `https://YOUR_HOST/picture-inventory/index.html#image=`

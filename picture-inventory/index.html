@@ -290,7 +290,7 @@
           </div>
         </div>
       </div>
-      <p class="hint">Setup: edit <code>/home/runner/work/ejoliet.github.io/ejoliet.github.io/picture-inventory/Picture-Inventory.shortcut</code>, replace <code>YOUR_HOST</code> (for this repo use <code>ejoliet.github.io</code>), then import the shortcut on iOS and share a photo from Photos. Detection runs locally in the browser with a CDN-loaded COCO-SSD model; the confidence slider filters displayed detections after analysis.</p>
+      <p class="hint">Setup: edit <code>picture-inventory/Picture-Inventory.shortcut</code>, replace <code>YOUR_HOST</code> (for this repo use <code>ejoliet.github.io</code>), then import the shortcut on iOS and share a photo from Photos. Detection runs locally in the browser with a CDN-loaded COCO-SSD model; the confidence slider filters displayed detections after analysis.</p>
       <div id="status" class="status" aria-live="polite"></div>
     </section>
 
@@ -310,6 +310,9 @@
       const feed = document.getElementById("feed");
       const status = document.getElementById("status");
       const maxItems = 100;
+      const IOU_DEDUP_THRESHOLD = 0.45;
+      const MAX_DETECTIONS = 30;
+      const MIN_RAW_SCORE = 0.05;
       const analyzingIds = new Set();
       let detectorPromise = null;
 
@@ -568,7 +571,7 @@
 
         const merged = [];
         for (const candidate of candidates) {
-          const match = merged.find((entry) => entry.label === candidate.label && iou(entry, candidate) >= 0.45);
+          const match = merged.find((entry) => entry.label === candidate.label && iou(entry, candidate) >= IOU_DEDUP_THRESHOLD);
           if (match) {
             match.quantity += 1;
             if (candidate.score > match.score) {
@@ -792,7 +795,7 @@
           const detector = await getDetector();
           const image = await loadImage(item.dataUrl);
           // Keep a broader raw candidate set here; the user-controlled threshold filters what is shown.
-          const rawDetections = await detector.detect(image, 30, 0.05);
+          const rawDetections = await detector.detect(image, MAX_DETECTIONS, MIN_RAW_SCORE);
           image.src = "";
           item.analysis = {
             generatedAt: nowIso(),
