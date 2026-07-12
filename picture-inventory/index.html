@@ -310,7 +310,7 @@
       const feed = document.getElementById("feed");
       const status = document.getElementById("status");
       const maxItems = 100;
-      const OVERLAP_DEDUP_THRESHOLD = 0.45; // Intersection over Union overlap threshold for merging same-label boxes.
+      const IOU_DEDUP_THRESHOLD = 0.45; // Intersection over Union overlap threshold for merging same-label boxes.
       const MAX_DETECTIONS = 30; // Preserve a broader raw candidate set per image before UI filtering.
       const MIN_RAW_SCORE = 0.05; // Keep low-score candidates so the confidence slider can hide/show them later.
       const analyzingIds = new Set();
@@ -579,7 +579,7 @@
 
         const merged = [];
         for (const candidate of candidates) {
-          const match = merged.find((entry) => entry.label === candidate.label && iou(entry, candidate) >= OVERLAP_DEDUP_THRESHOLD);
+          const match = merged.find((entry) => entry.label === candidate.label && iou(entry, candidate) >= IOU_DEDUP_THRESHOLD);
           if (match) {
             match.quantity += 1;
             if (candidate.score > match.score) {
@@ -812,7 +812,6 @@
           const image = await loadImage(item.dataUrl);
           // Keep a broader raw candidate set here; the user-controlled threshold filters what is shown.
           const rawDetections = await detector.detect(image, MAX_DETECTIONS, MIN_RAW_SCORE);
-          image.src = ""; // Release the in-memory image source after detection finishes.
           item.analysis = {
             generatedAt: nowIso(),
             attemptedAt: nowIso(),
