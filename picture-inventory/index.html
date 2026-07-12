@@ -290,7 +290,7 @@
           </div>
         </div>
       </div>
-      <p class="hint">Setup: edit <code>/home/runner/work/ejoliet.github.io/ejoliet.github.io/picture-inventory/Picture-Inventory.shortcut</code>, replace <code>YOUR_HOST</code> (for this repo use <code>ejoliet.github.io</code>), then import the shortcut on iOS and share a photo from Photos. Detection runs locally in the browser with a CDN-loaded COCO-SSD model.</p>
+      <p class="hint">Setup: edit <code>/home/runner/work/ejoliet.github.io/ejoliet.github.io/picture-inventory/Picture-Inventory.shortcut</code>, replace <code>YOUR_HOST</code> (for this repo use <code>ejoliet.github.io</code>), then import the shortcut on iOS and share a photo from Photos. Detection runs locally in the browser with a CDN-loaded COCO-SSD model; the confidence slider filters displayed detections after analysis.</p>
       <div id="status" class="status" aria-live="polite"></div>
     </section>
 
@@ -341,14 +341,15 @@
         frisbee: "Sports",
         skis: "Sports",
         snowboard: "Sports",
-        sports: "Sports",
+        "sports ball": "Sports",
         kite: "Sports",
-        baseball: "Sports",
+        "baseball bat": "Sports",
+        "baseball glove": "Sports",
         skateboard: "Sports",
         surfboard: "Sports",
-        tennis: "Sports",
+        "tennis racket": "Sports",
         bottle: "Kitchen",
-        wine: "Kitchen",
+        "wine glass": "Kitchen",
         cup: "Kitchen",
         fork: "Kitchen",
         knife: "Kitchen",
@@ -360,22 +361,22 @@
         orange: "Food",
         broccoli: "Food",
         carrot: "Food",
-        hot: "Food",
+        "hot dog": "Food",
         pizza: "Food",
         donut: "Food",
         cake: "Food",
         chair: "Furniture",
         couch: "Furniture",
-        potted: "Furniture",
+        "potted plant": "Home",
         bed: "Furniture",
-        dining: "Furniture",
+        "dining table": "Furniture",
         toilet: "Furniture",
         tv: "Electronics",
         laptop: "Electronics",
         mouse: "Electronics",
         remote: "Electronics",
         keyboard: "Electronics",
-        cell: "Electronics",
+        "cell phone": "Electronics",
         microwave: "Appliances",
         oven: "Appliances",
         toaster: "Appliances",
@@ -386,7 +387,7 @@
         vase: "Home",
         scissors: "Tools",
         teddy: "Toys",
-        hair: "Personal care",
+        "hair drier": "Personal care",
         toothbrush: "Personal care"
       };
 
@@ -534,10 +535,7 @@
 
       function categorizeLabel(label) {
         const key = String(label || "").toLowerCase();
-        const tokens = key.split(/\s+/);
-        for (const token of tokens) {
-          if (CATEGORY_LOOKUP[token]) return CATEGORY_LOOKUP[token];
-        }
+        if (CATEGORY_LOOKUP[key]) return CATEGORY_LOOKUP[key];
         return "Other";
       }
 
@@ -561,10 +559,11 @@
             score: Number(entry.score),
             x: Math.max(0, entry.bbox[0]),
             y: Math.max(0, entry.bbox[1]),
-            width: Math.max(1, entry.bbox[2]),
-            height: Math.max(1, entry.bbox[3]),
+            width: Math.max(0, entry.bbox[2]),
+            height: Math.max(0, entry.bbox[3]),
             quantity: 1
           }))
+          .filter((entry) => entry.width > 0 && entry.height > 0)
           .sort((a, b) => b.score - a.score);
 
         const merged = [];
@@ -792,6 +791,7 @@
         try {
           const detector = await getDetector();
           const image = await loadImage(item.dataUrl);
+          // Keep a broader raw candidate set here; the user-controlled threshold filters what is shown.
           const rawDetections = await detector.detect(image, 30, 0.05);
           image.src = "";
           item.analysis = {
