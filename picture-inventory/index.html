@@ -290,7 +290,7 @@
           </div>
         </div>
       </div>
-      <p class="hint">Setup: edit <code>picture-inventory/Picture-Inventory.shortcut</code>, replace <code>YOUR_HOST</code> (for this repo, use <code>ejoliet.github.io</code>), then import the shortcut on iOS and share a photo from Photos. Detection runs locally in the browser with a CDN-loaded COCO-SSD model; the confidence slider filters displayed detections after analysis.</p>
+      <p class="hint">Setup: import <code>picture-inventory/Picture-Inventory.shortcut</code> into iOS Shortcuts, then edit its <code>Replace Text</code> action to replace <code>YOUR_HOST</code> (for this repo, use <code>ejoliet.github.io</code>) before sharing a photo from Photos. Detection runs locally in the browser with a CDN-loaded COCO-SSD model; the confidence slider filters displayed detections after analysis.</p>
       <div id="status" class="status" aria-live="polite"></div>
     </section>
 
@@ -310,7 +310,7 @@
       const feed = document.getElementById("feed");
       const status = document.getElementById("status");
       const maxItems = 100;
-      const IOU_DEDUP_THRESHOLD = 0.45; // Intersection over Union overlap threshold for merging same-label boxes.
+      const IOU_DEDUP_THRESHOLD = 0.45; // IOU = Intersection over Union overlap threshold for merging same-label boxes.
       const MAX_DETECTIONS = 30; // Preserve a broader raw candidate set per image before UI filtering.
       const MIN_RAW_SCORE = 0.05; // Keep low-score candidates so the confidence slider can hide/show them later.
       const analyzingIds = new Set();
@@ -539,7 +539,7 @@
         return tags.length ? `${tags.join(" ")} object` : "—";
       }
 
-      function humanizeLabel(label) {
+      function formatLabelForDisplay(label) {
         return String(label || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
       }
 
@@ -597,7 +597,7 @@
         merged.sort((a, b) => a.y - b.y || a.x - b.x || b.score - a.score);
         return merged.map((entry, index) => ({
           overlay: index + 1,
-          label: humanizeLabel(entry.label),
+          label: formatLabelForDisplay(entry.label),
           category: categorizeLabel(entry.label),
           quantity: entry.quantity,
           confidence: entry.score,

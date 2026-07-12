@@ -16,8 +16,8 @@ It accepts a shared photo/screenshot, runs object detection in the browser, and 
 ## iOS Shortcut import
 
 1. Download `picture-inventory/Picture-Inventory.shortcut`, then copy it to iCloud Drive.
-2. On iOS, open Files, tap the `.shortcut` file, then import into Shortcuts.
-3. In Shortcuts, edit the **Replace Text** action and change:
+2. On iOS, open Files, tap the `.shortcut` file, then import it into Shortcuts.
+3. In the Shortcuts app, open the imported shortcut and edit the **Replace Text** action:
    - `https://YOUR_HOST/picture-inventory/index.html#image=`
    - to your deployed host (for example `https://ejoliet.github.io/picture-inventory/index.html#image=`).
 4. Enable this shortcut in the share sheet.
