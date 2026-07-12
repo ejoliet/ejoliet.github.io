@@ -1,0 +1,9 @@
+Sunny Diner
+07/12/2026
+Burger 12.50
+Fries 4.25
+Iced Tea 2.75
+Subtotal 19.50
+Tax 1.76
+Tip 3.90
+Total 25.16

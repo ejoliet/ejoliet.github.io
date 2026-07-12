@@ -1,0 +1,11 @@
+Golden Garden
+2026-07-11
+Dumpling Basket 2 x 8.50 17.00
+Scallion Pancake 6.95
+Family Fried Rice 14.50
+Kids Noodles 8.25
+Discount -3.00
+Subtotal 43.70
+Tax 3.93
+Gratuity 7.00
+Total 51.63

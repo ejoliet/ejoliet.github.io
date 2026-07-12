@@ -1,0 +1,11 @@
+Lakeside Cafe
+07-10-2026
+Adult Combo 18.00
+Adult Combo 18.00
+Child Plate 9.00
+Shared Nachos 12.00
+Zero Item 0.00
+Subtotal 57.00
+Tax 5.13
+Tip 11.40
+Total 73.53

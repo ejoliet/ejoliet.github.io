@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>SnapSplit</title>
+  <meta name="description" content="Local-first receipt splitting that runs in your browser.">
+  <meta name="theme-color" content="#0e1730">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="hero card">
+      <div>
+        <div class="eyebrow">SnapSplit · static, local-first, private</div>
+        <h1>Split a receipt in under 30 seconds.</h1>
+        <p>Scan one receipt, fix OCR mistakes, assign items, split tax and tip exactly, and share settlement amounts without accounts.</p>
+      </div>
+      <div class="notice">
+        <strong>Receipt images stay on this device unless you explicitly enable cloud processing.</strong>
+        <span>OCR runs locally in a Web Worker and drafts are stored in IndexedDB.</span>
+      </div>
+    </header>
+
+    <nav id="stepNav" class="step-nav" aria-label="Workflow"></nav>
+
+    <div class="layout">
+      <main class="main">
+        <section id="scanSection" class="card section">
+          <div class="section-head"><div><h2>1. Scan</h2><p>Upload, paste, drag, or photograph a receipt.</p></div></div>
+          <div id="duplicateBanner" class="banner warn hidden"></div>
+          <div id="dropzone" class="dropzone" tabindex="0">
+            <h3>Drop receipt image here</h3>
+            <p>Supports camera capture, paste, JPEG, PNG, WebP, and HEIC when the browser can decode it.</p>
+            <div class="row wrap">
+              <input id="fileInput" type="file" accept="image/*,.heic,.heif,.png,.jpg,.jpeg,.webp" hidden>
+              <button id="pickBtn" type="button">Choose image</button>
+              <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
+              <button id="cameraBtn" type="button" class="secondary">Use camera</button>
+              <button id="pasteBtn" type="button" class="ghost">Paste image</button>
+            </div>
+          </div>
+          <div class="toolbar grid auto">
+            <label>Contrast<input id="contrastInput" type="range" min="-60" max="100" step="5" value="15"></label>
+            <label>Threshold<input id="thresholdInput" type="range" min="0" max="255" step="1" value="0"></label>
+            <label>Crop left %<input id="cropLeftInput" type="range" min="0" max="35" step="1" value="0"></label>
+            <label>Crop right %<input id="cropRightInput" type="range" min="0" max="35" step="1" value="0"></label>
+            <label>Crop top %<input id="cropTopInput" type="range" min="0" max="35" step="1" value="0"></label>
+            <label>Crop bottom %<input id="cropBottomInput" type="range" min="0" max="35" step="1" value="0"></label>
+            <label class="check"><input id="grayscaleInput" type="checkbox" checked> Grayscale</label>
+            <div class="row">
+              <button id="rotateLeftBtn" type="button" class="secondary">↺</button>
+              <button id="rotateRightBtn" type="button" class="secondary">↻</button>
+            </div>
+          </div>
+          <div class="row wrap">
+            <button id="ocrBtn" type="button">Run local OCR</button>
+            <button id="parseBtn" type="button" class="secondary">Parse current text</button>
+            <button id="cloudBtn" type="button" class="ghost">Optional cloud fallback</button>
+          </div>
+          <div class="status">
+            <div>
+              <strong id="ocrStatus">Ready.</strong>
+              <div class="muted" id="imageMeta">No receipt loaded.</div>
+            </div>
+            <div class="progress"><span id="ocrBar"></span></div>
+          </div>
+          <div class="scan-grid">
+            <div class="canvas-card"><canvas id="previewCanvas" width="1200" height="1600"></canvas></div>
+            <div class="stack">
+              <div class="meta-grid">
+                <div class="metric"><span>Hash</span><strong id="hashMeta">—</strong></div>
+                <div class="metric"><span>Processing</span><strong id="processingMeta">Idle</strong></div>
+              </div>
+              <label>Raw receipt text<textarea id="ocrText" placeholder="Paste OCR text here or run local OCR."></textarea></label>
+              <div id="fixtureRow" class="row wrap"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="reviewSection" class="card section hidden">
+          <div class="section-head">
+            <div><h2>2. Review</h2><p>Correct fast, not fake-confident.</p></div>
+            <div class="row wrap"><button id="undoBtn" type="button" class="secondary">Undo</button><button id="redoBtn" type="button" class="secondary">Redo</button><button id="mergeBtn" type="button" class="ghost">Merge duplicates</button><button id="addItemBtn" type="button" class="ghost">Add item</button></div>
+          </div>
+          <div class="grid two">
+            <label>Merchant<input id="merchantInput"></label>
+            <label>Date<input id="dateInput"></label>
+            <label>Currency<input id="currencyInput" value="USD"></label>
+            <label>Subtotal<input id="subtotalInput"></label>
+            <label>Discounts<input id="discountsInput"></label>
+            <label>Tax<input id="taxInput"></label>
+            <label>Tip<input id="tipInput"></label>
+            <label>Total<input id="totalInput"></label>
+          </div>
+          <div id="validationCard" class="card inset"></div>
+          <label>Note<textarea id="noteInput" placeholder="Optional notes for the group."></textarea></label>
+          <label class="check"><input id="ackInput" type="checkbox"> I understand there is still an unresolved discrepancy.</label>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Qty</th><th>Unit</th><th>Total</th><th>Conf.</th><th>Tax</th><th>Tip</th><th>Skip</th><th></th></tr></thead><tbody id="itemsBody"></tbody></table></div>
+        </section>
+
+        <section id="peopleSection" class="card section hidden">
+          <div class="section-head"><div><h2>3. People</h2><p>Add participants, payer, weights, and local handles.</p></div></div>
+          <div class="grid two">
+            <div class="card inset">
+              <h3>Add participant</h3>
+              <div class="grid two">
+                <label>Name<input id="personNameInput" placeholder="Alex"></label>
+                <label>Weight<input id="personWeightInput" type="number" min="0" step="0.1" value="1"></label>
+                <label>Color<input id="personColorInput" type="color" value="#4f7cff"></label>
+              </div>
+              <div class="row wrap"><button id="addPersonBtn" type="button">Add person</button><button id="firstPayerBtn" type="button" class="secondary">Make first payer</button></div>
+            </div>
+            <div class="card inset">
+              <h3>Recent participants</h3>
+              <div id="recentPeople" class="row wrap"></div>
+            </div>
+          </div>
+          <div id="peopleList" class="stack"></div>
+        </section>
+
+        <section id="assignSection" class="card section hidden">
+          <div class="section-head"><div><h2>4. Assign</h2><p>Single, equal, weighted, percentage, or fixed amounts.</p></div><div class="row wrap"><button id="claimModeBtn" type="button" class="secondary">Claim mode</button><button id="bulkAssignBtn" type="button" class="ghost">Assign unclaimed</button></div></div>
+          <div class="grid two">
+            <div class="card inset">
+              <h3>Allocation rules</h3>
+              <div class="grid two"><label>Tax<select id="taxModeInput"><option value="taxable">Taxable subtotal</option><option value="equal">Equal</option></select></label><label>Tip<select id="tipModeInput"><option value="subtotal">Item subtotal</option><option value="equal">Equal</option></select></label></div>
+            </div>
+            <div class="card inset">
+              <h3>Bulk assign target</h3>
+              <select id="bulkPeopleInput" multiple size="4"></select>
+            </div>
+          </div>
+          <div id="assignList" class="stack"></div>
+        </section>
+
+        <section id="settleSection" class="card section hidden">
+          <div class="section-head"><div><h2>5. Settle</h2><p>Exact balances, audit trail, exports, and Trip Ledger.</p></div><div class="row wrap"><button id="copySummaryBtn" type="button">Copy summary</button><button id="shareBtn" type="button" class="secondary">Share</button><button id="copyOneBtn" type="button" class="secondary">Copy first person</button><button id="mdBtn" type="button" class="ghost">Markdown</button><button id="jsonBtn" type="button" class="ghost">JSON</button><button id="printBtn" type="button" class="ghost">Print</button></div></div>
+          <div class="grid two">
+            <div id="receiptSummary" class="card inset"></div>
+            <div class="card inset">
+              <h3>Share</h3>
+              <div class="row wrap"><button id="qrBtn" type="button" class="secondary">Generate QR</button><button id="saveLedgerBtn" type="button" class="ghost">Add to Trip Ledger</button></div>
+              <canvas id="qrCanvas" width="220" height="220" class="hidden qr"></canvas>
+              <p class="muted small">QR includes only compact result data, never the receipt image.</p>
+            </div>
+          </div>
+          <div id="resultsList" class="stack"></div>
+          <div class="grid two">
+            <div class="card inset"><h3>Settlement instructions</h3><div id="settlementList" class="stack"></div></div>
+            <div class="card inset"><h3>Audit trail</h3><div id="auditList" class="stack"></div></div>
+          </div>
+          <div class="grid two">
+            <div class="card inset">
+              <h3>Trip Ledger</h3>
+              <div class="grid two"><label>Ledger name<input id="ledgerNameInput" placeholder="Weekend trip"></label><label>Currency<input id="ledgerCurrencyInput" placeholder="USD"></label></div>
+              <p class="muted small">Debt simplification is heuristic and may not globally minimize transactions.</p>
+              <div id="ledgerList" class="stack"></div>
+            </div>
+            <div class="card inset">
+              <h3>Premium + experimental</h3>
+              <label>License key<input id="licenseInput" placeholder="Enter a license key"></label>
+              <div class="row wrap"><button id="licenseBtn" type="button">Validate</button><button id="backupBtn" type="button" class="ghost">Encrypted backup</button><button id="restoreBackupBtn" type="button" class="ghost">Import backup</button></div>
+              <p id="licenseStatus" class="muted">Plan: free.</p>
+              <hr>
+              <p class="small muted">P2P room shares only split state, never the original receipt image. Host must stay online. Payloads are AES-GCM encrypted.</p>
+              <div class="grid two"><label>Room code<input id="roomCodeInput" placeholder="snapsplit-AB12CD"></label><label>Passphrase<input id="roomPassInput" placeholder="Shared passphrase"></label></div>
+              <div class="row wrap"><button id="hostRoomBtn" type="button" class="secondary">Host room</button><button id="joinRoomBtn" type="button" class="secondary">Join room</button><button id="syncRoomBtn" type="button" class="ghost">Sync now</button></div>
+              <p id="roomStatus" class="muted">Room idle.</p>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="side">
+        <section class="card section">
+          <h2>History</h2>
+          <p class="muted">Autosaved drafts and completed splits live locally.</p>
+          <label>Search history<input id="historySearchInput" placeholder="Merchant, date, person"></label>
+          <div class="row wrap"><button id="newSplitBtn" type="button" class="secondary">New split</button><button id="clearDataBtn" type="button" class="ghost danger">Delete all local data</button></div>
+          <div id="historyList" class="stack"></div>
+        </section>
+        <section id="debugPanel" class="card section hidden">
+          <h2>Developer test panel</h2>
+          <p class="muted">Open with <code>?debug=1</code>.</p>
+          <button id="debugBtn" type="button">Run tests</button>
+          <div id="debugResults" class="stack"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <div class="sticky" id="stickyBar">
+    <div id="stickyText">Start by loading a receipt image or fixture.</div>
+    <div class="row"><button id="prevBtn" type="button" class="secondary">Back</button><button id="nextBtn" type="button">Continue</button></div>
+  </div>
+
+  <input id="backupFileInput" type="file" accept="application/json" hidden>
+  <div id="liveRegion" class="sr-only" aria-live="polite"></div>
+  <script src="./app.js"></script>
+</body>
+</html>
