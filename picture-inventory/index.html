@@ -290,7 +290,7 @@
           </div>
         </div>
       </div>
-      <p class="hint">Setup: edit <code>picture-inventory/Picture-Inventory.shortcut</code>, replace <code>YOUR_HOST</code> (for this repo use <code>ejoliet.github.io</code>), then import the shortcut on iOS and share a photo from Photos. Detection runs locally in the browser with a CDN-loaded COCO-SSD model; the confidence slider filters displayed detections after analysis.</p>
+      <p class="hint">Setup: edit <code>picture-inventory/Picture-Inventory.shortcut</code>, replace <code>YOUR_HOST</code> (for this repo, use <code>ejoliet.github.io</code>), then import the shortcut on iOS and share a photo from Photos. Detection runs locally in the browser with a CDN-loaded COCO-SSD model; the confidence slider filters displayed detections after analysis.</p>
       <div id="status" class="status" aria-live="polite"></div>
     </section>
 
@@ -310,7 +310,7 @@
       const feed = document.getElementById("feed");
       const status = document.getElementById("status");
       const maxItems = 100;
-      const IOU_DEDUP_THRESHOLD = 0.45; // Merge same-label boxes when 45%+ of their area overlaps.
+      const OVERLAP_DEDUP_THRESHOLD = 0.45; // Intersection over Union overlap threshold for merging same-label boxes.
       const MAX_DETECTIONS = 30; // Preserve a broader raw candidate set per image before UI filtering.
       const MIN_RAW_SCORE = 0.05; // Keep low-score candidates so the confidence slider can hide/show them later.
       const analyzingIds = new Set();
@@ -373,7 +373,7 @@
         "potted plant": "Home",
         bed: "Furniture",
         "dining table": "Furniture",
-        toilet: "Furniture",
+        toilet: "Home",
         tv: "Electronics",
         laptop: "Electronics",
         mouse: "Electronics",
@@ -389,7 +389,7 @@
         clock: "Home",
         vase: "Home",
         scissors: "Tools",
-        teddy: "Toys",
+        "teddy bear": "Toys",
         "hair drier": "Personal care",
         toothbrush: "Personal care"
       };
@@ -549,6 +549,7 @@
         return "Other";
       }
 
+      // Return Intersection over Union overlap for two bounding boxes with x/y/width/height fields.
       function iou(a, b) {
         const left = Math.max(a.x, b.x);
         const top = Math.max(a.y, b.y);
@@ -578,7 +579,7 @@
 
         const merged = [];
         for (const candidate of candidates) {
-          const match = merged.find((entry) => entry.label === candidate.label && iou(entry, candidate) >= IOU_DEDUP_THRESHOLD);
+          const match = merged.find((entry) => entry.label === candidate.label && iou(entry, candidate) >= OVERLAP_DEDUP_THRESHOLD);
           if (match) {
             match.quantity += 1;
             if (candidate.score > match.score) {
@@ -811,7 +812,7 @@
           const image = await loadImage(item.dataUrl);
           // Keep a broader raw candidate set here; the user-controlled threshold filters what is shown.
           const rawDetections = await detector.detect(image, MAX_DETECTIONS, MIN_RAW_SCORE);
-          image.src = "";
+          image.src = ""; // Release the in-memory image source after detection finishes.
           item.analysis = {
             generatedAt: nowIso(),
             attemptedAt: nowIso(),
