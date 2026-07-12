@@ -310,9 +310,9 @@
       const feed = document.getElementById("feed");
       const status = document.getElementById("status");
       const maxItems = 100;
-      const IOU_DEDUP_THRESHOLD = 0.45;
-      const MAX_DETECTIONS = 30;
-      const MIN_RAW_SCORE = 0.05;
+      const IOU_DEDUP_THRESHOLD = 0.45; // Merge same-label boxes when 45%+ of their area overlaps.
+      const MAX_DETECTIONS = 30; // Preserve a broader raw candidate set per image before UI filtering.
+      const MIN_RAW_SCORE = 0.05; // Keep low-score candidates so the confidence slider can hide/show them later.
       const analyzingIds = new Set();
       let detectorPromise = null;
 
@@ -433,7 +433,12 @@
       function normalizeItem(item) {
         const analysis = item && item.analysis && Array.isArray(item.analysis.rawDetections)
           ? item.analysis
-          : { rawDetections: [], generatedAt: null, error: item && item.analysis && item.analysis.error ? item.analysis.error : "" };
+          : {
+              rawDetections: [],
+              generatedAt: null,
+              attemptedAt: item && item.analysis ? item.analysis.attemptedAt || null : null,
+              error: item && item.analysis && item.analysis.error ? item.analysis.error : ""
+            };
         return {
           id: item.id,
           fingerprint: item.fingerprint || "",
@@ -456,6 +461,7 @@
         localStorage.setItem(storageKey, JSON.stringify(items.slice(0, maxItems)));
       }
 
+      // The shortcut normalizes shared images to JPEG before opening the app, so the hash expects JPEG payloads.
       function buildDataUrlFromHash() {
         const hash = location.hash.startsWith("#") ? location.hash.slice(1) : location.hash;
         const prefix = "image=";
@@ -520,6 +526,7 @@
       }
 
       function descriptionFromBox(box, width, height) {
+        // Size and aspect bands produce lightweight "distinguishing description" text from the detection geometry.
         const areaRatio = (box.width * box.height) / Math.max(1, width * height);
         const aspect = box.width / Math.max(1, box.height);
         const tags = [];
@@ -774,10 +781,18 @@
 
       async function getDetector() {
         if (detectorPromise) return detectorPromise;
-        if (!globalThis.cocoSsd) {
-          throw new Error("Object detection model could not load. Check network access and reload.");
-        }
-        detectorPromise = cocoSsd.load({ base: "lite_mobilenet_v2" });
+        detectorPromise = (async () => {
+          try {
+            if (!globalThis.cocoSsd) {
+              throw new Error("Model scripts did not load.");
+            }
+            return await cocoSsd.load({ base: "lite_mobilenet_v2" });
+          } catch (err) {
+            detectorPromise = null;
+            console.error(err);
+            throw new Error("Model failed to load. Check internet access to the CDN and refresh.");
+          }
+        })();
         return detectorPromise;
       }
 
@@ -799,6 +814,7 @@
           image.src = "";
           item.analysis = {
             generatedAt: nowIso(),
+            attemptedAt: nowIso(),
             error: "",
             rawDetections: rawDetections.map((entry) => ({
               label: entry.class,
@@ -811,7 +827,8 @@
         } catch (err) {
           console.error(err);
           item.analysis = {
-            generatedAt: nowIso(),
+            generatedAt: null,
+            attemptedAt: nowIso(),
             error: err && err.message ? err.message : "Object analysis failed.",
             rawDetections: []
           };
@@ -841,6 +858,7 @@
         const meta = await imageMeta(dataUrl);
         const payload = extractBase64Payload(dataUrl);
         const pad = (payload.match(/=+$/) || [""])[0].length;
+        // Base64 stores 3 bytes in 4 characters; trailing "=" padding must be excluded from the decoded size.
         const bytes = Math.max(0, Math.floor((payload.length * 3) / 4) - pad);
         const item = {
           id: createId(),
@@ -852,7 +870,7 @@
           height: meta.height,
           bytes,
           dataUrl,
-          analysis: { rawDetections: [], generatedAt: null, error: "" }
+          analysis: { rawDetections: [], generatedAt: null, attemptedAt: null, error: "" }
         };
         items.unshift(item);
         saveItems(items);
@@ -913,7 +931,8 @@
           setStatus("No images available to analyze.");
           return;
         }
-        for (const item of items) {
+        for (const [index, item] of items.entries()) {
+          setStatus(`Analyzing ${index + 1} of ${items.length}: ${item.name}…`);
           await analyzeItem(item.id);
         }
       });
@@ -963,7 +982,7 @@
       (async function importFromHashIfPresent() {
         const dataUrl = buildDataUrlFromHash();
         if (!dataUrl) {
-          analyzeMissingItems();
+          setTimeout(() => { analyzeMissingItems(); }, 0);
           return;
         }
         try {
