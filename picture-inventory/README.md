@@ -6,7 +6,7 @@ Mobile-first static photo inventory at:
 
 ## iOS Shortcut import
 
-1. Copy `/picture-inventory/Picture-Inventory.shortcut` to iCloud Drive.
+1. Download `Picture-Inventory.shortcut` from this repository, then copy it to iCloud Drive.
 2. On iOS, open Files, tap the `.shortcut` file, then import into Shortcuts.
 3. In Shortcuts, edit the **Replace Text** action and change:
    - `https://YOUR_HOST/picture-inventory/index.html#image=`

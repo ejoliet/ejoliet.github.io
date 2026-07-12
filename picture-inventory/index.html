@@ -135,7 +135,7 @@
         <input id="picker" type="file" accept="image/*" hidden>
         <button id="clear-all" class="btn danger" type="button">Clear all</button>
       </div>
-      <p class="hint">Tip: Replace <code>YOUR_HOST</code> in the included shortcut, then share one image to it from iOS Photos.</p>
+      <p class="hint">Setup: edit <code>picture-inventory/Picture-Inventory.shortcut</code>, replace <code>YOUR_HOST</code> (for this repo use <code>ejoliet.github.io</code>), then import the shortcut on iOS (see README) and share one image from Photos.</p>
       <div id="status" class="status" aria-live="polite"></div>
     </section>
 
@@ -151,7 +151,7 @@
       const clearAll = document.getElementById("clear-all");
       const maxItems = 100;
 
-      const toKB = (n) => `${Math.max(1, Math.round(n / 1024))} KB`;
+      const toKB = (n) => (n > 0 && n < 1024) ? "< 1 KB" : `${Math.round(n / 1024)} KB`;
       const nowIso = () => new Date().toISOString();
       const fmtDate = (iso) => new Date(iso).toLocaleString();
 
@@ -171,6 +171,7 @@
         localStorage.setItem(storageKey, JSON.stringify(items.slice(0, maxItems)));
       }
 
+      // Extract and validate base64 payload from #image=... hash.
       function buildDataUrlFromHash() {
         const hash = location.hash.startsWith("#") ? location.hash.slice(1) : location.hash;
         const prefix = "image=";
@@ -180,6 +181,8 @@
         const decoded = decodeURIComponent(raw.replace(/\s/g, ""));
         const base64 = decoded.replace(/^data:image\/(?:jpeg|jpg);base64,/i, "");
         if (!/^[A-Za-z0-9+/=]+$/.test(base64)) return null;
+        if ((base64.length % 4) !== 0) return null;
+        if (/=/.test(base64.slice(0, -2))) return null;
         return `data:image/jpeg;base64,${base64}`;
       }
 
@@ -190,6 +193,11 @@
           img.onerror = () => reject(new Error("Could not read image"));
           img.src = dataUrl;
         });
+      }
+
+      function fingerprint(dataUrl) {
+        const body = dataUrl.split(",", 2)[1] || "";
+        return `${body.length}:${body.slice(0, 24)}:${body.slice(-24)}`;
       }
 
       function render(items) {
@@ -205,7 +213,7 @@
               <div class="small">${fmtDate(item.createdAt)} · ${item.width}×${item.height} · ${toKB(item.bytes)}</div>
               <div class="actions">
                 <a class="btn secondary" href="${item.dataUrl}" target="_blank" rel="noopener">Open</a>
-                <a class="btn secondary" href="${item.dataUrl}" download="${item.name}.jpg">Download</a>
+                <a class="btn secondary" href="${item.dataUrl}" download="${item.downloadName}">Download</a>
                 <button class="btn secondary" type="button" data-copy="${item.id}">Copy Base64</button>
                 <button class="btn danger" type="button" data-delete="${item.id}">Delete</button>
               </div>
@@ -214,17 +222,39 @@
         `).join("");
       }
 
+      function toJpegName(name) {
+        const base = (name || "picture").replace(/\.[^.]+$/, "").trim();
+        return `${base}.jpg`;
+      }
+
+      function createId() {
+        if (globalThis.crypto && crypto.randomUUID) return crypto.randomUUID();
+        if (globalThis.crypto && crypto.getRandomValues) {
+          const arr = new Uint32Array(4);
+          crypto.getRandomValues(arr);
+          return `pic-${Date.now()}-${Array.from(arr, (n) => n.toString(16)).join("")}`;
+        }
+        return `pic-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
+      // Add one data URL image into persistent inventory (if not duplicate).
       async function addImage(dataUrl, source) {
         const items = loadItems();
-        if (items.some((x) => x.dataUrl === dataUrl)) {
+        const fp = fingerprint(dataUrl);
+        if (items.some((x) => x.fingerprint === fp && x.dataUrl === dataUrl)) {
           setStatus("Image already exists in inventory.");
           return;
         }
         const meta = await imageMeta(dataUrl);
-        const bytes = Math.floor((dataUrl.length - "data:image/jpeg;base64,".length) * 3 / 4);
+        const payload = dataUrl.split(",", 2)[1] || "";
+        const padMatch = payload.match(/=+$/);
+        const pad = padMatch ? padMatch[0].length : 0;
+        const bytes = Math.max(0, Math.floor((payload.length * 3) / 4) - pad);
         const item = {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          id: createId(),
+          fingerprint: fp,
           name: source || `Picture ${items.length + 1}`,
+          downloadName: toJpegName(source || `picture-${items.length + 1}`),
           createdAt: nowIso(),
           width: meta.width,
           height: meta.height,
@@ -237,6 +267,7 @@
         setStatus("Added image to inventory.");
       }
 
+      // Convert a File to resized/compressed JPEG data URL.
       async function toJpegDataUrl(file, maxDim = 1024, quality = 0.7) {
         const src = URL.createObjectURL(file);
         try {
@@ -246,7 +277,11 @@
             el.onerror = () => reject(new Error("Invalid image"));
             el.src = src;
           });
-          const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+          const largestDim = Math.max(img.naturalWidth, img.naturalHeight);
+          if (!Number.isFinite(largestDim) || largestDim <= 0) {
+            throw new Error("Image has invalid dimensions");
+          }
+          const scale = Math.min(1, maxDim / largestDim);
           const w = Math.max(1, Math.round(img.naturalWidth * scale));
           const h = Math.max(1, Math.round(img.naturalHeight * scale));
           const canvas = document.createElement("canvas");
@@ -267,7 +302,7 @@
           const dataUrl = await toJpegDataUrl(file);
           await addImage(dataUrl, file.name.replace(/\.[^.]+$/, ""));
         } catch (err) {
-          setStatus(err && err.message ? err.message : "Failed to add file.");
+          setStatus(err?.message || "Failed to add file.");
         } finally {
           picker.value = "";
         }
@@ -312,7 +347,8 @@
         try {
           await addImage(dataUrl, "Shared photo");
           history.replaceState(null, "", location.pathname);
-        } catch (_) {
+        } catch (err) {
+          console.error(err);
           setStatus("Could not import image from URL hash.");
         }
       })();
