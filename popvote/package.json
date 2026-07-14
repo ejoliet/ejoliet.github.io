@@ -1,0 +1,13 @@
+{
+  "name": "popvote",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Zero-backend live audience polling — dev-only test tooling. The shipped app (index.html) has no build step and no runtime dependency on anything in this file.",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "check-syntax": "node check-syntax.js"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
+  }
+}

@@ -2,11 +2,11 @@
 
 ## Cursor Cloud specific instructions
 
-This repo (`ejoliet.github.io`) is a **static GitHub Pages site** plus one small self-hostable backend. There is **no build/lint/test tooling** anywhere (no `package.json`, `Makefile`, CI, or test framework); front-end libraries are CDN-loaded and there is no build step.
+This repo (`ejoliet.github.io`) is a **static GitHub Pages site** plus one small self-hostable backend. Almost everything here has **no build/lint/test tooling** (no `package.json`, `Makefile`, CI, or test framework) — front-end libraries are CDN-loaded and there is no build step. The one exception is `popvote/`, which has its own dev-only `package.json`/jsdom test suite and GitHub Action (see below) purely for testing; the shipped app itself is still a single, buildless `index.html`.
 
 ### Services
 
-**1. Static site (all HTML demos + landing page).** The root `index.html` links to demos under `demo/`, `sofia/`, `radar/`, `nexsci-neid/`, `firefly-help/`, `mosaic/`, `ics/`, `family-p2p/`. Serve with any static server from the repo root:
+**1. Static site (all HTML demos + landing page).** The root `index.html` links to demos under `demo/`, `sofia/`, `radar/`, `nexsci-neid/`, `firefly-help/`, `mosaic/`, `ics/`, `family-p2p/`, `family-multi-chat/`, `arrow/`, `popvote/`. Serve with any static server from the repo root:
 
 ```bash
 python3 -m http.server 8080   # then open http://localhost:8080/
@@ -14,7 +14,8 @@ python3 -m http.server 8080   # then open http://localhost:8080/
 
 - Fully client-side tools that work offline: `ics/webcal.html` (generates a 1-hr `.ics` event) and the landing page.
 - Firefly demos (`sofia`, `radar`, `nexsci-neid`, `firefly-help`) fetch data from external Caltech/IRSA servers (`irsa*.ipac.caltech.edu`); `mosaic` pulls external HLS video streams. These degrade to empty viewers without internet and cannot be self-hosted.
-- `family-p2p/` (WebRTC video chat) needs a **secure/HTTPS context** for camera access — it will not get camera over plain `http://localhost`.
+- `family-p2p/`, `family-multi-chat/`, `arrow/`, and `popvote/` are WebRTC (PeerJS) apps and need a **secure/HTTPS context** — `family-*`/`arrow` for camera access, `popvote` for the clipboard/share APIs and for guests to actually connect (it'll still run `file://` for a host-only demo with no guests).
+- `popvote/` (zero-backend live audience polling — polls, word clouds, Q&A, an "Instant Recap" export) has dev-only tooling worth knowing about: `popvote/HANDOFF.md` tracks build state in detail; `popvote/keygen/` generates the Ed25519 keypair/license strings for the Pro tier (local-only, gitignored keys, never commit a `.pem` or a real license string); `popvote/dev/*.js` are Playwright scripts that drive the real `index.html` against a network test double (`fake-peerjs.js`) since PeerJS/WebRTC need real signaling+UDP that many sandboxed environments can't carry; `popvote/test/` is the jsdom unit suite (`cd popvote && npm ci && npm test`).
 
 **2. MFA OTP microservice (`mfa/`).** A Flask + pyotp service exposing `POST /validate_otp`. The only self-hosted backend.
 

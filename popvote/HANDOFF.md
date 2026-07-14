@@ -3,7 +3,7 @@
 Living log of build state, spike results, burned items, open questions, and
 the exact next step. Updated at every phase boundary.
 
-## State: Phase 3 complete
+## State: all 4 phases complete
 
 ## Phase log
 
@@ -220,8 +220,110 @@ silently stopped working the moment real verification landed (correctly:
 `refreshLicenseCache()` rejected it and cleared the bad value). It now
 mints a real license via `execFileSync` at test-run time instead.
 
-### Phase 4 — Polish + tests
-_Not started._
+### Phase 4 — Polish + tests — **done**
+
+**jsdom test suite** (`popvote/test/`, `npm test` — Node's built-in test
+runner + `node --test`, no test framework dependency beyond `jsdom` itself):
+
+- `test/helpers/load-app.js` loads the **real, unmodified** `popvote/index.html`
+  into a jsdom window — the two CDN `<script src>` tags (PeerJS,
+  qrcode-generator) are swapped for minimal inline stubs via string
+  replacement so no test needs real network access; every other line is the
+  shipped code, not a reimplementation of it.
+- `test/pure-functions.test.js` — `mulberry32` determinism, `computeWordCloudLayout`
+  determinism (same words+seed ⇒ identical positions — the property that
+  keeps the live view and the recap visually identical), `computeBarLayout`
+  winner-highlighting including the all-zero edge case.
+- `test/store.test.js` — `Store` round-trips through real `localStorage`,
+  falls back to the default for a missing key, and degrades to an in-memory
+  store when `localStorage` itself throws (artifact previews, locked-down
+  privacy modes).
+- `test/xss.test.js` — a payload like `<img src=x onerror=...>` in a
+  question or name never becomes a real DOM element (checked via
+  `renderGuestQnaList` and the host's `renderQnaModeration`); separately
+  confirms the *recap's* markup-string builders (`qnaListToHTML`) escape the
+  same payload instead, since that's a genuinely different code path
+  (building an HTML string vs. `textContent`).
+- `test/reconnect-guard.test.js` — `scheduleGuestRetry()` increments and
+  keeps retrying under `RECONNECT_MAX_ATTEMPTS`, surfaces a manual retry
+  button once the cap is exceeded (never fails silently), and the retry
+  button's own click handler resets state and re-attempts.
+- `test/hub-dedupe-and-caps.test.js` — one vote per guest per activity
+  (re-vote replaces), votes rejected for a non-active or closed activity,
+  out-of-range poll options rejected, one upvote per guest per question,
+  Q&A text over the 500-char hub hard cap rejected outright vs. truncated
+  to 240 if under it, the 200-entry Q&A cap, an oversize (>2KB) frame
+  dropped before it even reaches the rate limiter, and the 5-msg/sec/guest
+  hub-side rate limit itself (8 rapid messages ⇒ exactly 5 processed).
+- `test/license.test.js` — valid/forged/wrong-keypair/expired/garbage
+  license strings against `verifyLicensePayload()` using an **ephemeral**
+  test keypair generated the same way `popvote/keygen/generate-keypair.js`
+  does (never the real project key, so this runs identically in CI, which
+  has no `popvote/keys/private.pem`), plus `activateLicense()`'s persistence
+  and `isPro()` cache update on success/failure.
+
+**Bugs the test suite itself needed fixing, worth recording**: jsdom doesn't
+implement `SubtleCrypto` or `TextEncoder`/`TextDecoder` on its `window` —
+license tests first failed with everything silently swallowed by
+`verifyLicensePayload`'s try/catch (returning `null` for a *correctly*
+signed, unexpired license) until `load-app.js` polyfilled those three with
+Node's own globals. This is a test-environment gap only; every real browser
+implements all three natively, and `popvote/dev/license-flow-check.js`
+(real Chromium) already proved the actual app code path works.
+
+**A real design change made for testability**: `Store`, `session`,
+`responses`, `qnaStore`, `roster`, `guestState`, `hostPeer`, `guestPeer`/
+`guestConn`, `cachedLicensePayload`, and the whole config-constants block
+(`FREE_MAX_ACTIVITIES`, `RATE_LIMIT_PER_SEC`, `RECONNECT_MAX_ATTEMPTS`,
+`LICENSE_PUBLIC_KEY_B64`, etc.) were changed from `const`/`let` to `var`.
+In a classic (non-module) `<script>`, only `var` and function declarations
+become properties of `window` — `const`/`let` stay in a separate lexical
+record invisible from outside. The jsdom suite needs to seed/inspect this
+state directly (e.g. pre-populate `session.activities` before calling
+`handleVote`), so `var` was necessary, not just convenient. Also factored
+`verifyLicenseString(raw)` into a thin wrapper over a new
+`verifyLicensePayload(raw, pubKeyRawBytes)` — the latter takes the public
+key as a parameter, which is what makes testing against an ephemeral key
+possible without ever touching the real embedded constant.
+
+**CI**: `.github/workflows/popvote-ci.yml`, path-filtered to `popvote/**`
+so it doesn't fire on this repo's other, unrelated demos. Runs `npm ci`,
+`npm run check-syntax` (extracts the inline `<script>` from `index.html`
+and parses it with `vm.Script` — a real parse, not a regex; verified it
+actually catches a deliberately-introduced syntax error before restoring
+the file), then `npm test`.
+
+**Manual two-machine checklist** (for a human, before a real launch —
+this sandbox cannot drive two physical devices or a real PeerJS Cloud
+connection; see the Phase 0/1 network-constraint notes above):
+
+- [ ] Host on a laptop, guest on a phone, over the actual internet (not
+      loopback) — confirm the QR code scans and the join link works from a
+      cold link (e.g. shared over text message).
+- [ ] Run a full 4-activity session end to end with 2+ real guests
+      simultaneously — this repo's testing never exercised more than one
+      simulated guest at a time; multi-guest fan-in only got a synthetic
+      (loopback) burst test in Phase 0, never a real multi-peer session.
+- [ ] Kill the guest's WiFi mid-session and confirm the reconnect banner
+      appears and recovers when connectivity returns.
+- [ ] Refresh the host tab mid-session and confirm guests see the session
+      end (host-refresh-ends-session is the documented v1 behavior, not a
+      bug — but it's never been watched happen against a real guest).
+- [ ] Generate a real Instant Recap from a real multi-guest session and
+      open it later, offline, on a different device.
+- [ ] Firefox and iOS Safari, both roles — genuinely untested anywhere in
+      this build (carried from Phase 0; this sandbox only has Chromium).
+- [ ] A real Lemon Squeezy purchase → `generate-license.js` → paste into
+      the app, end to end with a real buyer email.
+
+**Explicitly untested / known gaps, not silently assumed to work**:
+Firefox/iOS Safari (no runtime available in this sandbox at all); real
+multi-guest (>1 simultaneous real connection) reconnect storms; a guest's
+vote-dedupe identity resets on a true reconnect (new PeerJS peer id) —
+documented as an acceptable v1 limitation in the Phase 1 notes above, but
+worth another look before a real launch; the host beforeunload guard's
+exact wording is never seen by a real user navigating away mid-session
+(only unit-testable indirectly).
 
 ## Open questions (from build prompt, unresolved)
 
@@ -236,16 +338,33 @@ _Not started._
 
 ## Exact next step
 
-Build Phase 4 (Polish + tests): a jsdom test suite under `popvote/test/`
-covering seeded word-cloud determinism, `Store` localStorage-roundtrip +
-in-memory fallback, XSS handling (textContent-only rendering of peer names/
-questions/words), reconnect guard bookkeeping, one-vote-per-guest and
-one-upvote-per-guest dedupe, the 2KB message-size cap, and license signature
-verification (valid/forged/expired) — most of this logic already has
-browser-level coverage via `popvote/dev/*.js`, so the jsdom suite should
-target the pure functions directly rather than re-deriving the same
-end-to-end scenarios. Add a `package.json` + a single GitHub Action for a
-Node syntax check (and running the jsdom suite), and write the final
-manual two-machine checklist into this file, explicitly naming untested
-paths (Firefox/iOS Safari — carried since Phase 0; multi-guest reconnect
-storms — never exercised with more than one guest at a time).
+All 4 build phases are complete and every automated check (Playwright
+integration/license-flow scripts under `popvote/dev/`, the 31-test jsdom
+suite under `popvote/test/`, the syntax check, CI config) passes. What's
+left is the human-only work no sandbox can do: the manual two-machine
+checklist above (real devices, real PeerJS Cloud/WebRTC, Firefox/iOS
+Safari, a real Lemon Squeezy purchase). Also still open: the two
+build-prompt questions this session couldn't resolve on its own — the
+final product name (no domain/trademark search was run) and pointing
+`LEMON_SQUEEZY_URL` in `index.html` at a real store URL before advertising
+Pro anywhere.
+
+## Final acceptance criteria (from the build prompt)
+
+- [x] Single `index.html`, no build step, works from `file://` for host-only
+      demo and HTTPS for real sessions (real guests need clipboard/share
+      APIs and a real WebRTC connection, both of which need a secure context)
+- [x] Phase 0 spike results recorded in `HANDOFF.md` with numbers
+- [x] 100-guest burst fan-in: zero vote loss, main thread never blocked
+      > 50ms (16.8ms worst frame across 5 settled trials — Chromium only,
+      loopback-simulated per the spike's own design, not a real 100-peer
+      WebRTC mesh, which this sandbox cannot form at all)
+- [x] Instant Recap: self-contained, offline, crisp SVG, deterministic
+      layout, footer link
+- [x] Free gates visible and friendly; Pro unlock via Ed25519 offline key;
+      forged keys rejected
+- [x] No `*.pem` anywhere in git history (gitignored from the first commit,
+      before any keypair existed; confirmed via `git check-ignore -v` and
+      `git ls-files` showing nothing under `popvote/keys/`)
+- [x] All jsdom tests pass (31/31); untested paths named above (Firefox/iOS
+      Safari; real multi-guest reconnect storms; real two-device sessions)

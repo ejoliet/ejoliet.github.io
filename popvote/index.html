@@ -231,20 +231,23 @@
 "use strict";
 
 /* ================= config ================= */
-const PEER_ID_PREFIX     = "pv-";
-const CODE_ALPHABET      = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"; // no 0/O/1/l/I
-const FREE_MAX_ACTIVITIES = 3;
-const FREE_MAX_GUESTS     = 30;
-const PRO_MAX_GUESTS      = 100;
-const MAX_MSG_BYTES       = 2048;
-const MAX_QNA_ENTRIES     = 200;
-const MAX_QNA_TXT         = 500;   // hub-side hard reject; UI already caps input at 240
-const RATE_LIMIT_PER_SEC  = 5;     // per guest, enforced at hub
-const BROADCAST_COALESCE_MS = 1000; // qs + reveal broadcasts, never per-message fan-out
-const REACTION_THROTTLE_MS  = 1000; // client-side, per guest
-const RECONNECT_MAX_ATTEMPTS = 6;
-const RETRY_DELAY_MS = 2500;
-const REACTIONS = ["👍","❤️","😂","🎉","👏","❓"];
+// AIDEV-NOTE: `var` (not const) so these thresholds are readable from
+// `window` by the jsdom test suite (popvote/test/) — tests assert against
+// the real values here instead of duplicating magic numbers.
+var PEER_ID_PREFIX     = "pv-";
+var CODE_ALPHABET      = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"; // no 0/O/1/l/I
+var FREE_MAX_ACTIVITIES = 3;
+var FREE_MAX_GUESTS     = 30;
+var PRO_MAX_GUESTS      = 100;
+var MAX_MSG_BYTES       = 2048;
+var MAX_QNA_ENTRIES     = 200;
+var MAX_QNA_TXT         = 500;   // hub-side hard reject; UI already caps input at 240
+var RATE_LIMIT_PER_SEC  = 5;     // per guest, enforced at hub
+var BROADCAST_COALESCE_MS = 1000; // qs + reveal broadcasts, never per-message fan-out
+var REACTION_THROTTLE_MS  = 1000; // client-side, per guest
+var RECONNECT_MAX_ATTEMPTS = 6;
+var RETRY_DELAY_MS = 2500;
+var REACTIONS = ["👍","❤️","😂","🎉","👏","❓"];
 // AIDEV-NOTE: Pro seam — self-hosted signaling. Set window.POPVOTE_PEER_OPTIONS
 // = {host:"...", port:443, secure:true} in a script tag BEFORE this one runs.
 const PEER_OPTIONS = window.POPVOTE_PEER_OPTIONS || null;
@@ -254,17 +257,24 @@ const ICE = null; // null = PeerJS/Google STUN defaults
 // popvote/keygen/generate-keypair.js. The matching private key never leaves
 // the seller's machine (see popvote/keys/, gitignored). License strings are
 // verified fully offline against this constant; there is no license server.
-const LICENSE_PUBLIC_KEY_B64 = "ZRVo7ue8ZqQfOPoM62b5pBO8Ov2LHGtjwFkdLv65zJY=";
+// `var` (not const) so the jsdom license tests can point verification at an
+// ephemeral test keypair instead of this real one.
+var LICENSE_PUBLIC_KEY_B64 = "ZRVo7ue8ZqQfOPoM62b5pBO8Ov2LHGtjwFkdLv65zJY=";
 // AIDEV-TODO: point this at your real Lemon Squeezy product/checkout URL
 // before shipping — Lemon Squeezy is the merchant of record for Pro
 // purchases; popvote's own Ed25519 check (above) is the license mechanism.
-const LEMON_SQUEEZY_URL = "https://your-store.lemonsqueezy.com/checkout/popvote-pro";
+var LEMON_SQUEEZY_URL = "https://your-store.lemonsqueezy.com/checkout/popvote-pro";
 
 /* ================= storage (pv.* namespace, in-memory fallback) ================= */
 // AIDEV-NOTE: artifact previews and some privacy modes block localStorage entirely;
 // every call is wrapped so popvote degrades to an in-memory store instead of throwing.
 const memStore = {};
-const Store = {
+// AIDEV-NOTE: state containers below use `var` (not const/let) specifically
+// so they attach to `window` in a classic script — the jsdom test suite
+// (popvote/test/) loads this file as-is and inspects/seeds this state
+// directly rather than reimplementing it. Purely a testability choice; it
+// doesn't change runtime behavior since nothing here is ever re-declared.
+var Store = {
   get(key, def){
     try{ const v = localStorage.getItem("pv." + key); return v == null ? def : JSON.parse(v); }
     catch(e){ return Object.prototype.hasOwnProperty.call(memStore, key) ? memStore[key] : def; }
@@ -537,14 +547,17 @@ function b64ToBytes(s){ return b64urlToBytes(s.replace(/-/g, "+").replace(/_/g, 
 // Ed25519 signature is valid and it isn't expired, otherwise null. No
 // network call — verification happens entirely against the public key
 // constant above, using the browser's native WebCrypto Ed25519 support.
-async function verifyLicenseString(raw){
+// Split out from verifyLicenseString so tests can check signature/expiry
+// logic against an ephemeral test keypair, without touching the real
+// embedded LICENSE_PUBLIC_KEY_B64 (whose matching private key is a secret
+// that only exists locally, gitignored — see popvote/keygen/).
+async function verifyLicensePayload(raw, pubKeyRawBytes){
   try{
     const parts = String(raw).trim().split(".");
     if (parts.length !== 2) return null;
     const payloadBytes = b64urlToBytes(parts[0]);
     const sigBytes = b64urlToBytes(parts[1]);
-    const pubKey = await crypto.subtle.importKey(
-      "raw", b64ToBytes(LICENSE_PUBLIC_KEY_B64), { name: "Ed25519" }, false, ["verify"]);
+    const pubKey = await crypto.subtle.importKey("raw", pubKeyRawBytes, { name: "Ed25519" }, false, ["verify"]);
     const ok = await crypto.subtle.verify("Ed25519", pubKey, sigBytes, payloadBytes);
     if (!ok) return null;
     const payload = JSON.parse(new TextDecoder().decode(payloadBytes));
@@ -552,13 +565,16 @@ async function verifyLicenseString(raw){
     return payload;
   }catch(e){ return null; }
 }
+function verifyLicenseString(raw){
+  return verifyLicensePayload(raw, b64ToBytes(LICENSE_PUBLIC_KEY_B64));
+}
 
 // AIDEV-NOTE: "validate once at session creation; cache result" — verification
 // is async (WebCrypto), but isPro()/guestCap()/activityCap() are called
 // synchronously all over the UI. refreshLicenseCache() does the one async
 // check (on page load, and again whenever startHost() creates a session) and
 // stores the outcome in this in-memory variable; everything else just reads it.
-let cachedLicensePayload = null;
+var cachedLicensePayload = null;
 function isPro(){ return !!cachedLicensePayload; }
 function guestCap(){ return isPro() ? PRO_MAX_GUESTS : FREE_MAX_GUESTS; }
 function activityCap(){ return isPro() ? Infinity : FREE_MAX_ACTIVITIES; }
@@ -584,7 +600,7 @@ const params  = new URLSearchParams(location.search);
 const joinCode = (params.get("j") || "").toUpperCase();
 const isGuestRole = !!joinCode;
 
-const session = {
+var session = {
   code: "", title: "popvote session", startedAt: 0,
   activities: [],      // {id,kind,title,options?,active,revealed,closed,createdAt}
   activeId: null,
@@ -597,19 +613,19 @@ function recordResponse(){
   session.responseLog[minute] = (session.responseLog[minute] || 0) + 1;
 }
 // Host-only response stores, keyed by activityId
-const responses = {};      // activityId -> Map<guestId, value>   (poll/rating/wordcloud)
-const qnaStore  = {};       // activityId -> Map<qid, {txt,n,up:Set<guestId>,ans,hidden}>
-const roster    = new Map(); // guestId -> {conn, name, rateBucket:[]}
-let qnaDirty = {};          // activityId -> bool, flushed by the 1Hz broadcaster
-let revealDirty = {};       // activityId -> bool
-let hostPeer = null;
-let animRAF = null;
+var responses = {};      // activityId -> Map<guestId, value>   (poll/rating/wordcloud)
+var qnaStore  = {};       // activityId -> Map<qid, {txt,n,up:Set<guestId>,ans,hidden}>
+var roster    = new Map(); // guestId -> {conn, name, rateBucket:[]}
+var qnaDirty = {};          // activityId -> bool, flushed by the 1Hz broadcaster
+var revealDirty = {};       // activityId -> bool
+var hostPeer = null;
+var animRAF = null;
 
 // Guest-side state (declared here, ahead of boot, so the immediate startGuest()
 // call below — which runs synchronously before the GUEST section further down
 // is reached — doesn't hit the `let` temporal dead zone).
-const guestState = { retries: 0, seenUpvoted: new Set(), name: "", currentAct: null };
-let guestPeer = null, guestConn = null;
+var guestState = { retries: 0, seenUpvoted: new Set(), name: "", currentAct: null };
+var guestPeer = null, guestConn = null;
 
 /* ================= boot ================= */
 if (isGuestRole){
