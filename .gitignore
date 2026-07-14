@@ -1,3 +1,7 @@
+# popvote: private license signing keys must never be committed
+*.pem
+popvote/keys/
+
 # Python virtual environment (dev setup)
 .venv/
 
@@ -7,3 +11,6 @@ mfa/mfa_qr.png
 # Python caches
 __pycache__/
 *.pyc
+
+# Node deps (popvote test tooling)
+node_modules/
