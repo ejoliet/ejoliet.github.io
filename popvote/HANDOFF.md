@@ -3,7 +3,7 @@
 Living log of build state, spike results, burned items, open questions, and
 the exact next step. Updated at every phase boundary.
 
-## State: Phase 0 complete — GO
+## State: Phase 1 complete
 
 ## Phase log
 
@@ -54,7 +54,73 @@ acceptance checklist rather than blocking the whole build.
 
 **Burned items**: none — first attempt on both primitives succeeded.
 
-### Phase 1 — Core loop
+### Phase 1 — Core loop — **done**
+
+`popvote/index.html`: host/guest onboarding (4-char ambiguity-free room
+codes, QR via CDN-pinned `qrcode-generator@1.4.4`, join link/share/copy),
+all 4 activity types (poll, word cloud, open Q&A, 1–5 rating), host-side live
+canvas viz (bar race + seeded word cloud, both driven by pure `computeBarLayout`
+/ `computeWordCloudLayout` functions shared with Phase 2's recap), reveal-to-
+audience, Q&A moderation (mark answered / hide), reactions, the full wire
+protocol, inbound caps (2KB size, 200 Q&A entries, 500-char hard/240-char UI
+text cap, 5 msg/sec/guest hub-side rate limit + a client-side mirror that
+toasts on throttled votes), resilience (capped backoff reconnect, guest
+auto-rejoin, host `beforeunload` guard), and free-tier gates (3 activities /
+30 guests) stubbed against a `Store`-backed `isPro()` that Phase 3 will wire
+to real Ed25519 verification.
+
+**Testing approach + a genuine environment constraint**: this sandbox's
+egress proxy is HTTP-CONNECT only (confirmed via `/root/.ccr/README.md`) —
+it cannot carry PeerJS Cloud's WebSocket signaling or real WebRTC's raw UDP
+ICE traffic, so an actual two-device (or two-real-browser) PeerJS session
+cannot be exercised here. Built `popvote/dev/fake-peerjs.js`, a minimal
+network-layer test double with the same `Peer`/`DataConnection` API surface
+popvote uses, backed by an in-memory bridge (`window.top.__PV_NET`) instead
+of real signaling. `popvote/dev/parent.html` loads the **real, unmodified**
+`index.html` in a host iframe and a guest iframe side by side so both share
+that bridge, and `popvote/dev/manual-integration-check.js` drives them with
+Playwright through the full house style. Every line of app logic that ran
+was the real product code — only the transport library was swapped. Result,
+**all checks passed**: poll vote → reveal, re-vote-replaces → re-reveal, word
+cloud vote → reveal, rating vote → reveal, Q&A submit → throttled `qs`
+round-trip, upvote → hub dedupe → client-side re-click disabled, reactions
+float on the host screen, an oversize (3KB) frame is dropped at the hub
+without crashing it, and `end` reaches both host and guest.
+
+**Bugs found and fixed via this harness** (both were real defects in
+`index.html`, not test artifacts):
+1. An `AIDEV-NOTE` comment contained a literal `</script>` inside a code
+   comment — HTML parses that as the real closing tag regardless of JS
+   comment syntax, silently truncating the whole app script after that
+   point (`startHost`/`startGuest`/etc. never defined). Fixed by rewording
+   the comment to avoid the substring.
+2. `let guestPeer, guestConn` (and `guestState`) were declared textually
+   after the boot section, but the boot section calls `startGuest()`
+   synchronously for guest page loads — a `let` temporal-dead-zone
+   `ReferenceError`. Fixed by moving those declarations above `/* boot */`.
+
+**One test-harness false alarm, not a product bug**: an early version of the
+integration script added all 4 activity kinds to a single session, which
+correctly hit the free-tier `FREE_MAX_ACTIVITIES=3` gate on the 4th — the
+gate silently (and correctly) refused to create it, so the script then
+clicked a stale, already-active "Start" button and hung. Fixed the *test* to
+simulate an unlocked Pro license before the walkthrough; the free-tier gate
+itself is working as designed and gets its own dedicated test in Phase 4.
+
+**Known v1 rough edges, carried forward rather than fixed now** (none block
+Phase 2):
+- A guest's previous reveal chart (canvas) stays visible underneath the new
+  activity's controls until the *next* reveal repaints it, since the reveal
+  canvas lives outside the `#gvOptions` container that gets cleared on each
+  activity switch. Cosmetic only.
+- Reconnect issues a brand-new PeerJS peer id for the guest, so the hub's
+  "one vote per guest" dedupe (keyed by peer id) does not carry across a
+  true reconnect — acceptable for v1 per the build prompt's host-refresh-
+  ends-session stance, but noted here since it's the same class of gap.
+- Firefox/iOS Safari still untested (inherited from Phase 0 — this sandbox
+  cannot run them at all, real or simulated).
+
+### Phase 2 — Instant Recap
 _Not started._
 
 ### Phase 2 — Instant Recap
@@ -79,7 +145,9 @@ _Not started._
 
 ## Exact next step
 
-Build Phase 1 (`popvote/index.html`): host/guest onboarding, the 4 activity
-types, live canvas viz, reactions, wire protocol, inbound caps, and
-resilience. Lift the render functions from the spike verbatim so Phase 2's
-recap stays byte-for-byte consistent with the live view.
+Build Phase 2 (Instant Recap): add SVG-emitting siblings to the existing
+`computeBarLayout`/`computeWordCloudLayout` pure functions already in
+`index.html`, a recap assembler that serializes them via
+`Function.prototype.toString()` into a self-contained downloadable
+`popvote-recap-<date>-<code>.html`, and wire it into the "End session" flow
+(replacing the current placeholder note in `endSession()`).

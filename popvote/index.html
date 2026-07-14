@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>popvote</title>
+<!-- AIDEV-NOTE: zero-backend live audience polling. Single file, no build step.
+     Star topology: host's tab is the PeerJS hub, guests connect directly to it
+     (WebRTC data channels, free PeerJS Cloud signaling by default). Host holds
+     all authoritative state; guests hold nothing durable. Must be served over
+     HTTPS for guests to join for real (clipboard/share APIs need a secure
+     context) — file:// only works for a host-only demo with no guests. -->
+<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
+<style>
+  :root{
+    --ink:#1c1a17; --paper:#faf7f0; --card:#ffffff;
+    --go:#1e7a3c; --go-press:#155c2c;
+    --stop:#b3261e; --soft:#8a857c; --line:#d8d2c6;
+    --accent:#8a857c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,"SF Pro Rounded",system-ui,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--paper);color:var(--ink);
+  }
+  h1{font-size:1.9rem;font-weight:700;letter-spacing:-.01em}
+  h2{font-size:1.25rem;font-weight:700;margin-bottom:.5rem}
+  p{line-height:1.45}
+  .soft{color:var(--soft)}
+  .screen{display:none;min-height:100%;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;gap:20px}
+  .screen.on{display:flex}
+  button{
+    font:inherit;font-weight:700;color:#fff;background:var(--go);border:none;border-radius:16px;
+    padding:14px 26px;cursor:pointer;box-shadow:0 4px 0 var(--go-press);
+  }
+  button:active{transform:translateY(3px);box-shadow:0 1px 0 var(--go-press)}
+  button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;transform:none}
+  button.secondary{background:#fff;color:var(--ink);box-shadow:0 3px 0 var(--line);border:2px solid var(--line)}
+  button.stop{background:var(--stop);box-shadow:0 4px 0 #7c1712}
+  button.small{padding:8px 14px;font-size:.85rem;border-radius:10px}
+  input[type=text],textarea{
+    font:inherit;padding:10px 14px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);
+  }
+  .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center}
+  .pulse{width:20px;height:20px;border-radius:50%;background:var(--go);animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+  @media (prefers-reduced-motion: reduce){.pulse{animation:none;opacity:1}}
+  .linkbox{background:var(--card);border:2px dashed var(--line);border-radius:14px;padding:10px 16px;font-size:.95rem;word-break:break-all;user-select:all}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1c1a17;color:#fff;padding:10px 18px;border-radius:12px;font-size:.95rem;opacity:0;transition:opacity .25s;pointer-events:none;z-index:50}
+  .toast.show{opacity:1}
+
+  /* ---- host dashboard ---- */
+  #hostDash{align-items:stretch;justify-content:flex-start;text-align:left;padding:0;gap:0}
+  #hdTop{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;padding:14px 18px;background:var(--card);border-bottom:2px solid var(--line)}
+  #hdCode{font-size:1.6rem;font-weight:800;letter-spacing:.12em}
+  #hdBody{flex:1;display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:0;min-height:0}
+  #hdActivities{border-right:2px solid var(--line);padding:14px;overflow-y:auto}
+  #hdStage{padding:14px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+  @media (max-width:760px){ #hdBody{grid-template-columns:1fr} #hdActivities{border-right:none;border-bottom:2px solid var(--line)} }
+  .actItem{border:2px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px;background:#fff}
+  .actItem.isActive{border-color:var(--go)}
+  .actItem .kind{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--soft)}
+  .addRow{display:flex;flex-direction:column;gap:8px;border-top:2px dashed var(--line);padding-top:12px;margin-top:6px}
+  select{font:inherit;padding:8px;border-radius:10px;border:2px solid var(--line)}
+  .optEdit{display:flex;gap:6px;margin-bottom:6px}
+  .optEdit input{flex:1}
+  .stageCard{background:#fff;border:2px solid var(--line);border-radius:14px;padding:14px}
+  canvas{max-width:100%;display:block}
+  #qnaModList{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto}
+  .qnaRow{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px}
+  .qnaRow .txt{flex:1}
+  .badge{font-size:.72rem;background:var(--line);border-radius:8px;padding:2px 6px}
+  #reactLayer{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:40}
+  .rxSprite{position:absolute;font-size:2rem;animation:rxFloat 2.6s ease-out forwards}
+  @keyframes rxFloat{0%{opacity:1;transform:translateY(0) scale(.7)}15%{transform:translateY(-20px) scale(1.1)}100%{opacity:0;transform:translateY(-320px) scale(1)}}
+  #guestCountBadge{font-weight:700}
+  .lockedNote{font-size:.85rem;color:var(--soft)}
+
+  /* ---- guest view ---- */
+  #guestView{align-items:stretch;justify-content:flex-start;padding:0}
+  #gvTop{padding:12px 16px;background:var(--card);border-bottom:2px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  #gvStage{flex:1;padding:20px;display:flex;flex-direction:column;align-items:center;gap:16px;overflow-y:auto}
+  #gvOptions{display:flex;flex-direction:column;gap:10px;width:100%;max-width:26rem}
+  #gvOptions button{width:100%}
+  .rateRow{display:flex;gap:10px}
+  .rateRow button{min-width:3.2rem}
+  #gvQnaList{width:100%;max-width:34rem;display:flex;flex-direction:column;gap:8px;text-align:left}
+  .gvQ{border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;gap:8px;align-items:center}
+  .gvQ .txt{flex:1}
+  #reactBar{position:sticky;bottom:0;display:flex;gap:8px;justify-content:center;padding:10px;background:var(--card);border-top:2px solid var(--line)}
+  #reactBar button{font-size:1.4rem;padding:8px 12px;background:#fff;color:#000;box-shadow:0 3px 0 var(--line);border:2px solid var(--line)}
+</style>
+</head>
+<body>
+
+<!-- Screen: role choice -->
+<section id="setup" class="screen on">
+  <h1>popvote</h1>
+  <p>Live polls, word clouds, and Q&amp;A. No accounts, nothing to install.</p>
+  <button id="hostBtn">New session</button>
+  <p class="soft">Joining someone's session? Open the link they sent you instead.</p>
+</section>
+
+<!-- Screen: guest connecting -->
+<section id="guestConnecting" class="screen">
+  <h1 id="gcTitle">Connecting…</h1>
+  <div class="pulse"></div>
+  <p id="gcText">One moment.</p>
+  <button id="gcRetry" class="secondary" hidden>Try again</button>
+</section>
+
+<!-- Screen: room full -->
+<section id="roomFull" class="screen">
+  <h1>Room is full</h1>
+  <p id="fullText">This session is at capacity. Ask the host to upgrade, or try again later.</p>
+</section>
+
+<!-- Screen: host dashboard -->
+<section id="hostDash" class="screen">
+  <div id="hdTop">
+    <div class="row">
+      <span id="hdCode">----</span>
+      <button id="hdQrBtn" class="secondary small">QR</button>
+      <button id="hdCopyBtn" class="secondary small">Copy link</button>
+      <button id="hdShareBtn" class="secondary small" hidden>Share…</button>
+    </div>
+    <div class="row">
+      <span class="soft">Guests: <span id="guestCountBadge">0</span>/<span id="guestCapBadge">30</span></span>
+      <span id="licenseBadge" class="badge">Free</span>
+      <button id="hdEndBtn" class="stop small">End session</button>
+    </div>
+  </div>
+  <div id="hdBody">
+    <div id="hdActivities">
+      <h2>Activities</h2>
+      <div id="actList"></div>
+      <div class="addRow">
+        <select id="newKind">
+          <option value="poll">Multiple choice poll</option>
+          <option value="wordcloud">Word cloud</option>
+          <option value="qna">Open Q&amp;A</option>
+          <option value="rating">Rating scale (1–5)</option>
+        </select>
+        <input type="text" id="newTitle" placeholder="Question / title" maxlength="120">
+        <div id="newOptsWrap"></div>
+        <button id="addActBtn" class="secondary">Add activity</button>
+        <p id="freeGateNote" class="lockedNote" hidden></p>
+      </div>
+    </div>
+    <div id="hdStage">
+      <div id="qrCard" class="stageCard" hidden>
+        <div id="qrHolder"></div>
+        <p class="soft">Guests: <span id="joinLink"></span></p>
+      </div>
+      <div id="noActive" class="stageCard">
+        <p class="soft">No activity is active yet. Add one on the left, then press Start.</p>
+      </div>
+      <div id="activeCard" class="stageCard" hidden>
+        <div class="row" style="justify-content:space-between">
+          <h2 id="stageTitle"></h2>
+          <div class="row">
+            <button id="closeToggleBtn" class="secondary small">Close voting</button>
+            <button id="revealBtn" class="secondary small">Reveal to audience</button>
+            <button id="stopActBtn" class="secondary small">Stop</button>
+          </div>
+        </div>
+        <canvas id="liveCanvas" width="640" height="320"></canvas>
+        <div id="qnaModWrap" hidden>
+          <h2>Moderate</h2>
+          <div id="qnaModList"></div>
+        </div>
+      </div>
+      <div id="recapCard" class="stageCard" hidden>
+        <h2>Instant Recap</h2>
+        <p id="recapNote" class="soft"></p>
+        <button id="recapBtn" class="secondary">Generate Recap</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Screen: guest view -->
+<section id="guestView" class="screen">
+  <div id="gvTop">
+    <b>popvote</b>
+    <span class="soft" id="gvRoomLabel"></span>
+  </div>
+  <div id="gvStage">
+    <h1 id="gvTitle">Waiting for the host…</h1>
+    <p id="gvSub" class="soft"></p>
+    <div id="gvOptions"></div>
+    <div id="gvQnaWrap" hidden style="width:100%;display:flex;flex-direction:column;align-items:center;gap:12px">
+      <div class="row" style="width:100%;max-width:34rem">
+        <input type="text" id="gvQnaInput" placeholder="Ask a question…" maxlength="240" style="flex:1">
+        <button id="gvQnaSend" class="secondary">Send</button>
+      </div>
+      <div id="gvQnaList"></div>
+    </div>
+  </div>
+  <div id="reactBar" hidden></div>
+</section>
+
+<!-- Screen: ended -->
+<section id="ended" class="screen">
+  <h1>Session ended</h1>
+  <p>You can close this page now.</p>
+  <button id="againBtn" class="secondary">Start over</button>
+</section>
+
+<div id="reactLayer"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+"use strict";
+
+/* ================= config ================= */
+const PEER_ID_PREFIX     = "pv-";
+const CODE_ALPHABET      = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"; // no 0/O/1/l/I
+const FREE_MAX_ACTIVITIES = 3;
+const FREE_MAX_GUESTS     = 30;
+const PRO_MAX_GUESTS      = 100;
+const MAX_MSG_BYTES       = 2048;
+const MAX_QNA_ENTRIES     = 200;
+const MAX_QNA_TXT         = 500;   // hub-side hard reject; UI already caps input at 240
+const RATE_LIMIT_PER_SEC  = 5;     // per guest, enforced at hub
+const BROADCAST_COALESCE_MS = 1000; // qs + reveal broadcasts, never per-message fan-out
+const REACTION_THROTTLE_MS  = 1000; // client-side, per guest
+const RECONNECT_MAX_ATTEMPTS = 6;
+const RETRY_DELAY_MS = 2500;
+const REACTIONS = ["👍","❤️","😂","🎉","👏","❓"];
+// AIDEV-NOTE: Pro seam — self-hosted signaling. Set window.POPVOTE_PEER_OPTIONS
+// = {host:"...", port:443, secure:true} in a script tag BEFORE this one runs.
+const PEER_OPTIONS = window.POPVOTE_PEER_OPTIONS || null;
+const ICE = null; // null = PeerJS/Google STUN defaults
+
+/* ================= storage (pv.* namespace, in-memory fallback) ================= */
+// AIDEV-NOTE: artifact previews and some privacy modes block localStorage entirely;
+// every call is wrapped so popvote degrades to an in-memory store instead of throwing.
+const memStore = {};
+const Store = {
+  get(key, def){
+    try{ const v = localStorage.getItem("pv." + key); return v == null ? def : JSON.parse(v); }
+    catch(e){ return Object.prototype.hasOwnProperty.call(memStore, key) ? memStore[key] : def; }
+  },
+  set(key, val){
+    try{ localStorage.setItem("pv." + key, JSON.stringify(val)); }
+    catch(e){ memStore[key] = val; }
+  }
+};
+
+/* ================= seeded PRNG (shared with recap — Phase 2 lifts these verbatim) ================= */
+function mulberry32(seed){
+  let t = seed >>> 0;
+  return function(){
+    t |= 0; t = (t + 0x6D2B79F5) | 0;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function seedFromString(s){
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function escapeXml(s){
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&apos;" }[c]));
+}
+
+/* ================= shared pure layout functions (live canvas + Phase 2 recap SVG) ================= */
+// Pure: options=[{label,count}] -> [{label,count,frac}], frac in [0,1] of the winner.
+function computeBarLayout(options){
+  const max = Math.max(1, ...options.map(o => o.count));
+  const winner = Math.max(0, ...options.map(o => o.count));
+  return options.map(o => ({ label: o.label, count: o.count, frac: o.count / max, isWinner: o.count === winner && winner > 0 }));
+}
+// Pure, seeded: words=[{text,count}] -> [{text,count,x,y,size,hue}] in a w×h box, deterministic per seed.
+function computeWordCloudLayout(words, seed, w, h){
+  const rand = mulberry32(seed >>> 0);
+  const max = Math.max(1, ...words.map(w2 => w2.count));
+  const cx = w / 2, cy = h / 2;
+  const placed = [];
+  return words.slice().sort((a, b) => b.count - a.count).map((wd, i) => {
+    const size = 12 + Math.round((wd.count / max) * 34);
+    let angle = rand() * Math.PI * 2, radius = 0, x, y, tries = 0;
+    do {
+      x = cx + Math.cos(angle) * radius;
+      y = cy + Math.sin(angle) * radius;
+      angle += 0.5; radius += 3.2; tries++;
+    } while (tries < 400 && placed.some(p =>
+      Math.abs(p.x - x) < (p.size + size) * 2.1 && Math.abs(p.y - y) < (p.size + size) * 0.9));
+    placed.push({ x, y, size });
+    return { text: wd.text, count: wd.count, x, y, size, hue: (i * 47) % 360 };
+  });
+}
+
+/* ================= canvas paint adapters (live view only; recap uses SVG emitters in Phase 2) ================= */
+function paintBarCanvas(canvas, layout){
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, rowH = Math.max(36, Math.floor((canvas.height - 20) / Math.max(1, layout.length)));
+  canvas.height = 20 + rowH * layout.length;
+  ctx.clearRect(0, 0, W, canvas.height);
+  ctx.font = "15px system-ui, sans-serif";
+  ctx.textBaseline = "middle";
+  layout.forEach((row, i) => {
+    const y = 10 + i * rowH;
+    ctx.fillStyle = "#1c1a17";
+    ctx.fillText(row.label, 8, y + rowH / 2 - 8);
+    const barW = Math.max(2, (W - 220) * row.frac);
+    ctx.fillStyle = row.isWinner ? "#1e7a3c" : "#8a857c";
+    roundRect(ctx, 200, y + rowH / 2, barW, 22, 6);
+    ctx.fill();
+    ctx.fillStyle = "#1c1a17";
+    ctx.fillText(String(row.count), 200 + barW + 10, y + rowH / 2 + 11);
+  });
+}
+function roundRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function paintWordCloudCanvas(canvas, layout){
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  layout.forEach(w => {
+    ctx.font = w.size + "px system-ui, sans-serif";
+    ctx.fillStyle = `hsl(${w.hue},45%,38%)`;
+    ctx.textAlign = "center";
+    ctx.fillText(w.text, w.x, w.y);
+  });
+}
+
+/* ================= DOM helpers ================= */
+const $ = id => document.getElementById(id);
+function showScreen(id){
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("on"));
+  $(id).classList.add("on");
+}
+let toastTimer = null;
+function toast(msg){
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+}
+// AIDEV-NOTE: XSS rule — peer-sourced strings (names, question text, words) are
+// ALWAYS rendered with .textContent, never innerHTML, and never pre-escaped
+// (escaping before a textContent assignment would double-escape and show the
+// literal entities as text). escapeXml() above is only used when building a
+// markup/SVG *string* (recap output), a genuinely different code path.
+function clearEl(el){ while (el.firstChild) el.removeChild(el.firstChild); }
+
+/* ================= license (stub; Phase 3 wires real Ed25519 verification) ================= */
+function isPro(){ return !!Store.get("license", null); }
+function guestCap(){ return isPro() ? PRO_MAX_GUESTS : FREE_MAX_GUESTS; }
+function activityCap(){ return isPro() ? Infinity : FREE_MAX_ACTIVITIES; }
+
+/* ================= state ================= */
+const params  = new URLSearchParams(location.search);
+const joinCode = (params.get("j") || "").toUpperCase();
+const isGuestRole = !!joinCode;
+
+const session = {
+  code: "", title: "popvote session", startedAt: 0,
+  activities: [],      // {id,kind,title,options?,active,revealed,closed,createdAt}
+  activeId: null,
+  peakGuests: 0,
+};
+// Host-only response stores, keyed by activityId
+const responses = {};      // activityId -> Map<guestId, value>   (poll/rating/wordcloud)
+const qnaStore  = {};       // activityId -> Map<qid, {txt,n,up:Set<guestId>,ans,hidden}>
+const roster    = new Map(); // guestId -> {conn, name, rateBucket:[]}
+let qnaDirty = {};          // activityId -> bool, flushed by the 1Hz broadcaster
+let revealDirty = {};       // activityId -> bool
+let hostPeer = null;
+let animRAF = null;
+
+// Guest-side state (declared here, ahead of boot, so the immediate startGuest()
+// call below — which runs synchronously before the GUEST section further down
+// is reached — doesn't hit the `let` temporal dead zone).
+const guestState = { retries: 0, seenUpvoted: new Set(), name: "", currentAct: null };
+let guestPeer = null, guestConn = null;
+
+/* ================= boot ================= */
+if (isGuestRole){
+  showScreen("guestConnecting");
+  startGuest();
+} else {
+  $("hostBtn").addEventListener("click", startHost);
+}
+$("gcRetry").addEventListener("click", () => { guestState.retries = 0; $("gcRetry").hidden = true; connectAsGuest(); });
+$("againBtn").addEventListener("click", () => location.href = location.pathname);
+window.addEventListener("beforeunload", e => {
+  if (!isGuestRole && hostPeer && session.activeId !== undefined && roster.size >= 0 && session.startedAt){
+    e.preventDefault(); e.returnValue = "Session is live — leaving ends it.";
+  }
+});
+
+function peerOpts(){
+  const o = { debug: 1 };
+  if (PEER_OPTIONS) Object.assign(o, PEER_OPTIONS);
+  if (ICE) o.config = ICE;
+  return o;
+}
+
+/* ============================================================
+   HOST
+   ============================================================ */
+function genRoomCode(){
+  let s = "";
+  for (let i = 0; i < 4; i++) s += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+  return s;
+}
+
+function startHost(){
+  session.code = genRoomCode();
+  session.startedAt = Date.now();
+  hostPeer = new Peer(PEER_ID_PREFIX + session.code, peerOpts());
+  hostPeer.on("open", () => {
+    showScreen("hostDash");
+    renderHostTop();
+    renderActivityList();
+    renderStage();
+  });
+  hostPeer.on("connection", conn => onGuestConnection(conn));
+  hostPeer.on("disconnected", () => { if (hostPeer && !hostPeer.destroyed) hostPeer.reconnect(); });
+  hostPeer.on("error", err => {
+    if (err.type === "unavailable-id"){ session.code = genRoomCode(); startHost(); return; }
+    toast("Connection problem: " + err.type);
+  });
+
+  wireHostControls();
+  setInterval(flushQnaBroadcasts, BROADCAST_COALESCE_MS);
+  setInterval(flushRevealBroadcasts, BROADCAST_COALESCE_MS);
+}
+
+function joinLink(){ return location.origin + location.pathname + "?j=" + session.code; }
+
+function renderHostTop(){
+  $("hdCode").textContent = session.code;
+  $("guestCapBadge").textContent = String(guestCap());
+  $("licenseBadge").textContent = isPro() ? "Pro" : "Free";
+  $("joinLink").textContent = joinLink();
+}
+
+function wireHostControls(){
+  $("hdCopyBtn").addEventListener("click", async () => {
+    try{ await navigator.clipboard.writeText(joinLink()); $("hdCopyBtn").textContent = "Copied ✓"; }
+    catch(e){ /* linkbox below is user-select:all as a fallback */ }
+    setTimeout(() => $("hdCopyBtn").textContent = "Copy link", 1600);
+  });
+  if (navigator.share){
+    $("hdShareBtn").hidden = false;
+    $("hdShareBtn").addEventListener("click", () => navigator.share({ title: "Join my popvote session", url: joinLink() }).catch(() => {}));
+  }
+  $("hdQrBtn").addEventListener("click", toggleQr);
+  $("hdEndBtn").addEventListener("click", endSession);
+
+  $("newKind").addEventListener("change", renderNewOptsEditor);
+  renderNewOptsEditor();
+  $("addActBtn").addEventListener("click", addActivity);
+
+  $("closeToggleBtn").addEventListener("click", toggleClose);
+  $("revealBtn").addEventListener("click", toggleReveal);
+  $("stopActBtn").addEventListener("click", () => setActive(null));
+}
+
+function toggleQr(){
+  const card = $("qrCard");
+  card.hidden = !card.hidden;
+  if (!card.hidden && !card.dataset.rendered){
+    const holder = $("qrHolder");
+    clearEl(holder);
+    try{
+      const qr = qrcode(0, "M");
+      qr.addData(joinLink());
+      qr.make();
+      holder.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2 }); // trusted, self-generated SVG (no peer data)
+      card.dataset.rendered = "1";
+    }catch(e){ holder.textContent = "(QR unavailable — use the link)"; }
+  }
+}
+
+/* ---- activities (host authoritative) ---- */
+function renderNewOptsEditor(){
+  const kind = $("newKind").value;
+  const wrap = $("newOptsWrap");
+  clearEl(wrap);
+  if (kind !== "poll") return;
+  const opts = ["Option 1", "Option 2"];
+  opts.forEach((ph, i) => {
+    const row = document.createElement("div");
+    row.className = "optEdit";
+    const inp = document.createElement("input");
+    inp.type = "text"; inp.placeholder = ph; inp.maxLength = 60; inp.className = "optInput";
+    row.appendChild(inp);
+    wrap.appendChild(row);
+  });
+  const addOptBtn = document.createElement("button");
+  addOptBtn.type = "button"; addOptBtn.className = "secondary small"; addOptBtn.textContent = "+ Option";
+  addOptBtn.addEventListener("click", () => {
+    if (wrap.querySelectorAll(".optInput").length >= 8) return;
+    const row = document.createElement("div");
+    row.className = "optEdit";
+    const inp = document.createElement("input");
+    inp.type = "text"; inp.placeholder = "Option"; inp.maxLength = 60; inp.className = "optInput";
+    row.appendChild(inp);
+    wrap.insertBefore(row, addOptBtn);
+  });
+  wrap.appendChild(addOptBtn);
+}
+
+function addActivity(){
+  if (session.activities.length >= activityCap()){
+    $("freeGateNote").hidden = false;
+    $("freeGateNote").textContent = "Free plan: " + FREE_MAX_ACTIVITIES + " activities per session. Unlock unlimited + Instant Recap with Pro.";
+    return;
+  }
+  const kind = $("newKind").value;
+  const title = $("newTitle").value.trim() || defaultTitle(kind);
+  const act = { id: "a" + Math.random().toString(36).slice(2, 9), kind, title, active: false, revealed: false, closed: false, createdAt: Date.now() };
+  if (kind === "poll"){
+    const opts = Array.from($("newOptsWrap").querySelectorAll(".optInput")).map(i => i.value.trim()).filter(Boolean);
+    act.options = (opts.length >= 2 ? opts : ["Option 1", "Option 2"]).map((label, i) => ({ idx: i, label }));
+  }
+  session.activities.push(act);
+  responses[act.id] = new Map();
+  if (act.kind === "qna") qnaStore[act.id] = new Map();
+  $("newTitle").value = "";
+  renderActivityList();
+}
+function defaultTitle(kind){
+  return kind === "poll" ? "New poll" : kind === "wordcloud" ? "New word cloud" : kind === "qna" ? "Q&A" : "New rating";
+}
+
+function renderActivityList(){
+  const list = $("actList");
+  clearEl(list);
+  session.activities.forEach(act => {
+    const item = document.createElement("div");
+    item.className = "actItem" + (act.id === session.activeId ? " isActive" : "");
+    const kindEl = document.createElement("div");
+    kindEl.className = "kind";
+    kindEl.textContent = act.kind;
+    const titleEl = document.createElement("div");
+    titleEl.textContent = act.title; // host's own text, but still safe as textContent
+    const btnRow = document.createElement("div");
+    btnRow.className = "row";
+    const startBtn = document.createElement("button");
+    startBtn.className = "secondary small";
+    startBtn.textContent = act.id === session.activeId ? "Active" : "Start";
+    startBtn.disabled = act.id === session.activeId;
+    startBtn.addEventListener("click", () => setActive(act.id));
+    btnRow.appendChild(startBtn);
+    item.append(kindEl, titleEl, btnRow);
+    list.appendChild(item);
+  });
+  $("freeGateNote").hidden = session.activities.length < activityCap();
+}
+
+function setActive(actId){
+  if (animRAF) cancelAnimationFrame(animRAF);
+  session.activeId = actId;
+  session.activities.forEach(a => a.active = (a.id === actId));
+  renderActivityList();
+  renderStage();
+  broadcastState();
+}
+
+function currentActivity(){ return session.activities.find(a => a.id === session.activeId) || null; }
+
+function toggleClose(){
+  const act = currentActivity();
+  if (!act) return;
+  act.closed = !act.closed;
+  $("closeToggleBtn").textContent = act.closed ? "Reopen voting" : "Close voting";
+  broadcastState();
+}
+function toggleReveal(){
+  const act = currentActivity();
+  if (!act) return;
+  act.revealed = !act.revealed;
+  $("revealBtn").textContent = act.revealed ? "Hide from audience" : "Reveal to audience";
+  if (act.revealed) revealDirty[act.id] = true; else broadcastRevealNow(act, true);
+}
+
+function renderStage(){
+  const act = currentActivity();
+  $("noActive").hidden = !!act;
+  $("activeCard").hidden = !act;
+  if (!act) return;
+  $("stageTitle").textContent = act.title;
+  $("closeToggleBtn").textContent = act.closed ? "Reopen voting" : "Close voting";
+  $("revealBtn").textContent = act.revealed ? "Hide from audience" : "Reveal to audience";
+  $("qnaModWrap").hidden = act.kind !== "qna";
+  startLiveLoop(act);
+  if (act.kind === "qna") renderQnaModeration(act);
+}
+
+function startLiveLoop(act){
+  const canvas = $("liveCanvas");
+  function frame(){
+    const a = currentActivity();
+    if (!a || a.id !== act.id){ return; } // stage changed; stop this loop
+    if (a.kind === "poll" || a.kind === "rating"){
+      canvas.hidden = false;
+      paintBarCanvas(canvas, computeBarLayout(pollOptionCounts(a)));
+    } else if (a.kind === "wordcloud"){
+      canvas.hidden = false;
+      canvas.height = 320;
+      paintWordCloudCanvas(canvas, computeWordCloudLayout(wordCloudCounts(a), seedFromString(session.code + a.id), canvas.width, canvas.height));
+    } else {
+      canvas.hidden = true;
+    }
+    animRAF = requestAnimationFrame(frame);
+  }
+  animRAF = requestAnimationFrame(frame);
+}
+
+function pollOptionCounts(act){
+  const tally = responses[act.id] || new Map();
+  if (act.kind === "rating"){
+    const counts = [1,2,3,4,5].map(v => ({ label: String(v), count: 0 }));
+    tally.forEach(v => { if (counts[v-1]) counts[v-1].count++; });
+    return counts;
+  }
+  return (act.options || []).map(o => ({ label: o.label, count: 0, idx: o.idx }))
+    .map(o => { let c = 0; tally.forEach(v => { if (v === o.idx) c++; }); return { label: o.label, count: c }; });
+}
+function wordCloudCounts(act){
+  const tally = responses[act.id] || new Map();
+  const counts = new Map();
+  tally.forEach(word => counts.set(word, (counts.get(word) || 0) + 1));
+  return Array.from(counts.entries()).map(([text, count]) => ({ text, count }));
+}
+
+function renderQnaModeration(act){
+  const list = $("qnaModList");
+  clearEl(list);
+  const store = qnaStore[act.id] || new Map();
+  Array.from(store.entries())
+    .filter(([, q]) => !q.hidden)
+    .sort((a, b) => b[1].up.size - a[1].up.size)
+    .forEach(([qid, q]) => {
+      const row = document.createElement("div");
+      row.className = "qnaRow";
+      const txt = document.createElement("span");
+      txt.className = "txt";
+      txt.textContent = (q.n ? q.n + ": " : "") + q.txt + "  (" + q.up.size + "▲)" + (q.ans ? " ✓" : "");
+      const ansBtn = document.createElement("button");
+      ansBtn.className = "secondary small";
+      ansBtn.textContent = q.ans ? "Unmark" : "Mark answered";
+      ansBtn.addEventListener("click", () => { q.ans = !q.ans; qnaDirty[act.id] = true; renderQnaModeration(act); });
+      const hideBtn = document.createElement("button");
+      hideBtn.className = "secondary small";
+      hideBtn.textContent = "Hide";
+      hideBtn.addEventListener("click", () => { q.hidden = true; qnaDirty[act.id] = true; renderQnaModeration(act); });
+      row.append(txt, ansBtn, hideBtn);
+      list.appendChild(row);
+    });
+}
+
+/* ---- hub: connections + wire protocol ---- */
+function onGuestConnection(conn){
+  if (roster.size >= guestCap()){
+    conn.on("open", () => { try{ sendRaw(conn, { t: "full" }); }catch(e){} setTimeout(() => { try{ conn.close(); }catch(e){} }, 300); });
+    return;
+  }
+  conn.serialization = conn.serialization || "none";
+  const guestId = conn.peer;
+  const rec = { conn, name: "", bucket: [] };
+  roster.set(guestId, rec);
+  session.peakGuests = Math.max(session.peakGuests, roster.size);
+  updateGuestCountUI();
+
+  conn.on("open", () => sendState(conn));
+  conn.on("data", raw => onGuestData(guestId, rec, raw));
+  const gone = () => {
+    if (roster.get(guestId) !== rec) return;
+    roster.delete(guestId);
+    updateGuestCountUI();
+  };
+  conn.on("close", gone);
+  conn.on("error", gone);
+}
+
+function updateGuestCountUI(){ $("guestCountBadge").textContent = String(roster.size); }
+
+// AIDEV-NOTE: raw wire IO — serialization:'none' so we control the 2KB size
+// cap ourselves before JSON.parse. Incoming ArrayBuffer/Blob normalized to a
+// string first, per the wire protocol spec.
+function sendRaw(conn, obj){
+  if (conn.open) conn.send(JSON.stringify(obj));
+}
+function broadcastToAll(obj){
+  roster.forEach(rec => { try{ sendRaw(rec.conn, obj); }catch(e){} });
+}
+function sendState(conn){
+  const act = currentActivity();
+  const msg = { t: "state", act: act ? { id: act.id, kind: act.kind, title: act.title, opts: act.options } : null };
+  if (act && act.closed) msg.closed = true;
+  sendRaw(conn, msg);
+  if (act && act.kind === "qna") sendRaw(conn, { t: "qs", a: act.id, list: qnaListFor(act) });
+  if (act && act.revealed) sendRaw(conn, { t: "reveal", a: act.id, agg: aggFor(act) });
+}
+function broadcastState(){
+  const act = currentActivity();
+  const msg = { t: "state", act: act ? { id: act.id, kind: act.kind, title: act.title, opts: act.options } : null };
+  if (act && act.closed) msg.closed = true;
+  broadcastToAll(msg);
+}
+
+async function onGuestData(guestId, rec, raw){
+  let str;
+  if (raw instanceof ArrayBuffer) str = new TextDecoder().decode(raw);
+  else if (typeof Blob !== "undefined" && raw instanceof Blob) str = await raw.text();
+  else str = String(raw);
+
+  if (str.length > MAX_MSG_BYTES) return; // drop oversize silently at hub (guest already warned client-side)
+
+  // AIDEV-NOTE: hub-side rate limiter — 5 msgs/sec/guest, independent of the
+  // guest's own client-side throttle (defense in depth against modified clients).
+  const now = Date.now();
+  rec.bucket = rec.bucket.filter(t => now - t < 1000);
+  if (rec.bucket.length >= RATE_LIMIT_PER_SEC) return;
+  rec.bucket.push(now);
+
+  let msg;
+  try{ msg = JSON.parse(str); }catch(e){ return; }
+  if (!msg || typeof msg.t !== "string") return;
+
+  if (msg.t === "hi"){
+    rec.name = typeof msg.n === "string" ? msg.n.slice(0, 40) : "";
+  } else if (msg.t === "vote"){
+    handleVote(guestId, msg);
+  } else if (msg.t === "q"){
+    handleQuestion(guestId, rec, msg);
+  } else if (msg.t === "up"){
+    handleUpvote(guestId, msg);
+  } else if (msg.t === "rx"){
+    handleReaction(msg);
+  }
+}
+
+function handleVote(guestId, msg){
+  const act = session.activities.find(a => a.id === msg.a);
+  if (!act || act.id !== session.activeId || act.closed) return;
+  if (act.kind === "poll"){
+    if (typeof msg.v !== "number" || !act.options.some(o => o.idx === msg.v)) return;
+  } else if (act.kind === "rating"){
+    if (typeof msg.v !== "number" || msg.v < 1 || msg.v > 5) return;
+  } else if (act.kind === "wordcloud"){
+    if (typeof msg.v !== "string" || !msg.v.trim() || msg.v.length > 30) return;
+    msg.v = msg.v.trim().slice(0, 30);
+  } else return;
+  responses[act.id].set(guestId, msg.v); // re-vote replaces — Map keyed by guest peer id
+  if (act.revealed) revealDirty[act.id] = true;
+}
+
+function handleQuestion(guestId, rec, msg){
+  const act = session.activities.find(a => a.id === msg.a && a.kind === "qna");
+  if (!act || act.id !== session.activeId || act.closed) return;
+  if (typeof msg.txt !== "string" || !msg.txt.trim() || msg.txt.length > MAX_QNA_TXT) return;
+  const store = qnaStore[act.id];
+  if (store.size >= MAX_QNA_ENTRIES) return;
+  const name = typeof msg.n === "string" ? msg.n.slice(0, 40) : rec.name;
+  const qid = "q" + Math.random().toString(36).slice(2, 9);
+  store.set(qid, { txt: msg.txt.trim().slice(0, 240), n: name, up: new Set(), ans: false, hidden: false });
+  qnaDirty[act.id] = true;
+  renderQnaModeration(act);
+}
+
+function handleUpvote(guestId, msg){
+  const act = session.activities.find(a => a.id === msg.a && a.kind === "qna");
+  if (!act) return;
+  const store = qnaStore[act.id];
+  const q = store && store.get(msg.qid);
+  if (!q || q.up.has(guestId)) return; // dedupe: one upvote per guest per question
+  q.up.add(guestId);
+  qnaDirty[act.id] = true;
+  if (act.id === session.activeId) renderQnaModeration(act);
+}
+
+function handleReaction(msg){
+  if (typeof msg.e !== "string" || REACTIONS.indexOf(msg.e) === -1) return;
+  spawnReactionSprite(msg.e);
+}
+
+function qnaListFor(act){
+  const store = qnaStore[act.id] || new Map();
+  return Array.from(store.entries())
+    .filter(([, q]) => !q.hidden)
+    .map(([qid, q]) => ({ qid, txt: q.txt, n: q.n, up: q.up.size, ans: q.ans }));
+}
+function aggFor(act){
+  if (act.kind === "wordcloud") return { words: wordCloudCounts(act) };
+  const counts = pollOptionCounts(act);
+  const total = counts.reduce((s, o) => s + o.count, 0);
+  if (act.kind === "rating"){
+    const sum = counts.reduce((s, o, i) => s + o.count * (i + 1), 0);
+    return { counts: counts.map(o => o.count), avg: total ? +(sum / total).toFixed(2) : 0, total };
+  }
+  return { counts: counts.map(o => o.count), total };
+}
+
+// AIDEV-NOTE: both Q&A snapshots and reveal updates are coalesced to 1Hz —
+// never fan out one broadcast per incoming message, however fast guests vote.
+function flushQnaBroadcasts(){
+  Object.keys(qnaDirty).forEach(actId => {
+    if (!qnaDirty[actId]) return;
+    qnaDirty[actId] = false;
+    const act = session.activities.find(a => a.id === actId);
+    if (act) broadcastToAll({ t: "qs", a: actId, list: qnaListFor(act) });
+  });
+}
+function flushRevealBroadcasts(){
+  Object.keys(revealDirty).forEach(actId => {
+    if (!revealDirty[actId]) return;
+    revealDirty[actId] = false;
+    const act = session.activities.find(a => a.id === actId);
+    if (act && act.revealed) broadcastRevealNow(act, false);
+  });
+}
+function broadcastRevealNow(act, hide){
+  if (hide){ broadcastState(); return; }
+  broadcastToAll({ t: "reveal", a: act.id, agg: aggFor(act) });
+}
+
+function spawnReactionSprite(emoji){
+  const layer = $("reactLayer");
+  const el = document.createElement("div");
+  el.className = "rxSprite";
+  el.textContent = emoji;
+  el.style.left = (10 + Math.random() * 80) + "%";
+  el.style.bottom = "10px";
+  layer.appendChild(el);
+  setTimeout(() => el.remove(), 2700);
+}
+
+function endSession(){
+  broadcastToAll({ t: "end" });
+  $("recapCard").hidden = false;
+  $("recapNote").textContent = isPro()
+    ? "Generate a self-contained recap of this whole session."
+    : "Free plan: recap is locked. Upgrade to Pro to generate the full Instant Recap.";
+  $("recapBtn").textContent = isPro() ? "Generate Recap" : "Preview (Pro unlocks full recap)";
+  showScreen("ended"); // AIDEV-TODO: Phase 2 shows a proper end-of-session recap screen instead
+}
+
+/* ============================================================
+   GUEST
+   ============================================================ */
+
+function startGuest(){
+  if (joinCode.length !== 4){
+    $("gcTitle").textContent = "That link looks incomplete";
+    $("gcText").textContent = "Ask the host to resend the invite.";
+    return;
+  }
+  guestPeer = new Peer(peerOpts());
+  guestPeer.on("open", connectAsGuest);
+  guestPeer.on("disconnected", () => { if (guestPeer && !guestPeer.destroyed) guestPeer.reconnect(); });
+  guestPeer.on("error", err => { if (err.type !== "peer-unavailable") scheduleGuestRetry(); });
+}
+
+function connectAsGuest(){
+  showScreen("guestConnecting");
+  $("gcTitle").textContent = guestState.retries === 0 ? "Connecting…" : "Reconnecting…";
+  $("gcText").textContent = guestState.retries === 0 ? "One moment." : "Trying again (" + guestState.retries + " of " + RECONNECT_MAX_ATTEMPTS + ")…";
+  if (guestConn) try{ guestConn.close(); }catch(e){}
+  guestConn = guestPeer.connect(PEER_ID_PREFIX + joinCode, { reliable: true, serialization: "none" });
+  guestConn.on("open", () => {
+    guestState.retries = 0;
+    sendGuest({ t: "hi", n: guestState.name });
+    showScreen("guestView");
+    $("gvRoomLabel").textContent = "Room " + joinCode;
+  });
+  guestConn.on("data", raw => onHostData(raw));
+  const lost = () => scheduleGuestRetry();
+  guestConn.on("close", lost);
+  guestConn.on("error", lost);
+}
+
+function scheduleGuestRetry(){
+  guestState.retries++;
+  if (guestState.retries > RECONNECT_MAX_ATTEMPTS){
+    showScreen("guestConnecting");
+    $("gcTitle").textContent = "Could not connect";
+    $("gcText").textContent = "The session may have ended, or the link is wrong.";
+    $("gcRetry").hidden = false;
+    return;
+  }
+  setTimeout(connectAsGuest, RETRY_DELAY_MS);
+}
+
+function sendGuest(obj){ if (guestConn && guestConn.open) guestConn.send(JSON.stringify(obj)); }
+
+// AIDEV-NOTE: client-side rate mirror of the hub's 5-msg/sec/guest cap — gives
+// honest guests immediate feedback instead of silently vanishing messages.
+// Votes that would exceed the budget show a toast; everything else just waits.
+const sendBucket = [];
+function throttledSend(obj, isVote){
+  const now = Date.now();
+  while (sendBucket.length && now - sendBucket[0] > 1000) sendBucket.shift();
+  if (sendBucket.length >= RATE_LIMIT_PER_SEC){
+    if (isVote) toast("Slow down — try again in a second");
+    return false;
+  }
+  sendBucket.push(now);
+  sendGuest(obj);
+  return true;
+}
+
+async function onHostData(raw){
+  let str;
+  if (raw instanceof ArrayBuffer) str = new TextDecoder().decode(raw);
+  else if (typeof Blob !== "undefined" && raw instanceof Blob) str = await raw.text();
+  else str = String(raw);
+  let msg;
+  try{ msg = JSON.parse(str); }catch(e){ return; }
+  if (!msg || typeof msg.t !== "string") return;
+
+  if (msg.t === "full"){ showScreen("roomFull"); }
+  else if (msg.t === "end"){ showScreen("ended"); }
+  else if (msg.t === "state"){ onGuestState(msg); }
+  else if (msg.t === "reveal"){ onGuestReveal(msg); }
+  else if (msg.t === "qs"){ onGuestQs(msg); }
+}
+
+function onGuestState(msg){
+  guestState.currentAct = msg.act;
+  guestState.closed = !!msg.closed;
+  guestState.myVote = null;
+  renderGuestStage();
+}
+function onGuestReveal(msg){
+  if (!guestState.currentAct || guestState.currentAct.id !== msg.a) return;
+  guestState.reveal = msg.agg;
+  renderGuestReveal();
+}
+function onGuestQs(msg){
+  if (!guestState.currentAct || guestState.currentAct.id !== msg.a) return;
+  renderGuestQnaList(msg.list);
+}
+
+function renderGuestStage(){
+  const act = guestState.currentAct;
+  const opts = $("gvOptions");
+  clearEl(opts);
+  $("gvQnaWrap").hidden = true;
+  $("reactBar").hidden = !act;
+  if (!act){
+    $("gvTitle").textContent = "Waiting for the host…";
+    $("gvSub").textContent = "";
+    renderReactBar();
+    return;
+  }
+  $("gvTitle").textContent = act.title;
+  $("gvSub").textContent = guestState.closed ? "Voting is closed — showing results." : "";
+
+  if (act.kind === "poll"){
+    (act.opts || []).forEach(o => {
+      const b = document.createElement("button");
+      b.textContent = o.label;
+      b.disabled = guestState.closed;
+      b.addEventListener("click", () => {
+        if (throttledSend({ t: "vote", a: act.id, v: o.idx }, true)){
+          Array.from(opts.children).forEach(c => c.classList.remove("secondary"));
+          b.classList.add("secondary");
+        }
+      });
+      opts.appendChild(b);
+    });
+  } else if (act.kind === "rating"){
+    const row = document.createElement("div");
+    row.className = "rateRow";
+    for (let v = 1; v <= 5; v++){
+      const b = document.createElement("button");
+      b.textContent = String(v);
+      b.disabled = guestState.closed;
+      b.addEventListener("click", () => {
+        if (throttledSend({ t: "vote", a: act.id, v }, true)){
+          Array.from(row.children).forEach(c => c.classList.remove("secondary"));
+          b.classList.add("secondary");
+        }
+      });
+      row.appendChild(b);
+    }
+    opts.appendChild(row);
+  } else if (act.kind === "wordcloud"){
+    const input = document.createElement("input");
+    input.type = "text"; input.placeholder = "One word…"; input.maxLength = 30;
+    const send = document.createElement("button");
+    send.textContent = "Submit";
+    send.disabled = guestState.closed;
+    send.addEventListener("click", () => {
+      const v = input.value.trim();
+      if (!v) return;
+      if (throttledSend({ t: "vote", a: act.id, v }, true)){ input.value = ""; toast("Submitted!"); }
+    });
+    opts.append(input, send);
+  } else if (act.kind === "qna"){
+    $("gvQnaWrap").hidden = false;
+    $("gvQnaInput").disabled = guestState.closed;
+    $("gvQnaSend").disabled = guestState.closed;
+  }
+  renderReactBar();
+}
+
+$("gvQnaSend").addEventListener("click", () => {
+  const act = guestState.currentAct;
+  const input = $("gvQnaInput");
+  const txt = input.value.trim();
+  if (!act || !txt) return;
+  if (!guestState.name){
+    const n = prompt("Your name (shown with your question):") || "";
+    guestState.name = n.slice(0, 40);
+  }
+  if (throttledSend({ t: "q", a: act.id, txt: txt.slice(0, 240), n: guestState.name }, false)) input.value = "";
+});
+
+function renderGuestQnaList(list){
+  const wrap = $("gvQnaList");
+  clearEl(wrap);
+  list.slice().sort((a, b) => b.up - a.up).forEach(q => {
+    const row = document.createElement("div");
+    row.className = "gvQ";
+    const txt = document.createElement("span");
+    txt.className = "txt";
+    txt.textContent = (q.n ? q.n + ": " : "") + q.txt + (q.ans ? " ✓" : "");
+    const up = document.createElement("button");
+    up.className = "secondary small";
+    up.textContent = "▲ " + q.up;
+    up.disabled = guestState.seenUpvoted.has(q.qid);
+    up.addEventListener("click", () => {
+      guestState.seenUpvoted.add(q.qid);
+      up.disabled = true;
+      throttledSend({ t: "up", a: guestState.currentAct.id, qid: q.qid }, false);
+    });
+    row.append(txt, up);
+    wrap.appendChild(row);
+  });
+}
+
+function renderGuestReveal(){
+  const act = guestState.currentAct;
+  const agg = guestState.reveal;
+  if (!act || !agg) return;
+  let canvas = document.getElementById("gvRevealCanvas");
+  if (!canvas){
+    canvas = document.createElement("canvas");
+    canvas.id = "gvRevealCanvas"; canvas.width = 320; canvas.height = 220;
+    $("gvStage").insertBefore(canvas, $("gvOptions"));
+  }
+  if (act.kind === "wordcloud"){
+    canvas.height = 220;
+    paintWordCloudCanvas(canvas, computeWordCloudLayout(agg.words, seedFromString(joinCode + act.id), canvas.width, canvas.height));
+  } else {
+    const labels = act.kind === "rating" ? ["1","2","3","4","5"] : (act.opts || []).map(o => o.label);
+    paintBarCanvas(canvas, computeBarLayout(labels.map((label, i) => ({ label, count: agg.counts[i] || 0 }))));
+  }
+}
+
+function renderReactBar(){
+  const bar = $("reactBar");
+  if (bar.hidden) return;
+  clearEl(bar);
+  REACTIONS.forEach(e => {
+    const b = document.createElement("button");
+    b.textContent = e;
+    b.addEventListener("click", () => throttledSend({ t: "rx", e }, false));
+    bar.appendChild(b);
+  });
+}
+</script>
+</body>
+</html>
