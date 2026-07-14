@@ -18,6 +18,7 @@
 //     node popvote/dev/manual-integration-check.js http://localhost:8080
 
 const { chromium } = require("playwright");
+const { execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -25,6 +26,13 @@ const BASE = process.argv[2] || "http://localhost:8080";
 const CHROME = process.env.PLAYWRIGHT_CHROME || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
 const fakePeerJs = fs.readFileSync(path.join(__dirname, "fake-peerjs.js"), "utf8");
 const fakeQr = 'window.qrcode = function(){ return { addData(){}, make(){}, createSvgTag(){ return "<svg></svg>"; } }; };';
+
+// Minted fresh on every run from the local (gitignored) private key — never a
+// hardcoded/committed license string. Requires popvote/keygen/generate-keypair.js
+// to have been run first (popvote/keys/private.pem must exist).
+const keygenDir = path.join(__dirname, "..", "keygen");
+const TEST_LICENSE = execFileSync("node", [path.join(keygenDir, "generate-license.js"), "--holder", "integration-test@example.com"])
+  .toString().trim();
 
 function assert(cond, msg){ if (!cond) throw new Error("FAIL: " + msg); console.log("PASS:", msg); }
 
@@ -39,10 +47,12 @@ function assert(cond, msg){ if (!cond) throw new Error("FAIL: " + msg); console.
   const hostFrame = page.frame({ name: "hostFrame" });
 
   // This exercise runs all 4 activity kinds in one session, which exceeds the
-  // free-tier FREE_MAX_ACTIVITIES=3 gate (a real, correct gate — see the
-  // dedicated free-tier-gating check in popvote/test/ for that path).
-  // Simulate an unlocked Pro license here so the walkthrough isn't blocked by it.
-  await hostFrame.evaluate(() => localStorage.setItem("pv.license", JSON.stringify({ simulated: true })));
+  // free-tier FREE_MAX_ACTIVITIES=3 gate (a real, correct gate — Phase 3's
+  // license flow, including forged/expired-key rejection, has its own
+  // dedicated test). Pre-seed a real, freshly-minted license so the
+  // walkthrough isn't blocked by the free-tier cap; refreshLicenseCache()
+  // still verifies it for real on the next startHost().
+  await hostFrame.evaluate(raw => localStorage.setItem("pv.license", JSON.stringify(raw)), TEST_LICENSE);
 
   await hostFrame.click("#hostBtn");
   await hostFrame.waitForFunction(() => document.getElementById("hdCode").textContent !== "----");

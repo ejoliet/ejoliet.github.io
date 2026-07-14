@@ -3,7 +3,7 @@
 Living log of build state, spike results, burned items, open questions, and
 the exact next step. Updated at every phase boundary.
 
-## State: Phase 2 complete
+## State: Phase 3 complete
 
 ## Phase log
 
@@ -173,8 +173,52 @@ invisible zero-length polyline — was fixed by drawing per-point dots and a
 baseline gridline so a short/sparse session still shows *something* rather
 than an apparently-broken blank chart.
 
-### Phase 3 — Monetization
-_Not started._
+### Phase 3 — Monetization — **done**
+
+`popvote/keygen/` (local-only, never runs in the browser or CI):
+`generate-keypair.js` (Node's built-in Ed25519 support — refuses to
+overwrite an existing key, since rotating it invalidates every license
+already sold), `generate-license.js` (mints
+`base64url(JSON payload) + "." + base64url(signature)` strings for a given
+`--holder` and optional `--exp`), and a `README.md` documenting the flow:
+Lemon Squeezy is the merchant of record for payment; popvote's own Ed25519
+signature is the license mechanism, verified fully offline. Generated the
+real project keypair this session — `popvote/keys/{private,public}.pem`
+exist locally (confirmed gitignored via `git check-ignore -v`) and the
+printed raw public key is baked into `index.html` as
+`LICENSE_PUBLIC_KEY_B64`.
+
+In `index.html`: `verifyLicenseString()` uses WebCrypto
+(`crypto.subtle.importKey("raw", ..., {name:"Ed25519"})` /
+`crypto.subtle.verify`) to check a license string's signature and expiry
+with zero network calls. Confirmed this is genuinely cross-compatible —
+Node-signed payloads verify correctly in Chromium's WebCrypto and vice
+versa — by hand-testing both directions before wiring it into the app.
+Because WebCrypto is async but `isPro()`/`guestCap()`/`activityCap()` are
+called synchronously all over the UI, `refreshLicenseCache()` does the one
+async check ("validate once at session creation", per the build prompt)
+and caches the outcome in an in-memory variable; `startHost()` is now
+`async` and awaits it before creating the Peer. A "Pro license" panel
+(click the `Free`/`Pro` badge in the host top bar) lets a host paste a key;
+`activateLicense()` verifies it, and on success persists the *raw* string
+via `Store.set("license", raw)` — re-verified for real on every future
+`startHost()`, not just trusted from cache forever. Free-tier gates (3
+activities / 30 guests / locked recap preview) already existed from Phase
+1/2 behind the `isPro()` seam and needed no changes now that it's real.
+
+**Verified** with `popvote/dev/license-flow-check.js`, which mints fresh
+test licenses on every run via the real keygen scripts (never a hardcoded
+license string, per the build prompt's own commit-hygiene rule): a forged
+key (corrupted signature tail) is rejected with the friendly
+"isn't valid" message and stays on Free; an expired key is rejected; a
+valid key unlocks Pro immediately (guest cap flips to 100, the free
+activity-count gate note clears); the raw license persists to
+`localStorage.pv.license` and is re-verified successfully after a full page
+reload/new session. `popvote/dev/manual-integration-check.js` was updated
+the same way — it used to fake Pro with a bogus localStorage blob, which
+silently stopped working the moment real verification landed (correctly:
+`refreshLicenseCache()` rejected it and cleared the bad value). It now
+mints a real license via `execFileSync` at test-run time instead.
 
 ### Phase 4 — Polish + tests
 _Not started._
@@ -192,10 +236,16 @@ _Not started._
 
 ## Exact next step
 
-Build Phase 3 (Monetization): gitignore is already in place (done in commit
-0), so next is the local-only keygen script under `popvote/keygen/`
-(Ed25519, Web Crypto `subtle.generateKey`/`sign`), baking the public key
-into `index.html`, wiring real signature verification into `isPro()`
-(replacing the `Store.get("license", null)` truthiness stub), a license
-entry UI, and confirming forged/expired keys are rejected while a valid one
-unlocks unlimited activities / 100 guests / recap download.
+Build Phase 4 (Polish + tests): a jsdom test suite under `popvote/test/`
+covering seeded word-cloud determinism, `Store` localStorage-roundtrip +
+in-memory fallback, XSS handling (textContent-only rendering of peer names/
+questions/words), reconnect guard bookkeeping, one-vote-per-guest and
+one-upvote-per-guest dedupe, the 2KB message-size cap, and license signature
+verification (valid/forged/expired) — most of this logic already has
+browser-level coverage via `popvote/dev/*.js`, so the jsdom suite should
+target the pure functions directly rather than re-deriving the same
+end-to-end scenarios. Add a `package.json` + a single GitHub Action for a
+Node syntax check (and running the jsdom suite), and write the final
+manual two-machine checklist into this file, explicitly naming untested
+paths (Firefox/iOS Safari — carried since Phase 0; multi-guest reconnect
+storms — never exercised with more than one guest at a time).

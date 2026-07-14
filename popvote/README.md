@@ -47,6 +47,18 @@ signaling server, set before the app script runs:
 <script>window.POPVOTE_PEER_OPTIONS = { host: "your-peerjs-server.example.com", port: 443, secure: true };</script>
 ```
 
+## Licensing (Pro)
+
+Free vs Pro gates the host seat only (3 activities / 30 guests / locked
+recap preview vs. unlimited / 100 guests / downloadable recap) — guests
+never see a gate. Pro unlocks with an Ed25519-signed license key, verified
+entirely offline in the browser against the public key baked into
+`index.html`; there is no license server and no network call involved in
+checking a key. Lemon Squeezy is the merchant of record for the actual
+purchase. See `popvote/keygen/README.md` for how to generate the signing
+keypair and mint license keys for buyers — that tooling is local-only and
+never ships to guests or presenters.
+
 ## Security
 
 Private license-signing keys (`*.pem`, `popvote/keys/`) must never be

@@ -129,9 +129,19 @@
     </div>
     <div class="row">
       <span class="soft">Guests: <span id="guestCountBadge">0</span>/<span id="guestCapBadge">30</span></span>
-      <span id="licenseBadge" class="badge">Free</span>
+      <button id="licenseBadge" type="button" class="badge">Free</button>
       <button id="hdEndBtn" class="stop small">End session</button>
     </div>
+  </div>
+  <div id="licensePanel" class="stageCard" hidden style="margin:10px 18px">
+    <h2>Pro license</h2>
+    <p id="licenseStatusText" class="soft"></p>
+    <div class="row">
+      <input type="text" id="licenseInput" placeholder="Paste your license key…" style="flex:1;min-width:16rem">
+      <button id="licenseActivateBtn" class="secondary small">Activate</button>
+    </div>
+    <p id="licenseError" class="lockedNote" style="color:var(--stop)"></p>
+    <p class="soft">No license yet? <a id="licenseBuyLink" href="#" target="_blank" rel="noopener">Buy Pro</a> — payments are handled by Lemon Squeezy; activation itself is fully offline.</p>
   </div>
   <div id="hdBody">
     <div id="hdActivities">
@@ -239,6 +249,16 @@ const REACTIONS = ["👍","❤️","😂","🎉","👏","❓"];
 // = {host:"...", port:443, secure:true} in a script tag BEFORE this one runs.
 const PEER_OPTIONS = window.POPVOTE_PEER_OPTIONS || null;
 const ICE = null; // null = PeerJS/Google STUN defaults
+
+// AIDEV-NOTE: raw 32-byte Ed25519 public key, base64 — generated once with
+// popvote/keygen/generate-keypair.js. The matching private key never leaves
+// the seller's machine (see popvote/keys/, gitignored). License strings are
+// verified fully offline against this constant; there is no license server.
+const LICENSE_PUBLIC_KEY_B64 = "ZRVo7ue8ZqQfOPoM62b5pBO8Ov2LHGtjwFkdLv65zJY=";
+// AIDEV-TODO: point this at your real Lemon Squeezy product/checkout URL
+// before shipping — Lemon Squeezy is the merchant of record for Pro
+// purchases; popvote's own Ed25519 check (above) is the license mechanism.
+const LEMON_SQUEEZY_URL = "https://your-store.lemonsqueezy.com/checkout/popvote-pro";
 
 /* ================= storage (pv.* namespace, in-memory fallback) ================= */
 // AIDEV-NOTE: artifact previews and some privacy modes block localStorage entirely;
@@ -502,10 +522,62 @@ function toast(msg){
 // markup/SVG *string* (recap output), a genuinely different code path.
 function clearEl(el){ while (el.firstChild) el.removeChild(el.firstChild); }
 
-/* ================= license (stub; Phase 3 wires real Ed25519 verification) ================= */
-function isPro(){ return !!Store.get("license", null); }
+/* ================= license (Ed25519, verified fully offline) ================= */
+function b64urlToBytes(s){
+  s = String(s).replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  const bin = atob(s);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+function b64ToBytes(s){ return b64urlToBytes(s.replace(/-/g, "+").replace(/_/g, "/")); }
+
+// Returns the decoded {holder,issued,exp?} payload if the license string's
+// Ed25519 signature is valid and it isn't expired, otherwise null. No
+// network call — verification happens entirely against the public key
+// constant above, using the browser's native WebCrypto Ed25519 support.
+async function verifyLicenseString(raw){
+  try{
+    const parts = String(raw).trim().split(".");
+    if (parts.length !== 2) return null;
+    const payloadBytes = b64urlToBytes(parts[0]);
+    const sigBytes = b64urlToBytes(parts[1]);
+    const pubKey = await crypto.subtle.importKey(
+      "raw", b64ToBytes(LICENSE_PUBLIC_KEY_B64), { name: "Ed25519" }, false, ["verify"]);
+    const ok = await crypto.subtle.verify("Ed25519", pubKey, sigBytes, payloadBytes);
+    if (!ok) return null;
+    const payload = JSON.parse(new TextDecoder().decode(payloadBytes));
+    if (payload.exp && Date.now() > payload.exp) return null;
+    return payload;
+  }catch(e){ return null; }
+}
+
+// AIDEV-NOTE: "validate once at session creation; cache result" — verification
+// is async (WebCrypto), but isPro()/guestCap()/activityCap() are called
+// synchronously all over the UI. refreshLicenseCache() does the one async
+// check (on page load, and again whenever startHost() creates a session) and
+// stores the outcome in this in-memory variable; everything else just reads it.
+let cachedLicensePayload = null;
+function isPro(){ return !!cachedLicensePayload; }
 function guestCap(){ return isPro() ? PRO_MAX_GUESTS : FREE_MAX_GUESTS; }
 function activityCap(){ return isPro() ? Infinity : FREE_MAX_ACTIVITIES; }
+
+async function refreshLicenseCache(){
+  const raw = Store.get("license", null);
+  if (!raw){ cachedLicensePayload = null; return; }
+  const payload = await verifyLicenseString(raw);
+  cachedLicensePayload = payload;
+  if (!payload) Store.set("license", null); // clear a bad/expired cached key rather than keep re-checking it
+}
+
+async function activateLicense(raw){
+  const payload = await verifyLicenseString(raw);
+  if (!payload) return false;
+  Store.set("license", raw);
+  cachedLicensePayload = payload;
+  return true;
+}
 
 /* ================= state ================= */
 const params  = new URLSearchParams(location.search);
@@ -570,7 +642,8 @@ function genRoomCode(){
   return s;
 }
 
-function startHost(){
+async function startHost(){
+  await refreshLicenseCache(); // "validate once at session creation"
   session.code = genRoomCode();
   session.startedAt = Date.now();
   hostPeer = new Peer(PEER_ID_PREFIX + session.code, peerOpts());
@@ -613,6 +686,31 @@ function wireHostControls(){
   }
   $("hdQrBtn").addEventListener("click", toggleQr);
   $("hdEndBtn").addEventListener("click", endSession);
+
+  $("licenseBuyLink").href = LEMON_SQUEEZY_URL;
+  $("licenseBadge").addEventListener("click", () => {
+    $("licenseStatusText").textContent = isPro()
+      ? "Pro is active on this device."
+      : "Activate a license to unlock unlimited activities, 100 guests, and Instant Recap downloads.";
+    $("licensePanel").hidden = !$("licensePanel").hidden;
+  });
+  $("licenseActivateBtn").addEventListener("click", async () => {
+    const raw = $("licenseInput").value.trim();
+    $("licenseError").textContent = "";
+    if (!raw) return;
+    $("licenseActivateBtn").disabled = true;
+    const ok = await activateLicense(raw);
+    $("licenseActivateBtn").disabled = false;
+    if (!ok){
+      $("licenseError").textContent = "That license key isn't valid — check for typos, or contact support.";
+      return;
+    }
+    $("licenseInput").value = "";
+    $("licensePanel").hidden = true;
+    toast("Pro unlocked!");
+    renderHostTop();
+    renderActivityList(); // clears the free-tier activity-count gate note, if it was showing
+  });
 
   $("newKind").addEventListener("change", renderNewOptsEditor);
   renderNewOptsEditor();
