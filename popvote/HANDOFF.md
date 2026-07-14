@@ -3,7 +3,7 @@
 Living log of build state, spike results, burned items, open questions, and
 the exact next step. Updated at every phase boundary.
 
-## State: Phase 1 complete
+## State: Phase 2 complete
 
 ## Phase log
 
@@ -120,11 +120,58 @@ Phase 2):
 - Firefox/iOS Safari still untested (inherited from Phase 0 — this sandbox
   cannot run them at all, real or simulated).
 
-### Phase 2 — Instant Recap
-_Not started._
+### Phase 2 — Instant Recap — **done**
 
-### Phase 2 — Instant Recap
-_Not started._
+Added to `popvote/index.html`: `barLayoutToSVG` / `wordCloudLayoutToSVG` /
+`qnaListToHTML` / `timelineToSVG` as SVG/HTML-string siblings to the
+existing `computeBarLayout` / `computeWordCloudLayout` pure layout functions,
+a `session.responseLog` per-minute counter (`recordResponse()`, called from
+`handleVote`/`handleQuestion`), and `buildRecapHTML()` which assembles a
+single self-contained document: header (title/date/peak guests/total
+responses), one section per activity in session order (chart + response
+count, winning option highlighted for polls/ratings via the same
+`isWinner` flag the live canvas uses), a participation sparkline, and a
+"Made with popvote" footer link.
+
+**Design decision, deviating from the Phase 0 spike**: the spike serialized
+the render functions into the recap via `Function.prototype.toString()` so
+the *output file* could regenerate its own charts. The real feature doesn't
+need that: `buildRecapHTML()` runs synchronously inside the already-loaded
+host tab, so it can just *call* `computeBarLayout`/`computeWordCloudLayout`
+directly and bake the resulting SVG into the output as static markup. The
+shared-code requirement ("recap must reuse the same layout code as the live
+view") is satisfied by construction — same function objects, same call —
+without shipping any JS in the recap at all. Net effect: the recap file has
+**zero `<script>` tags**, which is strictly more robust for "opens offline
+forever" than the spike's approach (works even somewhere that blocks script
+execution, e.g. an email client's HTML preview).
+
+**Free vs Pro** (`endSession()` / `$("recapBtn")` handler in `index.html`):
+host clicks "End session" → guests get `{t:"end"}` and see their `ended`
+screen; the **host stays on its own dashboard** (deviates from the Phase-1
+placeholder that sent the host to the shared `ended` screen too — that
+screen has nothing for a host to do) with the activities panel replaced by
+the recap card. Pro calls `downloadRecap()` (Blob → `<a download>` →
+`popvote-recap-<date>-<code>.html`). Free calls `showRecapPreview()`: the
+exact same generated HTML rendered live inside a `sandbox=""` iframe (no
+scripts, no same-origin, no downloads/navigation) with the download button
+hidden and an upgrade note — "show, don't tell" per the build prompt's own
+recommendation, resolving that open question.
+
+**Verified** via `popvote/dev/manual-integration-check.js` (extended) and a
+one-off free-tier script: recap filename pattern, no external
+`src=`/`href=` refs, no `<script>` tags, ≥3 embedded SVGs, the actual Q&A
+question and footer attribution present in the output, and — the strongest
+check — the downloaded file reopened in a **second, offline** browser
+context still renders its `<h1>` and every SVG. Separately confirmed the
+free path never fires a `download` event, shows the sandboxed preview, and
+hides the download button. A screenshot of a generated recap was reviewed
+for typographic/layout quality (paper/ink palette matching the live app,
+card-per-activity layout, print-friendly `@media print` rule); the only
+issue found — a single-bucket participation timeline rendering as an
+invisible zero-length polyline — was fixed by drawing per-point dots and a
+baseline gridline so a short/sparse session still shows *something* rather
+than an apparently-broken blank chart.
 
 ### Phase 3 — Monetization
 _Not started._
@@ -145,9 +192,10 @@ _Not started._
 
 ## Exact next step
 
-Build Phase 2 (Instant Recap): add SVG-emitting siblings to the existing
-`computeBarLayout`/`computeWordCloudLayout` pure functions already in
-`index.html`, a recap assembler that serializes them via
-`Function.prototype.toString()` into a self-contained downloadable
-`popvote-recap-<date>-<code>.html`, and wire it into the "End session" flow
-(replacing the current placeholder note in `endSession()`).
+Build Phase 3 (Monetization): gitignore is already in place (done in commit
+0), so next is the local-only keygen script under `popvote/keygen/`
+(Ed25519, Web Crypto `subtle.generateKey`/`sign`), baking the public key
+into `index.html`, wiring real signature verification into `isPro()`
+(replacing the `Store.get("license", null)` truthiness stub), a license
+entry UI, and confirming forged/expired keys are rejected while a valid one
+unlocks unlimited activities / 100 guests / recap download.

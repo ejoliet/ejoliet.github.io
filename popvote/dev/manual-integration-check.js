@@ -130,11 +130,62 @@ function assert(cond, msg){ if (!cond) throw new Error("FAIL: " + msg); console.
   await new Promise(r => setTimeout(r, 200));
   assert(true, "oversize frame did not crash the hub");
 
-  // ---- end session ----
+  // ---- end session: guest sees 'ended'; host stays on its dashboard to run the recap ----
   await hostFrame.click("#hdEndBtn");
   await guestFrame.waitForSelector("#ended.on", { timeout: 5000 });
-  await hostFrame.waitForSelector("#ended.on", { timeout: 5000 });
-  assert(true, "end session reaches both host and guest");
+  await hostFrame.waitForSelector("#recapCard:not([hidden])", { timeout: 5000 });
+  assert(true, "end session reaches guest; host dashboard shows the recap card");
+
+  // ---- Instant Recap (Pro path: real download) ----
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    hostFrame.click("#recapBtn"),
+  ]);
+  assert(/^popvote-recap-\d{4}-\d{2}-\d{2}-\w+\.html$/.test(download.suggestedFilename()),
+    "recap filename matches popvote-recap-<date>-<code>.html: " + download.suggestedFilename());
+  const recapPath = "/tmp/popvote-recap-downloaded.html";
+  await download.saveAs(recapPath);
+  const recapHtml = fs.readFileSync(recapPath, "utf8");
+  assert(!/\s(?:src|href)\s*=\s*["']https?:\/\//i.test(recapHtml), "recap has no external src/href references");
+  assert((recapHtml.match(/<svg/g) || []).length >= 3, "recap embeds multiple SVG charts");
+  assert(recapHtml.includes("What time is lunch?"), "recap includes the Q&A question");
+  assert(recapHtml.includes("Made with"), "recap has the footer attribution link");
+  assert(!/<script/i.test(recapHtml), "recap is pure static HTML/SVG — no script tags needed to render it");
+
+  // reopen the downloaded file in a fresh, offline context to confirm it truly stands alone
+  const offlineCtx = await browser.newContext({ offline: true });
+  const offlinePage = await offlineCtx.newPage();
+  await offlinePage.goto("file://" + recapPath);
+  const h1 = await offlinePage.textContent(".recapHeader h1");
+  const svgCount = await offlinePage.$$eval("svg", els => els.length);
+  assert(!!h1, "recap h1 present offline: " + JSON.stringify(h1));
+  assert(svgCount >= 3, "recap SVGs render offline with zero network access (" + svgCount + " found)");
+  await offlineCtx.close();
+
+  // ---- Instant Recap (free tier: sandboxed preview, no download, show-don't-tell) ----
+  const freePage = await browser.newPage();
+  await freePage.route("**/peerjs.min.js", route => route.fulfill({ contentType: "application/javascript", body: fakePeerJs }));
+  await freePage.route("**/qrcode.js", route => route.fulfill({ contentType: "application/javascript", body: fakeQr }));
+  await freePage.goto(BASE + "/popvote/dev/parent.html");
+  const freeHost = freePage.frame({ name: "hostFrame" }); // no pv.license set here — genuinely free tier
+  await freeHost.click("#hostBtn");
+  await freeHost.waitForFunction(() => document.getElementById("hdCode").textContent !== "----");
+  await freeHost.fill("#newTitle", "Coffee or tea?");
+  await freeHost.click("#addActBtn");
+  await freeHost.click("#actList .actItem button");
+  await freeHost.click("#hdEndBtn");
+  await freeHost.waitForSelector("#recapCard:not([hidden])");
+
+  let freeDownloadFired = false;
+  freePage.on("download", () => { freeDownloadFired = true; });
+  await freeHost.click("#recapBtn");
+  await new Promise(r => setTimeout(r, 400));
+  assert(!freeDownloadFired, "free tier never triggers a file download");
+  assert(await freeHost.$eval("#recapPreviewWrap", el => !el.hidden), "free tier shows a live preview instead");
+  assert((await freeHost.$eval("#recapPreviewFrame", el => el.getAttribute("sandbox"))) === "",
+    "preview iframe is fully sandboxed (no scripts, no navigation)");
+  assert(await freeHost.$eval("#recapBtn", el => el.hidden), "download button is hidden once the locked preview is shown");
+  await freePage.close();
 
   await browser.close();
   console.log("\nALL MANUAL INTEGRATION CHECKS PASSED");
