@@ -67,7 +67,8 @@
   .optEdit{display:flex;gap:6px;margin-bottom:6px}
   .optEdit input{flex:1}
   .stageCard{background:#fff;border:2px solid var(--line);border-radius:14px;padding:14px}
-  canvas{max-width:100%;display:block}
+  canvas{max-width:100%}
+  canvas:not([hidden]){display:block}
   #qnaModList{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto}
   .qnaRow{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px}
   .qnaRow .txt{flex:1}
@@ -87,10 +88,12 @@
   #gvOptions button{width:100%}
   .rateRow{display:flex;gap:10px}
   .rateRow button{min-width:3.2rem}
+  #gvQnaWrap:not([hidden]){width:100%;display:flex;flex-direction:column;align-items:center;gap:12px}
   #gvQnaList{width:100%;max-width:34rem;display:flex;flex-direction:column;gap:8px;text-align:left}
   .gvQ{border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;gap:8px;align-items:center}
   .gvQ .txt{flex:1}
-  #reactBar{position:sticky;bottom:0;display:flex;gap:8px;justify-content:center;padding:10px;background:var(--card);border-top:2px solid var(--line)}
+  #reactBar{position:sticky;bottom:0;gap:8px;justify-content:center;padding:10px;background:var(--card);border-top:2px solid var(--line)}
+  #reactBar:not([hidden]){display:flex}
   #reactBar button{font-size:1.4rem;padding:8px 12px;background:#fff;color:#000;box-shadow:0 3px 0 var(--line);border:2px solid var(--line)}
 </style>
 </head>
@@ -206,7 +209,7 @@
     <h1 id="gvTitle">Waiting for the host…</h1>
     <p id="gvSub" class="soft"></p>
     <div id="gvOptions"></div>
-    <div id="gvQnaWrap" hidden style="width:100%;display:flex;flex-direction:column;align-items:center;gap:12px">
+    <div id="gvQnaWrap" hidden>
       <div class="row" style="width:100%;max-width:34rem">
         <input type="text" id="gvQnaInput" placeholder="Ask a question…" maxlength="240" style="flex:1">
         <button id="gvQnaSend" class="secondary">Send</button>
