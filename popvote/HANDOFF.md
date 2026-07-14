@@ -349,6 +349,26 @@ final product name (no domain/trademark search was run) and pointing
 `LEMON_SQUEEZY_URL` in `index.html` at a real store URL before advertising
 Pro anywhere.
 
+## Post-Phase-4 fix: a real CSS bug caught by eyeballing a screenshot
+
+None of the automated checks above caught this — worth being honest about.
+After all 4 phases were "done," a manual screenshot of a live session
+showed the Q&A "Ask a question…" input visible during a *poll* activity,
+where it should be hidden. Root cause: `#gvQnaWrap`, `#reactBar`, and
+`#liveCanvas` are shown/hidden by toggling the `hidden` IDL property, but
+each also had an author CSS rule setting `display` on that same selector
+(e.g. `#reactBar{display:flex}`, plus an inline `style="display:flex"` on
+`#gvQnaWrap`). Per the CSS cascade, author-origin rules (and inline styles
+even more so) beat the user-agent stylesheet's `[hidden]{display:none}`
+regardless of selector specificity — confirmed empirically in Chromium, not
+just reasoned about. Fixed by scoping each such rule to `:not([hidden])`.
+Added `popvote/dev/hidden-display-check.js` to lock this in via computed
+styles. Lesson carried forward: automated assertions on `.hidden`/`hidden`
+as a JS property don't verify the element is actually *invisible* — only a
+computed-style check (or a human eye) catches this class of bug, and none
+of Phases 1–4's tests happened to assert on computed `display` anywhere
+until this was added.
+
 ## Final acceptance criteria (from the build prompt)
 
 - [x] Single `index.html`, no build step, works from `file://` for host-only
