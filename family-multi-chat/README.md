@@ -38,7 +38,7 @@ Must be served over **HTTPS** (browser camera requirement):
 
 ## Limitations (accepted trade-offs)
 
-- **No TURN server**: works on most home networks (STUN only). Strict/symmetric NATs (some mobile carriers, corporate networks) may fail. Fix: fill in the `ICE` constant at the top of the script (see `AIDEV-NOTE`).
+- **No TURN by default**: works on most home networks (STUN only). Strict/symmetric NATs (some mobile carriers, corporate networks) may fail. Fix: run your own TURN relay and add `#turn=HOST:PORT;USER;PASS` to the invite link — see [TURN relay (optional)](#turn-relay-optional) below.
 - **Free PeerJS Cloud**: fine for personal use, not high traffic.
 - **4 people max** by design. Beyond that you need a media server — use Jitsi instead.
 - No recording, no text chat, no accounts — on purpose.
@@ -55,4 +55,44 @@ Must be served over **HTTPS** (browser camera requirement):
 | `SCREEN_MEDIA` | ≤1920 wide @ 5 fps | Screen-share cap: sharp but slow, similar bandwidth to camera |
 | `MAX_FILE_MB` | 25 | Per-file size cap for direct photo/document sharing |
 | `BIG_FILE_URL` | `https://wormhole.app` | E2EE expiring-link service offered for bigger files |
-| `ICE` | `null` (PeerJS default STUN) | Add TURN here if needed |
+| `ICE` | built from URL fragment, `null` if absent | TURN creds come from `#turn=...`, never committed — see below |
+
+## TURN relay (optional)
+
+Only needed if calls fail off your home LAN (strict/symmetric NATs — some mobile carriers, corporate networks). Google's public server is STUN-only (address discovery); nobody gives away free TURN (it relays your actual video through their bandwidth), so a working fallback means running your own.
+
+**Run it** (Docker, e.g. on a Mac left on, or a small cloud VM):
+
+```yaml
+services:
+  coturn:
+    image: coturn/coturn
+    restart: unless-stopped
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49160-49200:49160-49200/udp"
+    command: >
+      -n --log-file=stdout --no-cli
+      --lt-cred-mech --user=family:CHANGE_ME_SECRET
+      --realm=famchat
+      --min-port=49160 --max-port=49200
+      --external-ip=YOUR_PUBLIC_IP
+      --fingerprint
+```
+
+Forward `3478` (TCP+UDP) and `49160-49200` (UDP) on your router to the host running this. A free DDNS hostname (e.g. DuckDNS) keeps the invite link working if your public IP changes — note `--external-ip` still needs the raw IP, updated on change.
+
+**Use it**: append the creds to the invite link as a URL fragment — it never leaves the browser (not sent to any server, safe to not commit):
+
+```
+https://yoursite/family-multi-chat/#turn=yourname.duckdns.org:3478;family;CHANGE_ME_SECRET
+```
+
+Add `;relay` at the end to force relay-only and confirm TURN is actually working (no direct P2P allowed):
+
+```
+https://yoursite/family-multi-chat/#turn=yourname.duckdns.org:3478;family;CHANGE_ME_SECRET;relay
+```
+
+Test with a second device on cellular data — video should still connect. Drop `;relay` for normal use (direct when possible, relay as fallback). Rotate the secret by changing `--user` and sending a new link.

@@ -191,16 +191,30 @@ const MAX_FILE_MB  = 25;        // per-file cap; sender uploads one copy per par
 // needed, one upload serves everyone, works after the call). Only the link travels
 // through our data channels; the decryption key stays in the URL fragment.
 const BIG_FILE_URL = "https://wormhole.app";
-// AIDEV-NOTE: default PeerJS ICE = Google STUN only. If calls fail on strict/symmetric
-// NATs, add a TURN server (e.g. metered.ca free tier — verify current creds):
-// const ICE = { iceServers:[{urls:"stun:stun.l.google.com:19302"},
-//   {urls:"turn:...", username:"...", credential:"..."}] };
-const ICE = null;
+// AIDEV-NOTE: default PeerJS ICE = Google STUN only (fine on friendly NATs).
+// TURN relay creds are NOT committed — they ride in the URL fragment, which never
+// leaves the browser (not sent to servers, not in hosting logs). The invite link
+// forwards the fragment so joiners relay too. Format:
+//   #turn=HOST:PORT;USERNAME;PASSWORD          (creds: no ';' characters)
+//   #turn=HOST:PORT;USERNAME;PASSWORD;relay    (debug: force relay to prove TURN works)
+const ICE = (() => {
+  const m = location.hash.match(/turn=([^;]+);([^;]+);([^;]+)(;relay)?/);
+  if (!m) return null;
+  const [, host, username, credential, forceRelay] = m;
+  const cfg = { iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "turn:" + host, username, credential },
+    { urls: "turn:" + host + "?transport=tcp", username, credential },
+  ]};
+  if (forceRelay) cfg.iceTransportPolicy = "relay";
+  return cfg;
+})();
 
 /* ================= state ================= */
 const params  = new URLSearchParams(location.search);
 const roomId  = params.get("room") || (ROOM_PREFIX + Math.random().toString(36).slice(2, 10));
-const roomURL = location.origin + location.pathname + "?room=" + roomId;
+// AIDEV-NOTE: invite link keeps the #turn=... fragment so joiners get TURN creds too.
+const roomURL = location.origin + location.pathname + "?room=" + roomId + location.hash;
 
 let myName = "";
 let localStream = null;
@@ -251,7 +265,7 @@ $("fileInput").addEventListener("change", onFilePicked);
 $("wormholeBtn").addEventListener("click", () => window.open(BIG_FILE_URL, "_blank", "noopener"));
 $("shareLinkBtn").addEventListener("click", shareLink);
 $("bigfileCancel").addEventListener("click", () => $("bigfile").hidden = true);
-$("againBtn").addEventListener("click", () => location.href = location.pathname);
+$("againBtn").addEventListener("click", () => location.href = location.pathname + location.hash);
 $("retryBtn").addEventListener("click", () => { joinRetries = 0; $("retryBtn").hidden = true; startMesh(); });
 
 async function begin(){
