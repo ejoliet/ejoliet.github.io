@@ -1,0 +1,17 @@
+GOLDEN DRAGON RESTAURANT
+04/22/2026
+
+1  Kung Pao Chicken
+   (Extra Spicy)                12.95
+1  Beef and Broccoli
+   with Fried Rice               13.50
+2  Spring Roll
+   x 2                            5.00
+1  Jasmine Tea (Pot)               3.00
+
+Subtotal                         34.45
+Tax                                3.02
+Total                             37.47
+
+Order #4471       Terminal 02
+Auth code: 118820
