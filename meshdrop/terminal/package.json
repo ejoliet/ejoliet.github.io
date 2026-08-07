@@ -1,0 +1,10 @@
+{
+  "name": "meshdrop-terminal",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Terminal peer for MeshDrop zero-backend WebRTC image replication",
+  "bin": { "meshdrop-terminal": "./meshdrop-cli.js" },
+  "dependencies": {
+    "werift": "^0.22.2"
+  }
+}

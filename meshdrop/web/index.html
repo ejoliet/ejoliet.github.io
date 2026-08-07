@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MeshDrop</title>
+<style>
+:root{--bg:#071019;--panel:#0d1824;--panel2:#102033;--txt:#e9f1fb;--muted:#92a4b8;--line:#223449;--ok:#71f0ad;--warn:#ffd166;--bad:#ff6b6b;--accent:#74c0fc}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0%,#183657 0,#071019 38%,#04070b 100%);color:var(--txt);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;min-height:100vh}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{display:grid;gap:8px;margin-bottom:14px}.title{font-size:28px;font-weight:800;letter-spacing:-.03em}.sub{color:var(--muted);max-width:760px}.grid{display:grid;grid-template-columns:1fr;gap:12px}@media(min-width:880px){.grid{grid-template-columns:360px 1fr}}.card{background:linear-gradient(180deg,rgba(16,32,51,.95),rgba(9,18,29,.95));border:1px solid var(--line);border-radius:18px;padding:14px;box-shadow:0 20px 60px rgba(0,0,0,.25)}h2{font-size:16px;margin:0 0 10px}label{display:block;color:var(--muted);font-size:12px;margin:10px 0 5px}input,textarea,button{font:inherit}input,textarea{width:100%;border:1px solid var(--line);background:#07111d;color:var(--txt);border-radius:12px;padding:10px;outline:none}textarea{min-height:116px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}.row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1}button{border:0;border-radius:12px;padding:10px 12px;color:#06121f;background:var(--accent);font-weight:700;cursor:pointer}button.secondary{background:#1f334a;color:var(--txt);border:1px solid var(--line)}button.danger{background:#442333;color:#ffdce4;border:1px solid #6d3145}button:disabled{opacity:.45;cursor:not-allowed}.status{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.pill{font-size:12px;color:var(--muted);background:#07111d;border:1px solid var(--line);border-radius:999px;padding:6px 9px}.pill.ok{color:var(--ok)}.pill.warn{color:var(--warn)}.drop{border:1.5px dashed #395a7a;background:rgba(116,192,252,.07);border-radius:18px;padding:22px;text-align:center;color:var(--muted);margin-bottom:12px}.drop.drag{background:rgba(116,192,252,.16);border-color:var(--accent)}.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}.thumb{position:relative;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#07111d}.thumb img{width:100%;height:132px;object-fit:cover;display:block}.meta{padding:8px;font-size:11px;color:var(--muted);word-break:break-all}.log{height:160px;overflow:auto;background:#050b12;border:1px solid var(--line);border-radius:12px;padding:8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:#b8c7d9}.small{font-size:12px;color:var(--muted)}.copy{white-space:nowrap}.empty{color:var(--muted);text-align:center;padding:24px;border:1px solid var(--line);border-radius:14px;background:#07111d}.topline{display:flex;align-items:center;justify-content:space-between;gap:8px}.kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#07111d;border:1px solid var(--line);border-radius:6px;padding:1px 5px;color:#cfe3fa}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div class="title">MeshDrop</div>
+    <div class="sub">Zero-backend image replication. One device creates an offer, another answers, and every connected peer stores and forwards images locally.</div>
+  </div>
+  <div class="grid">
+    <section class="card">
+      <h2>1. Identity</h2>
+      <label>Alias</label>
+      <input id="alias" placeholder="Kitchen tablet, Mom iPad, Office Mac" autocomplete="off">
+      <div class="status">
+        <span id="peerId" class="pill"></span>
+        <span id="connState" class="pill warn">not connected</span>
+        <span id="imgCount" class="pill">0 images</span>
+      </div>
+
+      <h2>2. Connect</h2>
+      <div class="row">
+        <button id="createOffer">Create host offer</button>
+        <button id="joinOffer" class="secondary">Join with offer</button>
+      </div>
+      <label>Local signal</label>
+      <textarea id="localSignal" readonly placeholder="Generated offer or answer appears here"></textarea>
+      <div class="row">
+        <button id="copyLocal" class="secondary copy">Copy signal</button>
+      </div>
+      <label>Remote signal</label>
+      <textarea id="remoteSignal" placeholder="Paste the other device signal here"></textarea>
+      <div class="row">
+        <button id="acceptAnswer" class="secondary">Accept answer</button>
+        <button id="resetPeer" class="danger">Reset peer</button>
+      </div>
+      <p class="small">For elderly onboarding: send the page link first, then send only one pasted signal. No account, password, or file picker is required after connection.</p>
+    </section>
+
+    <section class="card">
+      <div class="topline">
+        <h2>3. Images</h2>
+        <div class="row" style="flex:0 0 auto">
+          <button id="pickBtn" class="secondary">Pick images</button>
+          <button id="clearImages" class="danger">Clear local</button>
+        </div>
+      </div>
+      <input id="fileInput" type="file" accept="image/*" multiple hidden>
+      <div id="drop" class="drop">Drop images here, paste images with <span class="kbd">Cmd/Ctrl+V</span>, or tap Pick images.</div>
+      <div id="gallery" class="gallery"></div>
+    </section>
+  </div>
+  <section class="card" style="margin-top:12px">
+    <h2>Activity</h2>
+    <div id="log" class="log"></div>
+  </section>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const LS='meshdrop.v1';
+const peerId=localStorage.meshdropPeerId||(localStorage.meshdropPeerId=crypto.randomUUID());
+$('peerId').textContent='peer '+peerId.slice(0,8);
+$('alias').value=localStorage.meshdropAlias||'';
+$('alias').oninput=()=>localStorage.meshdropAlias=$('alias').value.trim();
+let pc=null, channels=new Map(), images=loadImages();
+const cfg={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+function log(s){const t=new Date().toLocaleTimeString();$('log').innerHTML+=`[${t}] ${escapeHtml(s)}<br>`;$('log').scrollTop=$('log').scrollHeight}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function saveImages(){localStorage.setItem(LS+'.images',JSON.stringify(images));render()}
+function loadImages(){try{return JSON.parse(localStorage.getItem(LS+'.images')||'[]')}catch{return[]}}
+function render(){ $('imgCount').textContent=images.length+' images'; const g=$('gallery'); if(!images.length){g.innerHTML='<div class="empty">No images stored locally yet.</div>';return} g.innerHTML=images.map(x=>`<div class="thumb"><img src="${x.dataUrl}" alt="${escapeHtml(x.name)}"><div class="meta">${escapeHtml(x.name)}<br>${new Date(x.ts).toLocaleString()}<br>${x.hash.slice(0,16)}</div></div>`).join('')}
+async function hashBuf(buf){const h=await crypto.subtle.digest('SHA-256',buf);return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join('')}
+function waitIce(pc){return new Promise(res=>{if(pc.iceGatheringState==='complete')return res();pc.onicegatheringstatechange=()=>pc.iceGatheringState==='complete'&&res();setTimeout(res,3000)})}
+function signalPayload(desc){return btoa(JSON.stringify({v:1,from:peerId,alias:$('alias').value.trim(),desc}))}
+function parseSignal(s){return JSON.parse(atob(s.trim()))}
+function makePc(){ pc=new RTCPeerConnection(cfg); pc.onconnectionstatechange=()=>{$('connState').textContent=pc.connectionState; $('connState').className='pill '+(pc.connectionState==='connected'?'ok':'warn'); log('connection '+pc.connectionState)}; pc.ondatachannel=e=>setupChannel(e.channel); pc.onicecandidateerror=e=>log('ice warning '+e.errorText); return pc }
+function setupChannel(ch){ ch.binaryType='arraybuffer'; channels.set(ch.label,ch); ch.onopen=()=>{log('channel open '+ch.label); announceInventory(ch)}; ch.onclose=()=>{channels.delete(ch.label);log('channel closed '+ch.label)}; ch.onmessage=e=>handleMsg(e.data,ch); }
+function send(ch,obj){ if(ch.readyState==='open') ch.send(JSON.stringify(obj)) }
+function broadcast(obj,except){ for(const ch of channels.values()) if(ch!==except&&ch.readyState==='open') send(ch,obj) }
+function announceInventory(ch){send(ch,{type:'hello',peerId,alias:$('alias').value.trim(),hashes:images.map(i=>i.hash)})}
+async function handleMsg(raw,ch){ let m; try{m=JSON.parse(raw)}catch{return} if(m.type==='hello'){log('hello from '+(m.alias||m.peerId||'peer')); const have=new Set(images.map(i=>i.hash)); for(const img of images){ if(!(m.hashes||[]).includes(img.hash)) send(ch,{type:'image',image:img}) } return } if(m.type==='image'){ if(images.some(i=>i.hash===m.image.hash)){return} images.unshift(m.image); saveImages(); log('received '+m.image.name); broadcast(m,ch); } }
+$('createOffer').onclick=async()=>{ makePc(); const ch=pc.createDataChannel('mesh-'+peerId.slice(0,8)); setupChannel(ch); await pc.setLocalDescription(await pc.createOffer()); await waitIce(pc); $('localSignal').value=signalPayload(pc.localDescription); log('offer ready') };
+$('joinOffer').onclick=async()=>{ const sig=parseSignal($('remoteSignal').value); makePc(); await pc.setRemoteDescription(sig.desc); await pc.setLocalDescription(await pc.createAnswer()); await waitIce(pc); $('localSignal').value=signalPayload(pc.localDescription); log('answer ready') };
+$('acceptAnswer').onclick=async()=>{ const sig=parseSignal($('remoteSignal').value); if(!pc) return log('create offer first'); await pc.setRemoteDescription(sig.desc); log('answer accepted') };
+$('copyLocal').onclick=async()=>{await navigator.clipboard.writeText($('localSignal').value);log('signal copied')};
+$('resetPeer').onclick=()=>{try{pc&&pc.close()}catch{} pc=null; channels.clear(); $('connState').textContent='not connected'; $('connState').className='pill warn'; $('localSignal').value=''; $('remoteSignal').value=''; log('peer reset')};
+async function addFiles(files){for(const f of files){if(!f.type.startsWith('image/'))continue; const buf=await f.arrayBuffer(); const hash=await hashBuf(buf); if(images.some(i=>i.hash===hash)){log('duplicate skipped '+f.name);continue} const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(new Blob([buf],{type:f.type}))}); const image={hash,name:f.name,type:f.type,size:f.size,ts:Date.now(),from:peerId,dataUrl}; images.unshift(image); saveImages(); broadcast({type:'image',image}); log('stored and shared '+f.name)}}
+$('pickBtn').onclick=()=>$('fileInput').click(); $('fileInput').onchange=e=>addFiles(e.target.files);
+const drop=$('drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag')})); ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag')})); drop.addEventListener('drop',e=>addFiles(e.dataTransfer.files));
+document.addEventListener('paste',e=>{const files=[...e.clipboardData.files].filter(f=>f.type.startsWith('image/')); if(files.length)addFiles(files)});
+$('clearImages').onclick=()=>{if(confirm('Clear only this browser copy?')){images=[];saveImages();log('local images cleared')}};
+render(); log('ready');
+</script>
+</body>
+</html>
