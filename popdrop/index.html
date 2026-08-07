@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>popdrop — spike</title>
+<!-- AIDEV-NOTE: SPIKE ONLY. Validates chunking + backpressure + streaming disk write
+     over PeerJS DataChannel before any RDD spec is written (p2p-tool-builder workflow).
+     GO/NO-GO: 2 GiB file, two machines, host memory flat, hash receipts match. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px/1.4 system-ui, sans-serif; background:#111827; color:#e5e7eb; margin:0; padding:16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .muted { color:#9ca3af; font-size:12px; }
+  .card { background:#1f2937; border-radius:10px; padding:14px; margin:12px 0; max-width:680px; }
+  button { background:#2563eb; color:#fff; border:0; border-radius:8px; padding:10px 14px; font-size:14px; cursor:pointer; }
+  button.sec { background:#374151; }
+  button:disabled { opacity:.4; cursor:default; }
+  input[type=text] { background:#111827; color:#e5e7eb; border:1px solid #374151; border-radius:8px; padding:10px; font-size:16px; width:120px; text-transform:uppercase; }
+  #drop { border:2px dashed #4b5563; border-radius:10px; padding:28px; text-align:center; color:#9ca3af; }
+  #drop.over { border-color:#2563eb; color:#e5e7eb; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .xfer { background:#111827; border-radius:8px; padding:8px 10px; margin:6px 0; }
+  .bar { height:6px; background:#374151; border-radius:3px; overflow:hidden; margin-top:6px; }
+  .bar > div { height:100%; background:#22c55e; width:0%; }
+  code { background:#111827; padding:2px 6px; border-radius:4px; }
+  .ok { color:#22c55e; } .bad { color:#ef4444; } .warn { color:#f59e0b; }
+  #stats { font-size:12px; color:#9ca3af; white-space:pre; }
+</style>
+</head>
+<body>
+<h1>popdrop <span class="muted">spike — chunked transfer / backpressure / streaming write</span></h1>
+
+<div id="home" class="card">
+  <div class="row">
+    <button id="btnHost">Host a drop room</button>
+    <span class="muted">or join:</span>
+    <input id="joinCode" type="text" maxlength="4" placeholder="CODE">
+    <button id="btnJoin" class="sec">Join</button>
+  </div>
+</div>
+
+<div id="hostPanel" class="card" style="display:none">
+  <div class="row">
+    <div>Room <code id="roomCode"></code></div>
+    <button id="btnCopy" class="sec">Copy link</button>
+    <span id="copied" class="ok" style="display:none">copied</span>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="btnDir">Choose save folder</button>
+    <span id="sinkLabel" class="muted">sink: none yet</span>
+  </div>
+  <div id="hostXfers"></div>
+  <div id="stats"></div>
+</div>
+
+<div id="guestPanel" class="card" style="display:none">
+  <div id="guestStatus" class="muted">connecting…</div>
+  <div id="drop" style="margin-top:10px">Drop files here or
+    <input id="filePick" type="file" multiple></div>
+  <div id="guestXfers"></div>
+</div>
+
+<script>
+"use strict";
+/* ===== constants ===== */
+const CHUNK = 64 * 1024;                 // AIDEV-NOTE: 64 KiB; safe cross-browser DataChannel message size
+const HIGH_WATER = 1 * 1024 * 1024;      // pause sender when bufferedAmount exceeds this
+const LOW_WATER = 256 * 1024;            // resume via bufferedamountlow
+const MAX_FILE = 4 * 1024 ** 3;          // 4 GiB inbound cap (security preflight: cap all inbound)
+const MAX_NAME = 120;
+const MAX_GUESTS = 8;                    // spike cap; star ceiling is ~50-150
+const MEM_CAP = 500 * 1024 ** 2;         // in-memory sink last-resort cap
+const CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ"; // no 0/O/1/I/L/U
+
+/* ===== localStorage pd.* with in-memory fallback ===== */
+// AIDEV-NOTE: localStorage is blocked in some embeds (claude.ai preview) — always fall back
+const mem = {};
+const store = {
+  get(k){ try { return localStorage.getItem("pd." + k); } catch { return mem[k] ?? null; } },
+  set(k,v){ try { localStorage.setItem("pd." + k, v); } catch { mem[k] = v; } }
+};
+
+/* ===== helpers ===== */
+const $ = id => document.getElementById(id);
+function makeCode(){ let s=""; const a=new Uint32Array(4); crypto.getRandomValues(a);
+  for (const n of a) s += CODE_ALPHABET[n % CODE_ALPHABET.length]; return s; }
+function sanitizeName(n){
+  n = String(n).slice(0, MAX_NAME).replace(/[\/\\:*?"<>|\u0000-\u001f]/g, "_");
+  return n.replace(/^\.+/, "_") || "unnamed";
+}
+function fmtBytes(b){ const u=["B","KB","MB","GB"]; let i=0; while(b>=1024&&i<3){b/=1024;i++;} return b.toFixed(i?1:0)+" "+u[i]; }
+async function sha256(buf){ return new Uint8Array(await crypto.subtle.digest("SHA-256", buf)); }
+function hex(u8){ return [...u8].map(b=>b.toString(16).padStart(2,"0")).join(""); }
+
+// AIDEV-NOTE: receipt = SHA-256 over concatenated per-chunk SHA-256 digests.
+// SubtleCrypto has no incremental API; full-file hash of 2 GiB would need the file in memory.
+// Chunk-digest chain is streaming-friendly and identical on both ends.
+class HashChain {
+  constructor(){ this.parts = []; }
+  async add(buf){ this.parts.push(await sha256(buf)); }
+  async final(){
+    const all = new Uint8Array(this.parts.length * 32);
+    this.parts.forEach((p,i)=>all.set(p, i*32));
+    return hex(await sha256(all.buffer));
+  }
+}
+
+// AIDEV-NOTE: PeerJS may hand us ArrayBuffer OR typed array depending on path (burned: popclass)
+function asArrayBuffer(d){
+  if (d instanceof ArrayBuffer) return d;
+  if (ArrayBuffer.isView(d)) return d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength);
+  return null;
+}
+
+/* ===== peer lifecycle (single instance, guarded reconnect) ===== */
+let peer = null, retryPending = false, retries = 0;
+function peerOptions(){
+  // AIDEV-NOTE: config seam — self-hosted signaling/TURN via window.POPDROP_PEER_OPTIONS, no code change
+  return Object.assign({ debug: 1 }, window.POPDROP_PEER_OPTIONS || {});
+}
+function newPeer(id, onOpen){
+  peer = id ? new Peer(id, peerOptions()) : new Peer(peerOptions());
+  peer.once("open", () => { retries = 0; onOpen(); });
+  peer.on("disconnected", () => {
+    // AIDEV-NOTE: one reconnect loop only (burned: Pop Rumble duplicate listeners)
+    if (retryPending || retries >= 6) return;
+    retryPending = true;
+    setTimeout(() => { retryPending = false; retries++; try { peer.reconnect(); } catch {} },
+      Math.min(500 * 2 ** retries, 8000));
+  });
+  peer.on("error", e => {
+    if (e.type === "unavailable-id" && id) {
+      // AIDEV-NOTE: fast host refresh can hit own stale ID — retry claim with backoff (burned: popclass)
+      retries++;
+      if (retries <= 6) setTimeout(() => newPeer(id, onOpen), Math.min(500 * 2 ** retries, 8000));
+      else alert("Room code unavailable. Reload to get a new code.");
+    } else if (e.type === "peer-unavailable") {
+      $("guestStatus").textContent = "Room not found. Check the code, and make sure the host tab is open.";
+      $("guestStatus").className = "bad";
+    }
+  });
+}
+
+/* ================= HOST ================= */
+let dirHandle = null, opfsDir = null, sinkKind = "none";
+const guests = new Map();   // conn -> { active: transfer|null }
+let statMaxBuffered = 0;
+
+async function pickSink(){
+  // Ladder: user folder (Chromium) -> OPFS -> memory (capped)
+  if (window.showDirectoryPicker) {
+    try {
+      dirHandle = await showDirectoryPicker({ mode: "readwrite" });
+      sinkKind = "disk";
+      $("sinkLabel").textContent = "sink: disk folder (streaming)";
+      $("sinkLabel").className = "ok";
+      return;
+    } catch { /* user cancelled */ }
+  }
+  try {
+    opfsDir = await navigator.storage.getDirectory();
+    sinkKind = "opfs";
+    $("sinkLabel").textContent = "sink: OPFS (origin-private, export after)";
+    $("sinkLabel").className = "warn";
+    // AIDEV-TODO: Safari needs createSyncAccessHandle in a Worker; createWritable may be absent
+  } catch {
+    sinkKind = "mem";
+    $("sinkLabel").textContent = "sink: memory (cap " + fmtBytes(MEM_CAP) + ")";
+    $("sinkLabel").className = "warn";
+  }
+}
+
+async function openWriter(name){
+  if (sinkKind === "disk") {
+    const fh = await dirHandle.getFileHandle(name, { create: true });
+    return await fh.createWritable();
+  }
+  if (sinkKind === "opfs") {
+    const fh = await opfsDir.getFileHandle(name, { create: true });
+    return await fh.createWritable();
+  }
+  // memory sink
+  const bufs = [];
+  return {
+    _bufs: bufs, _mem: true, _size: 0,
+    async write(b){ this._size += b.byteLength;
+      if (this._size > MEM_CAP) throw new Error("mem cap");
+      bufs.push(b); },
+    async close(){}
+  };
+}
+
+function startHost(){
+  const code = makeCode();
+  $("home").style.display = "none";
+  $("hostPanel").style.display = "";
+  $("roomCode").textContent = code;
+  store.set("lastRoom", code);
+  const link = location.origin + location.pathname + "?j=" + code;
+  $("btnCopy").onclick = async () => {
+    try { await navigator.clipboard.writeText(link); }
+    catch { const t=document.createElement("textarea"); t.value=link; document.body.appendChild(t);
+            t.select(); document.execCommand("copy"); t.remove(); }
+    $("copied").style.display = ""; setTimeout(()=>$("copied").style.display="none", 1500);
+  };
+  $("btnDir").onclick = pickSink;
+
+  newPeer("popdrop-" + code, () => {});
+  peer.on("connection", conn => {
+    if (guests.size >= MAX_GUESTS) { conn.on("open", ()=>conn.close()); return; }
+    guests.set(conn, { active: null });
+    conn.on("open", () => conn.send({ t: "hi" }));
+    conn.on("data", d => onHostData(conn, d).catch(err => {
+      const g = guests.get(conn);
+      if (g && g.active) failTransfer(conn, g.active, String(err.message || err));
+    }));
+    conn.on("close", () => guests.delete(conn));
+  });
+
+  // AIDEV-NOTE: room dies with the host — warn on close mid-transfer
+  window.addEventListener("beforeunload", e => {
+    for (const g of guests.values()) if (g.active) { e.preventDefault(); e.returnValue = ""; return; }
+  });
+
+  setInterval(() => {
+    const m = performance.memory
+      ? " | JS heap " + fmtBytes(performance.memory.usedJSHeapSize) : "";
+    $("stats").textContent =
+      "guests " + guests.size + " | max recv-side queued " + fmtBytes(statMaxBuffered) + m;
+  }, 1000);
+}
+
+function failTransfer(conn, t, reason){
+  const g = guests.get(conn); if (g) g.active = null;
+  try { conn.send({ t: "no", id: t.id, reason }); } catch {}
+  t.el.querySelector(".st").textContent = "failed: " + reason;
+  t.el.querySelector(".st").className = "st bad";
+}
+
+async function onHostData(conn, d){
+  const g = guests.get(conn); if (!g) return;
+
+  const buf = asArrayBuffer(d);
+  if (buf) {
+    const t = g.active;
+    if (!t) return; // chunk with no accepted transfer — drop
+    if (t.received + buf.byteLength > t.size + CHUNK) { failTransfer(conn, t, "overflow"); return; }
+    t.received += buf.byteLength; t.gotChunks++;
+    await t.hash.add(buf);
+    // AIDEV-NOTE: serialize writes; sender-side bufferedAmount backpressure bounds this queue.
+    // Receiver->sender flow control (explicit acks) is deferred: AIDEV-TODO
+    t.queued += buf.byteLength;
+    statMaxBuffered = Math.max(statMaxBuffered, t.queued);
+    t.wq = t.wq.then(() => t.writer.write(new Uint8Array(buf)))
+               .then(() => { t.queued -= buf.byteLength; });
+    if (t.gotChunks % 64 === 0 || t.received >= t.size) updateBar(t);
+    return;
+  }
+
+  if (!d || typeof d !== "object") return;
+  if (d.t === "meta") {
+    if (g.active) { conn.send({ t: "no", id: d.id, reason: "busy" }); return; } // 1 in-flight per guest
+    if (sinkKind === "none") { conn.send({ t: "no", id: d.id, reason: "host has not chosen a folder" }); return; }
+    const size = Number(d.size);
+    if (!Number.isFinite(size) || size <= 0 || size > MAX_FILE) {
+      conn.send({ t: "no", id: d.id, reason: "size cap " + fmtBytes(MAX_FILE) }); return;
+    }
+    const name = sanitizeName(d.name);
+    const t = {
+      id: String(d.id).slice(0, 40), name, size,
+      received: 0, gotChunks: 0, queued: 0,
+      hash: new HashChain(), wq: Promise.resolve(),
+      writer: await openWriter(name),
+      started: performance.now(),
+      el: addXferRow($("hostXfers"), name, size)
+    };
+    g.active = t;
+    conn.send({ t: "go", id: t.id });
+    return;
+  }
+  if (d.t === "fin") {
+    const t = g.active; if (!t || t.id !== d.id) return;
+    await t.wq;
+    const h = await t.hash.final();
+    const ok = t.received === t.size && h === d.hash;
+    if (t.writer._mem && ok) {
+      const blob = new Blob(t.writer._bufs);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = t.name; a.textContent = " download";
+      t.el.querySelector(".st").after(a);
+    } else {
+      await t.writer.close();
+    }
+    const secs = (performance.now() - t.started) / 1000;
+    const st = t.el.querySelector(".st");
+    st.textContent = ok
+      ? "done " + (t.size / 1048576 / secs).toFixed(1) + " MB/s · sha " + h.slice(0, 12) + "…"
+      : "HASH/SIZE MISMATCH";
+    st.className = "st " + (ok ? "ok" : "bad");
+    updateBar(t, true);
+    conn.send({ t: "rcpt", id: t.id, ok, hash: h });
+    g.active = null;
+  }
+}
+
+/* ================= GUEST ================= */
+let hostConn = null, sending = false;
+const sendQueue = [];
+
+function startGuest(code){
+  $("home").style.display = "none";
+  $("guestPanel").style.display = "";
+  newPeer(null, () => {
+    hostConn = peer.connect("popdrop-" + code, { reliable: true });
+    hostConn.on("open", () => { $("guestStatus").textContent = "connected to room " + code; $("guestStatus").className = "ok"; });
+    hostConn.on("data", d => { if (d && d.t) guestCtl(d); });
+    hostConn.on("close", () => { $("guestStatus").textContent = "host left — room closed"; $("guestStatus").className = "bad"; });
+  });
+
+  const drop = $("drop");
+  drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); enqueue(e.dataTransfer.files); });
+  $("filePick").addEventListener("change", e => enqueue(e.target.files));
+}
+
+const pendingCtl = {};   // transfer id -> resolver for go/no + rcpt
+function guestCtl(d){
+  const r = pendingCtl[d.id];
+  if (r && (d.t === "go" || d.t === "no")) { delete pendingCtl[d.id]; r(d); }
+  else if (d.t === "rcpt") {
+    const t = guestXfers[d.id];
+    if (t) {
+      const st = t.el.querySelector(".st");
+      st.textContent = d.ok ? "receipt ok · sha " + d.hash.slice(0, 12) + "…" : "receipt MISMATCH";
+      st.className = "st " + (d.ok ? "ok" : "bad");
+    }
+  }
+}
+
+const guestXfers = {};
+function enqueue(files){
+  for (const f of files) sendQueue.push(f);
+  if (!sending) pump();
+}
+
+async function pump(){
+  sending = true;
+  while (sendQueue.length) {
+    const f = sendQueue.shift();
+    try { await sendFile(f); } catch (e) { console.error(e); }
+  }
+  sending = false;
+}
+
+async function sendFile(file){
+  const id = Math.random().toString(36).slice(2, 10);
+  const el = addXferRow($("guestXfers"), file.name, file.size);
+  guestXfers[id] = { el };
+
+  const resp = await new Promise(res => {
+    pendingCtl[id] = res;
+    hostConn.send({ t: "meta", id, name: file.name, size: file.size, mime: file.type });
+    setTimeout(() => { if (pendingCtl[id]) { delete pendingCtl[id]; res({ t: "no", reason: "timeout" }); } }, 15000);
+  });
+  if (resp.t !== "go") {
+    const st = el.querySelector(".st");
+    st.textContent = "rejected: " + (resp.reason || "?"); st.className = "st bad";
+    return;
+  }
+
+  const dc = hostConn.dataChannel;          // AIDEV-NOTE: PeerJS exposes the raw RTCDataChannel here
+  dc.bufferedAmountLowThreshold = LOW_WATER;
+  const hash = new HashChain();
+  const t0 = performance.now();
+  let off = 0, chunks = 0;
+
+  while (off < file.size) {
+    // AIDEV-NOTE: backpressure via bufferedAmount, NEVER timers (burned: cullroom)
+    if (dc.bufferedAmount > HIGH_WATER) {
+      await new Promise(res => dc.addEventListener("bufferedamountlow", res, { once: true }));
+    }
+    const buf = await file.slice(off, off + CHUNK).arrayBuffer();
+    await hash.add(buf);
+    hostConn.send(buf);
+    off += buf.byteLength; chunks++;
+    if (chunks % 64 === 0 || off >= file.size) {
+      el.querySelector(".bar > div").style.width = (off / file.size * 100).toFixed(1) + "%";
+      el.querySelector(".st").textContent =
+        fmtBytes(off) + " / " + fmtBytes(file.size) + " · " +
+        (off / 1048576 / ((performance.now() - t0) / 1000)).toFixed(1) + " MB/s";
+    }
+  }
+  const h = await hash.final();
+  await new Promise(res => {           // wait for receipt (reuse ctl channel)
+    pendingCtl[id] = d => res(d);      // rcpt handled in guestCtl for UI; this resolves on go/no only
+    hostConn.send({ t: "fin", id, hash: h });
+    setTimeout(res, 30000);
+  });
+  delete pendingCtl[id];
+}
+
+/* ===== shared UI ===== */
+function addXferRow(parent, name, size){
+  const el = document.createElement("div");
+  el.className = "xfer";
+  const nm = document.createElement("div");
+  nm.textContent = name + " (" + fmtBytes(size) + ")";   // AIDEV-NOTE: textContent = XSS-safe, no extra escaping
+  const st = document.createElement("div");
+  st.className = "st muted"; st.textContent = "waiting…";
+  const bar = document.createElement("div"); bar.className = "bar";
+  bar.appendChild(document.createElement("div"));
+  el.append(nm, st, bar);
+  parent.appendChild(el);
+  return el;
+}
+function updateBar(t, done){
+  t.el.querySelector(".bar > div").style.width = done ? "100%" : (t.received / t.size * 100).toFixed(1) + "%";
+  if (!done) t.el.querySelector(".st").textContent = fmtBytes(t.received) + " / " + fmtBytes(t.size);
+}
+
+/* ===== boot ===== */
+$("btnHost").onclick = startHost;
+$("btnJoin").onclick = () => { const c = $("joinCode").value.trim().toUpperCase(); if (c.length === 4) startGuest(c); };
+const jp = new URLSearchParams(location.search).get("j");
+if (jp && jp.length === 4) startGuest(jp.toUpperCase());
+</script>
+</body>
+</html>
