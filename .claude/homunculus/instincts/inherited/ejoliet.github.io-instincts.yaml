@@ -1,0 +1,297 @@
+# Instincts generated from https://github.com/ejoliet/ejoliet.github.io
+# Generated: 2026-07-12T07:29:16.321Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: ejoliet.github.io-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Commit Length
+
+## Action
+
+Write moderate-length commit messages (~51 characters)
+
+## Evidence
+
+- Average commit message length: 51 chars
+- Based on 2 commits
+
+---
+id: ejoliet.github.io-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: ejoliet.github.io-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: ejoliet.github.io-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: ejoliet.github.io-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: ejoliet.github.io-instinct-file-naming-camelCase
+trigger: "When creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Instinct File Naming CamelCase
+
+## Action
+
+Name the file using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.files
+
+---
+id: ejoliet.github.io-instinct-function-naming-camelCase
+trigger: "When defining a function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Instinct Function Naming CamelCase
+
+## Action
+
+Use camelCase for the function name
+
+## Evidence
+
+- Pattern in namingConventions.functions
+
+---
+id: ejoliet.github.io-instinct-class-naming-PascalCase
+trigger: "When defining a class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Instinct Class Naming PascalCase
+
+## Action
+
+Use PascalCase for the class name
+
+## Evidence
+
+- Pattern in namingConventions.classes
+
+---
+id: ejoliet.github.io-instinct-constant-naming-SCREAMING_SNAKE_CASE
+trigger: "When defining a constant"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Instinct Constant Naming SCREAMING_SNAKE_CASE
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for the constant name
+
+## Evidence
+
+- Pattern in namingConventions.constants
+
+---
+id: ejoliet.github.io-instinct-import-style-relative
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Instinct Import Style Relative
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in importStyle
+
+---
+id: ejoliet.github.io-instinct-export-style-named
+trigger: "When exporting modules or functions"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Instinct Export Style Named
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle
+
+---
+id: ejoliet.github.io-instinct-commit-message-freeform
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Instinct Commit Message Freeform
+
+## Action
+
+Write a concise, freeform message without a prefix, describing the change
+
+## Evidence
+
+- Seen in commit: 'Add Picture Inventory static tool and shortcut assets'
+- Seen in commit: 'Refine Picture Inventory validation and setup UX'
+
+---
+id: ejoliet.github.io-instinct-commit-message-length
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Instinct Commit Message Length
+
+## Action
+
+Keep the commit message around 50 characters on average
+
+## Evidence
+
+- Pattern in commits.averageLength
+
+---
+id: ejoliet.github.io-instinct-test-location-separate
+trigger: "When adding tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Instinct Test Location Separate
+
+## Action
+
+Place tests in a separate location from source code
+
+## Evidence
+
+- Pattern in architecture.testLocation
+
+---
+id: ejoliet.github.io-instinct-folder-picture-inventory
+trigger: "When adding new features related to inventory"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: ejoliet/ejoliet.github.io
+---
+
+# Ejoliet.github.io Instinct Folder Picture Inventory
+
+## Action
+
+Place them under the 'picture-inventory' folder
+
+## Evidence
+
+- Pattern in architecture.commonFolders
+
