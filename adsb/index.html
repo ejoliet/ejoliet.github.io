@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#071016" />
+  <title>Overhead — Local ADS-B Monitor</title>
+  <style>
+    :root{
+      --bg:#071016;
+      --panel:#0c171f;
+      --panel-2:#101f29;
+      --text:#e9f2f7;
+      --muted:#8ea5b2;
+      --line:#1b3441;
+      --cyan:#65e6ff;
+      --green:#7ef0b8;
+      --amber:#ffc86b;
+      --red:#ff6f7d;
+      --shadow:0 16px 60px rgba(0,0,0,.34);
+      --radius:22px;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:radial-gradient(circle at 50% -20%,#14303d 0,#071016 44%,#050b0f 100%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    button,input,select{font:inherit}
+    button{cursor:pointer}
+    .shell{width:min(1500px,100%);margin:0 auto;padding:20px}
+    .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+    .brand{display:flex;align-items:center;gap:12px}
+    .brand-mark{width:38px;height:38px;border-radius:50%;border:1px solid rgba(101,230,255,.45);display:grid;place-items:center;box-shadow:0 0 30px rgba(101,230,255,.13) inset}
+    .brand-mark:before{content:"";width:10px;height:10px;border-radius:50%;background:var(--cyan);box-shadow:0 0 20px var(--cyan)}
+    .brand h1{font-size:17px;letter-spacing:.18em;margin:0;font-weight:760}
+    .brand small{display:block;color:var(--muted);font-size:11px;letter-spacing:.08em;margin-top:3px}
+    .status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
+    .status-dot{width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 12px rgba(255,200,107,.55)}
+    .status-dot.ok{background:var(--green);box-shadow:0 0 12px rgba(126,240,184,.55)}
+    .status-dot.bad{background:var(--red);box-shadow:0 0 12px rgba(255,111,125,.55)}
+
+    .grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(320px,.75fr);gap:16px}
+    .card{background:linear-gradient(180deg,rgba(16,31,41,.96),rgba(8,18,24,.96));border:1px solid rgba(118,178,207,.13);border-radius:var(--radius);box-shadow:var(--shadow)}
+    .radar-card{padding:18px;min-height:700px;display:flex;flex-direction:column}
+    .radar-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}
+    .eyebrow{text-transform:uppercase;color:var(--muted);font-size:10px;letter-spacing:.18em}
+    .radar-title{margin:6px 0 0;font-size:30px;line-height:1.05;letter-spacing:-.035em}
+    .radar-title strong{color:var(--cyan)}
+    .hear-btn{border:1px solid rgba(101,230,255,.3);background:rgba(101,230,255,.09);color:var(--text);border-radius:14px;padding:12px 15px;font-weight:750;letter-spacing:.03em;min-width:168px}
+    .hear-btn:hover{background:rgba(101,230,255,.14)}
+    .hear-btn.pulse{animation:flash .55s ease}
+    @keyframes flash{0%{box-shadow:0 0 0 0 rgba(101,230,255,.65)}100%{box-shadow:0 0 0 28px rgba(101,230,255,0)}}
+
+    .radar-wrap{display:grid;grid-template-columns:minmax(320px,1fr) minmax(230px,.48fr);gap:16px;flex:1}
+    .radar-stage{position:relative;min-height:520px;border-radius:18px;overflow:hidden;background:
+      radial-gradient(circle at center,rgba(101,230,255,.06) 0 1px,transparent 1px),
+      linear-gradient(rgba(101,230,255,.025) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(101,230,255,.025) 1px,transparent 1px),
+      #07141b;
+      background-size:auto,40px 40px,40px 40px,auto;
+      border:1px solid rgba(101,230,255,.10)
+    }
+    .radar-circle{position:absolute;inset:8%;border-radius:50%;border:1px solid rgba(101,230,255,.18)}
+    .ring{position:absolute;left:50%;top:50%;border-radius:50%;border:1px solid rgba(101,230,255,.12);transform:translate(-50%,-50%);pointer-events:none}
+    .r25{width:25%;height:25%}.r50{width:50%;height:50%}.r75{width:75%;height:75%}.r100{width:100%;height:100%}
+    .cross-h,.cross-v{position:absolute;background:rgba(101,230,255,.08);pointer-events:none}
+    .cross-h{left:0;right:0;top:50%;height:1px}.cross-v{top:0;bottom:0;left:50%;width:1px}
+    .north{position:absolute;left:50%;top:2.5%;transform:translateX(-50%);font-size:10px;letter-spacing:.2em;color:var(--muted)}
+    .observer{position:absolute;left:50%;top:50%;width:13px;height:13px;border:2px solid var(--cyan);border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 0 8px rgba(101,230,255,.06),0 0 22px rgba(101,230,255,.34)}
+    .plane{position:absolute;transform:translate(-50%,-50%) rotate(var(--track,0deg));transition:left .55s linear,top .55s linear;z-index:3}
+    .plane .glyph{width:21px;height:21px;display:grid;place-items:center;color:var(--green);filter:drop-shadow(0 0 7px rgba(126,240,184,.28));font-size:18px}
+    .plane.hot .glyph{color:var(--amber);filter:drop-shadow(0 0 9px rgba(255,200,107,.48))}
+    .plane-label{position:absolute;left:24px;top:50%;transform:translateY(-50%) rotate(calc(-1 * var(--track,0deg)));white-space:nowrap;font-size:10px;color:#dcebf2;background:rgba(4,12,16,.76);border:1px solid rgba(126,240,184,.18);padding:4px 6px;border-radius:7px;backdrop-filter:blur(6px)}
+    .range-label{position:absolute;right:10px;color:var(--muted);font-size:9px}
+    .rl25{top:39%}.rl50{top:27%}.rl75{top:14%}.rl100{top:2%}
+
+    .primary-panel{display:flex;flex-direction:column;gap:12px}
+    .focus{padding:18px;border:1px solid rgba(255,200,107,.17);border-radius:18px;background:linear-gradient(180deg,rgba(255,200,107,.07),rgba(255,200,107,.018))}
+    .focus.empty{border-color:rgba(142,165,178,.14);background:rgba(255,255,255,.015)}
+    .focus-callsign{font-size:34px;font-weight:820;letter-spacing:-.035em;margin:4px 0 2px}
+    .focus-sub{color:var(--muted);font-size:12px;min-height:18px}
+    .metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+    .metric{background:rgba(0,0,0,.13);border:1px solid rgba(255,255,255,.055);padding:11px;border-radius:13px}
+    .metric .v{font-size:18px;font-weight:760}
+    .metric .k{font-size:9px;text-transform:uppercase;letter-spacing:.13em;color:var(--muted);margin-top:3px}
+    .list{display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:310px}
+    .ac-row{display:grid;grid-template-columns:1fr auto;gap:12px;padding:11px 12px;border-radius:13px;border:1px solid rgba(255,255,255,.055);background:rgba(255,255,255,.018)}
+    .ac-id{font-weight:720;font-size:13px}
+    .ac-meta{font-size:10px;color:var(--muted);margin-top:4px}
+    .ac-dist{font-variant-numeric:tabular-nums;text-align:right;font-size:12px;font-weight:760;color:var(--green)}
+
+    .side{display:flex;flex-direction:column;gap:16px}
+    .controls{padding:18px}
+    .controls h2,.events h2{font-size:14px;margin:0 0 14px;letter-spacing:.02em}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .field{display:flex;flex-direction:column;gap:6px}
+    .field.full{grid-column:1/-1}
+    label{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
+    input,select{width:100%;background:#071219;color:var(--text);border:1px solid rgba(126,177,201,.18);border-radius:11px;padding:10px 11px;outline:none}
+    input:focus,select:focus{border-color:rgba(101,230,255,.48);box-shadow:0 0 0 3px rgba(101,230,255,.06)}
+    .button-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+    .btn{border:1px solid rgba(126,177,201,.17);background:#0d1b24;color:var(--text);padding:10px 11px;border-radius:11px;font-weight:670}
+    .btn.primary{border-color:rgba(101,230,255,.28);background:rgba(101,230,255,.09)}
+    .btn:hover{filter:brightness(1.08)}
+    .tiny{margin-top:11px;color:var(--muted);font-size:10px;line-height:1.45}
+    .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+    .chip{border:1px solid rgba(126,177,201,.14);background:rgba(255,255,255,.025);padding:6px 8px;border-radius:999px;font-size:10px;color:var(--muted)}
+    .events{padding:18px;flex:1}
+    .event{padding:11px 0;border-top:1px solid rgba(255,255,255,.055)}
+    .event:first-of-type{border-top:0}
+    .event-top{display:flex;justify-content:space-between;gap:8px;font-size:11px}
+    .event-title{font-weight:720}
+    .event-time{color:var(--muted);font-variant-numeric:tabular-nums}
+    .event-body{font-size:10px;color:var(--muted);margin-top:4px;line-height:1.4}
+    .code-note{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9px;color:#a9c0cb;word-break:break-word}
+
+    .footer{display:flex;justify-content:space-between;gap:12px;margin-top:14px;color:var(--muted);font-size:10px;padding:0 4px}
+    .error{color:var(--red)}
+    .good{color:var(--green)}
+
+    @media (max-width:980px){
+      .grid{grid-template-columns:1fr}
+      .radar-card{min-height:auto}
+      .radar-wrap{grid-template-columns:1fr}
+      .radar-stage{min-height:470px}
+      .list{max-height:240px}
+    }
+    @media (max-width:620px){
+      .shell{padding:10px}
+      .topbar{padding:2px 2px 0}
+      .radar-card,.controls,.events{border-radius:17px}
+      .radar-card{padding:12px}
+      .radar-head{align-items:center}
+      .radar-title{font-size:24px}
+      .hear-btn{min-width:0;padding:10px 11px;font-size:12px}
+      .radar-stage{min-height:390px}
+      .form-grid{grid-template-columns:1fr}
+      .field.full{grid-column:auto}
+      .footer{flex-direction:column}
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <h1>OVERHEAD</h1>
+        <small>LOCAL ADS-B NOISE CHECK</small>
+      </div>
+    </div>
+    <div class="status">
+      <span id="statusDot" class="status-dot"></span>
+      <span id="statusText">Waiting for position</span>
+    </div>
+  </div>
+
+  <main class="grid">
+    <section class="card radar-card">
+      <div class="radar-head">
+        <div>
+          <div class="eyebrow">Small-radius monitor</div>
+          <div class="radar-title">What is <strong>above me?</strong></div>
+        </div>
+        <button id="heardBtn" class="hear-btn" title="Refresh now and record the closest aircraft">I HEAR A PLANE</button>
+      </div>
+
+      <div class="radar-wrap">
+        <div id="radarStage" class="radar-stage">
+          <div class="radar-circle">
+            <div class="ring r25"></div>
+            <div class="ring r50"></div>
+            <div class="ring r75"></div>
+            <div class="ring r100"></div>
+            <div class="cross-h"></div>
+            <div class="cross-v"></div>
+            <div class="north">N</div>
+            <div class="range-label rl25">¼</div>
+            <div class="range-label rl50">½</div>
+            <div class="range-label rl75">¾</div>
+            <div id="rangeLabel" class="range-label rl100">1.0 NM</div>
+            <div class="observer"></div>
+            <div id="planeLayer"></div>
+          </div>
+        </div>
+
+        <aside class="primary-panel">
+          <div id="focusCard" class="focus empty">
+            <div class="eyebrow">Likely noise source</div>
+            <div id="focusCallsign" class="focus-callsign">—</div>
+            <div id="focusSub" class="focus-sub">No aircraft in range</div>
+            <div class="metric-grid">
+              <div class="metric"><div id="focusDistance" class="v">—</div><div class="k">Horizontal</div></div>
+              <div class="metric"><div id="focusAltitude" class="v">—</div><div class="k">Altitude</div></div>
+              <div class="metric"><div id="focusBearing" class="v">—</div><div class="k">Direction</div></div>
+              <div class="metric"><div id="focusSpeed" class="v">—</div><div class="k">Ground speed</div></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="eyebrow" style="margin:2px 0 8px">Aircraft in range</div>
+            <div id="aircraftList" class="list">
+              <div class="ac-row"><div><div class="ac-id">No data yet</div><div class="ac-meta">Choose a location source</div></div></div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="card controls">
+        <h2>Observer position</h2>
+        <div class="form-grid">
+          <div class="field">
+            <label for="sourceSelect">Input source</label>
+            <select id="sourceSelect">
+              <option value="browser">Browser GPS / location</option>
+              <option value="manual">Manual coordinates</option>
+              <option value="url">URL parameters</option>
+              <option value="saved">Saved location</option>
+              <option value="external">External injection hook</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="radiusInput">Radius, nautical miles</label>
+            <input id="radiusInput" type="number" min="0.1" max="3" step="0.1" value="1.0" />
+          </div>
+          <div class="field">
+            <label for="latInput">Latitude</label>
+            <input id="latInput" type="number" step="any" placeholder="34.1794159" />
+          </div>
+          <div class="field">
+            <label for="lonInput">Longitude</label>
+            <input id="lonInput" type="number" step="any" placeholder="-118.9239733" />
+          </div>
+          <div class="field">
+            <label for="pollInput">Refresh interval, seconds</label>
+            <input id="pollInput" type="number" min="5" max="60" step="0.1" value="60" />
+          </div>
+          <div class="field">
+            <label for="apiInput">API base</label>
+            <input id="apiInput" type="text" value="https://api.adsb.lol" />
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="locateBtn" class="btn primary">Use my location</button>
+          <button id="applyBtn" class="btn">Apply manual</button>
+          <button id="saveBtn" class="btn">Save position</button>
+          <button id="wakeBtn" class="btn">Keep screen awake</button>
+        </div>
+
+        <div class="chips">
+          <span class="chip">0.5 NM = very local</span>
+          <span class="chip">1.0 NM = default</span>
+          <span class="chip">2.0 NM = wider catch</span>
+        </div>
+
+        <div id="sourceHint" class="tiny">
+          Browser geolocation can keep the observer point current while you move.
+        </div>
+      </section>
+
+      <section class="card events">
+        <h2>Noise checks</h2>
+        <div id="eventList">
+          <div class="event">
+            <div class="event-top"><span class="event-title">No checks yet</span></div>
+            <div class="event-body">Tap “I HEAR A PLANE” when you hear one. The monitor records the closest aircraft at that moment.</div>
+          </div>
+        </div>
+        <div class="tiny" style="margin-top:14px">
+          External injection:
+          <div class="code-note">window.overhead.setPosition(lat, lon)</div>
+          or
+          <div class="code-note">window.postMessage({type:"overhead-position", lat, lon}, "*")</div>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <div class="footer">
+    <span id="lastUpdated">Not updated yet</span>
+    <span>Distances are horizontal great-circle estimates. ADS-B altitude is not ground-relative.</span>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const state = {
+    lat: null,
+    lon: null,
+    radiusNm: 1.0,
+    pollSeconds: 2.5,
+    timer: null,
+    fetching: false,
+    aircraft: [],
+    lastFetch: 0,
+    geoWatchId: null,
+    wakeLock: null
+  };
+
+  const els = {
+    statusDot: $("statusDot"), statusText: $("statusText"),
+    latInput: $("latInput"), lonInput: $("lonInput"),
+    radiusInput: $("radiusInput"), pollInput: $("pollInput"), apiInput: $("apiInput"),
+    sourceSelect: $("sourceSelect"), sourceHint: $("sourceHint"),
+    rangeLabel: $("rangeLabel"), planeLayer: $("planeLayer"),
+    aircraftList: $("aircraftList"), lastUpdated: $("lastUpdated"),
+    focusCard: $("focusCard"), focusCallsign: $("focusCallsign"), focusSub: $("focusSub"),
+    focusDistance: $("focusDistance"), focusAltitude: $("focusAltitude"),
+    focusBearing: $("focusBearing"), focusSpeed: $("focusSpeed"),
+    heardBtn: $("heardBtn"), locateBtn: $("locateBtn"), applyBtn: $("applyBtn"),
+    saveBtn: $("saveBtn"), wakeBtn: $("wakeBtn"), eventList: $("eventList")
+  };
+
+  function setStatus(text, kind="idle") {
+    els.statusText.textContent = text;
+    els.statusDot.className = "status-dot" + (kind === "ok" ? " ok" : kind === "bad" ? " bad" : "");
+  }
+
+  function clamp(n, lo, hi){ return Math.min(hi, Math.max(lo, n)); }
+
+  function haversineNm(lat1, lon1, lat2, lon2) {
+    const Rkm = 6371.0088;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    return (Rkm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))) / 1.852;
+  }
+
+  function bearingDeg(lat1, lon1, lat2, lon2) {
+    const r = d => d * Math.PI / 180;
+    const d = d => (d * 180 / Math.PI + 360) % 360;
+    const y = Math.sin(r(lon2-lon1)) * Math.cos(r(lat2));
+    const x = Math.cos(r(lat1))*Math.sin(r(lat2)) - Math.sin(r(lat1))*Math.cos(r(lat2))*Math.cos(r(lon2-lon1));
+    return d(Math.atan2(y,x));
+  }
+
+  function compass(b) {
+    const dirs = ["N","NE","E","SE","S","SW","W","NW"];
+    return dirs[Math.round(b / 45) % 8];
+  }
+
+  function fmtAlt(ac) {
+    const alt = typeof ac.alt_baro === "number" ? ac.alt_baro : ac.alt_geom;
+    if (alt == null) return "—";
+    return `${Math.round(alt).toLocaleString()} ft`;
+  }
+
+  function fmtRate(ac) {
+    const rate = typeof ac.baro_rate === "number" ? ac.baro_rate : ac.geom_rate;
+    if (rate == null) return "";
+    if (Math.abs(rate) < 100) return "level";
+    return rate > 0 ? `climbing ${Math.round(rate)} fpm` : `descending ${Math.abs(Math.round(rate))} fpm`;
+  }
+
+  function acName(ac) {
+    const flight = (ac.flight || "").trim();
+    return flight || ac.r || ac.hex?.toUpperCase() || "UNKNOWN";
+  }
+
+  function acDescription(ac) {
+    const parts = [ac.t, ac.desc, ac.ownOp].filter(Boolean);
+    return parts.join(" · ") || (ac.type ? String(ac.type).replaceAll("_"," ") : "ADS-B target");
+  }
+
+  function enrich(ac) {
+    if (typeof ac.lat !== "number" || typeof ac.lon !== "number" || state.lat == null) return null;
+    const distanceNm = haversineNm(state.lat, state.lon, ac.lat, ac.lon);
+    const bearing = bearingDeg(state.lat, state.lon, ac.lat, ac.lon);
+    return {...ac, distanceNm, bearing};
+  }
+
+  function renderAircraft() {
+    const list = state.aircraft.map(enrich).filter(Boolean).sort((a,b) => a.distanceNm - b.distanceNm);
+    els.planeLayer.innerHTML = "";
+
+    for (const [i, ac] of list.entries()) {
+      const ratio = clamp(ac.distanceNm / state.radiusNm, 0, 1);
+      const angle = ac.bearing * Math.PI / 180;
+      const max = 46.0;
+      const x = 50 + Math.sin(angle) * ratio * max;
+      const y = 50 - Math.cos(angle) * ratio * max;
+      const el = document.createElement("div");
+      el.className = "plane" + (i === 0 ? " hot" : "");
+      el.style.left = `${x}%`;
+      el.style.top = `${y}%`;
+      el.style.setProperty("--track", `${Number(ac.track || 0)}deg`);
+      el.title = `${acName(ac)} · ${ac.distanceNm.toFixed(2)} NM · ${fmtAlt(ac)}`;
+      el.innerHTML = `<div class="glyph">✈</div><div class="plane-label">${escapeHtml(acName(ac))} · ${ac.distanceNm.toFixed(2)} nm</div>`;
+      els.planeLayer.appendChild(el);
+    }
+
+    els.aircraftList.innerHTML = list.length ? list.map(ac => `
+      <div class="ac-row">
+        <div>
+          <div class="ac-id">${escapeHtml(acName(ac))}</div>
+          <div class="ac-meta">${escapeHtml(acDescription(ac))} · ${escapeHtml(fmtAlt(ac))}${fmtRate(ac) ? " · " + escapeHtml(fmtRate(ac)) : ""}</div>
+        </div>
+        <div>
+          <div class="ac-dist">${ac.distanceNm.toFixed(2)} NM</div>
+          <div class="ac-meta" style="text-align:right">${compass(ac.bearing)} ${Math.round(ac.bearing)}°</div>
+        </div>
+      </div>`).join("") : `
+      <div class="ac-row"><div><div class="ac-id">Clear overhead</div><div class="ac-meta">No reported aircraft inside ${state.radiusNm.toFixed(1)} NM</div></div></div>`;
+
+    renderFocus(list[0] || null);
+  }
+
+  function renderFocus(ac) {
+    if (!ac) {
+      els.focusCard.classList.add("empty");
+      els.focusCallsign.textContent = "—";
+      els.focusSub.textContent = "No aircraft in range";
+      els.focusDistance.textContent = els.focusAltitude.textContent = els.focusBearing.textContent = els.focusSpeed.textContent = "—";
+      return;
+    }
+    els.focusCard.classList.remove("empty");
+    els.focusCallsign.textContent = acName(ac);
+    els.focusSub.textContent = acDescription(ac) + (fmtRate(ac) ? ` · ${fmtRate(ac)}` : "");
+    els.focusDistance.textContent = `${ac.distanceNm.toFixed(2)} NM`;
+    els.focusAltitude.textContent = fmtAlt(ac);
+    els.focusBearing.textContent = `${compass(ac.bearing)} ${Math.round(ac.bearing)}°`;
+    els.focusSpeed.textContent = typeof ac.gs === "number" ? `${Math.round(ac.gs)} kt` : "—";
+  }
+
+  async function fetchAircraft({force=false} = {}) {
+    if (state.lat == null || state.lon == null || state.fetching) return;
+    const now = Date.now();
+    if (!force && now - state.lastFetch < 2000) return; // protect API rate limit
+    state.fetching = true;
+    state.lastFetch = now;
+    setStatus("Checking local airspace…");
+    try {
+      syncSettings();
+      const base = els.apiInput.value.trim().replace(/\/+$/,"");
+      const url = `${base}/v2/point/${encodeURIComponent(state.lat)}/${encodeURIComponent(state.lon)}/${encodeURIComponent(state.radiusNm)}`;
+      console.log(url);
+      const res = await fetch(url, {headers: {"Accept":"application/json"}});
+      if (!res.ok) throw new Error(`API returned HTTP ${res.status}`);
+      const data = await res.json();
+      state.aircraft = Array.isArray(data.ac) ? data.ac : [];
+      renderAircraft();
+      const when = new Date(data.now || Date.now());
+      els.lastUpdated.textContent = `Updated ${when.toLocaleTimeString()} · ${state.aircraft.length} aircraft`;
+      setStatus(`${state.aircraft.length} aircraft within ${state.radiusNm.toFixed(1)} NM`, "ok");
+    } catch (err) {
+      console.error(err);
+      setStatus("ADS-B request failed", "bad");
+      els.lastUpdated.innerHTML = `<span class="error">${escapeHtml(err.message)}</span> · If this is a browser CORS error, point “API base” at a tiny same-origin proxy.`;
+    } finally {
+      state.fetching = false;
+    }
+  }
+
+  function restartTimer() {
+    clearInterval(state.timer);
+    state.timer = null;
+    if (state.lat == null || state.lon == null) return;
+    state.timer = setInterval(() => fetchAircraft(), Math.max(2100, state.pollSeconds * 1000));
+  }
+
+  function setPosition(lat, lon, source="external") {
+    lat = Number(lat); lon = Number(lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      setStatus("Invalid coordinates", "bad");
+      return false;
+    }
+    state.lat = lat; state.lon = lon;
+    els.latInput.value = lat.toFixed(7);
+    els.lonInput.value = lon.toFixed(7);
+    setStatus(`Position set · ${source}`);
+    fetchAircraft({force:true});
+    restartTimer();
+    return true;
+  }
+
+  function syncSettings() {
+    state.radiusNm = clamp(Number(els.radiusInput.value) || 1, 0.1, 3);
+    state.pollSeconds = Math.max(21, Number(els.pollInput.value) || 30);
+    els.radiusInput.value = state.radiusNm.toFixed(1);
+    els.pollInput.value = state.pollSeconds.toFixed(1);
+    els.rangeLabel.textContent = `${state.radiusNm.toFixed(1)} NM`;
+  }
+
+  function applyManual() {
+    syncSettings();
+    setPosition(els.latInput.value, els.lonInput.value, "manual");
+  }
+
+  function useBrowserLocation() {
+    if (!navigator.geolocation) {
+      setStatus("Geolocation unavailable", "bad");
+      return;
+    }
+    if (state.geoWatchId != null) navigator.geolocation.clearWatch(state.geoWatchId);
+    setStatus("Requesting browser location…");
+    state.geoWatchId = navigator.geolocation.watchPosition(
+      pos => {
+        els.sourceSelect.value = "browser";
+        setPosition(pos.coords.latitude, pos.coords.longitude, `GPS ±${Math.round(pos.coords.accuracy)} m`);
+      },
+      err => setStatus(`Location error: ${err.message}`, "bad"),
+      {enableHighAccuracy:true, maximumAge:5000, timeout:12000}
+    );
+  }
+
+  function savePosition() {
+    if (state.lat == null) return setStatus("Set a position first", "bad");
+    localStorage.setItem("overhead.position", JSON.stringify({lat:state.lat, lon:state.lon, radiusNm:state.radiusNm}));
+    setStatus("Position saved locally", "ok");
+  }
+
+  function loadSaved() {
+    try {
+      const p = JSON.parse(localStorage.getItem("overhead.position") || "null");
+      if (!p) return false;
+      if (p.radiusNm) els.radiusInput.value = p.radiusNm;
+      return setPosition(p.lat, p.lon, "saved");
+    } catch { return false; }
+  }
+
+  function loadFromUrl() {
+    const q = new URLSearchParams(location.search);
+    if (!q.has("lat") || !q.has("lon")) return false;
+    if (q.has("radius")) els.radiusInput.value = q.get("radius");
+    if (q.has("poll")) els.pollInput.value = q.get("poll");
+    if (q.has("api")) els.apiInput.value = q.get("api");
+    els.sourceSelect.value = "url";
+    syncSettings();
+    return setPosition(q.get("lat"), q.get("lon"), "URL");
+  }
+
+  function logNoiseCheck() {
+    els.heardBtn.classList.remove("pulse");
+    void els.heardBtn.offsetWidth;
+    els.heardBtn.classList.add("pulse");
+    fetchAircraft({force:true}).then(() => {
+      const list = state.aircraft.map(enrich).filter(Boolean).sort((a,b)=>a.distanceNm-b.distanceNm);
+      const ac = list[0];
+      const div = document.createElement("div");
+      div.className = "event";
+      const t = new Date();
+      div.innerHTML = ac ? `
+        <div class="event-top"><span class="event-title">${escapeHtml(acName(ac))}</span><span class="event-time">${t.toLocaleTimeString()}</span></div>
+        <div class="event-body">${ac.distanceNm.toFixed(2)} NM ${compass(ac.bearing)} · ${escapeHtml(fmtAlt(ac))} · ${typeof ac.gs === "number" ? Math.round(ac.gs)+" kt" : "speed unknown"}</div>
+      ` : `
+        <div class="event-top"><span class="event-title">No target in range</span><span class="event-time">${t.toLocaleTimeString()}</span></div>
+        <div class="event-body">No reported aircraft inside ${state.radiusNm.toFixed(1)} NM at the check time.</div>`;
+      if (els.eventList.querySelector(".event-title")?.textContent === "No checks yet") els.eventList.innerHTML = "";
+      els.eventList.prepend(div);
+      while (els.eventList.children.length > 8) els.eventList.lastElementChild.remove();
+    });
+  }
+
+  async function toggleWakeLock() {
+    if (!("wakeLock" in navigator)) {
+      setStatus("Wake Lock API unavailable", "bad");
+      return;
+    }
+    try {
+      if (state.wakeLock) {
+        await state.wakeLock.release();
+        state.wakeLock = null;
+        els.wakeBtn.textContent = "Keep screen awake";
+      } else {
+        state.wakeLock = await navigator.wakeLock.request("screen");
+        els.wakeBtn.textContent = "Release screen lock";
+        state.wakeLock.addEventListener("release", () => {
+          state.wakeLock = null;
+          els.wakeBtn.textContent = "Keep screen awake";
+        });
+      }
+    } catch (e) {
+      setStatus(`Wake lock failed: ${e.message}`, "bad");
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));
+  }
+
+  els.locateBtn.addEventListener("click", useBrowserLocation);
+  els.applyBtn.addEventListener("click", applyManual);
+  els.saveBtn.addEventListener("click", savePosition);
+  els.wakeBtn.addEventListener("click", toggleWakeLock);
+  els.heardBtn.addEventListener("click", logNoiseCheck);
+  els.radiusInput.addEventListener("change", () => { syncSettings(); renderAircraft(); fetchAircraft({force:true}); restartTimer(); });
+  els.pollInput.addEventListener("change", () => { syncSettings(); restartTimer(); });
+  els.sourceSelect.addEventListener("change", () => {
+    const v = els.sourceSelect.value;
+    const hints = {
+      browser: "Uses the browser Geolocation API and keeps coordinates current while you move.",
+      manual: "Enter latitude and longitude directly, then choose Apply manual.",
+      url: "Open with ?lat=34.17&lon=-118.92&radius=1.0. Useful for bookmarks, wall displays, or QR codes.",
+      saved: "Loads the last coordinates stored in this browser with localStorage.",
+      external: "Inject coordinates from another app with window.overhead.setPosition(lat, lon) or postMessage."
+    };
+    els.sourceHint.textContent = hints[v];
+    if (v === "browser") useBrowserLocation();
+    if (v === "saved") loadSaved();
+    if (v === "url" && !loadFromUrl()) setStatus("URL needs lat and lon parameters", "bad");
+  });
+
+  window.addEventListener("message", (e) => {
+    const d = e.data;
+    if (d && d.type === "overhead-position") setPosition(d.lat, d.lon, "postMessage");
+  });
+
+  window.addEventListener("keydown", e => {
+    if (e.code === "Space" && !["INPUT","SELECT","TEXTAREA","BUTTON"].includes(document.activeElement?.tagName)) {
+      e.preventDefault();
+      logNoiseCheck();
+    }
+  });
+
+  window.overhead = {
+    setPosition,
+    refresh: () => fetchAircraft({force:true}),
+    setRadius: (nm) => { els.radiusInput.value = nm; syncSettings(); renderAircraft(); fetchAircraft({force:true}); restartTimer(); },
+    getState: () => ({...state, timer:undefined, wakeLock:undefined})
+  };
+
+  syncSettings();
+  if (!loadFromUrl()) {
+    const saved = localStorage.getItem("overhead.position");
+    if (saved) {
+      els.sourceSelect.value = "saved";
+      loadSaved();
+    }
+  }
+})();
+</script>
+</body>
+</html>
