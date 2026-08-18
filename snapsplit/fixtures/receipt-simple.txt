@@ -1,0 +1,17 @@
+TONY'S PIZZERIA
+123 Main St, Springfield
+Date: 03/14/2026  Time: 19:42
+
+1 x Margherita Pizza          14.00
+2 x Garlic Bread               6.00
+1 x Caesar Salad                9.50
+3 x Soda                        7.50
+
+Subtotal                       37.00
+Tax                              3.15
+Tip                               7.00
+Total                           47.15
+
+VISA ************4242
+Card ID: 00981234
+Thank you!
