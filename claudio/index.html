@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session Recap</title>
+<!-- AIDEV-NOTE: single-file, no build step, CDN-pinned libs only (locked stack).
+     marked renders assistant markdown; DOMPurify sanitizes before innerHTML;
+     PeerJS 1.5.5 provides the share layer (star topology, loader = host/hub). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+<style>
+:root {
+  --paper:#f6f7f8; --panel:#fff; --ink:#22272c; --ink-soft:#5a636c;
+  --hairline:#dfe3e7; --accent:#d9481f; --accent-ink:#b23a17;
+  --code-bg:#eef0f2;
+  --font-body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --toc-w:280px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper:#14171a; --panel:#1b1f23; --ink:#d9dde1; --ink-soft:#8b939b;
+          --hairline:#2b3138; --accent:#ff6a3d; --accent-ink:#ff7d55; --code-bg:#21262b; }
+}
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior:auto; } }
+body { margin:0; background:var(--paper); color:var(--ink);
+       font:1.0625rem/1.65 var(--font-body); -webkit-text-size-adjust:100%; }
+::selection { background:var(--accent); color:#fff; }
+a { color:var(--accent-ink); text-underline-offset:2px; }
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:2px; }
+button { font-family:inherit; }
+
+/* ==== landing ==== */
+#dropzone { min-height:100vh; display:flex; flex-direction:column; align-items:center;
+            justify-content:center; gap:1.1rem; padding:2rem; text-align:center; }
+#dropzone h1 { margin:0; font-size:clamp(1.6rem,4vw,2.2rem); font-weight:750; letter-spacing:-0.02em; }
+#dropzone h1::before, header.pagehead h1::before {
+  content:"REC "; color:var(--accent); font:700 .55em var(--font-mono);
+  letter-spacing:.18em; vertical-align:.35em; }
+#dropzone p { margin:0; color:var(--ink-soft); max-width:46ch; }
+#droptarget { width:min(560px,90vw); padding:2.6rem 2rem; border:2px dashed var(--hairline);
+  border-radius:14px; background:var(--panel); cursor:pointer; transition:border-color .15s, background .15s; }
+#droptarget.over { border-color:var(--accent); background:var(--code-bg); }
+#droptarget kbd { font:.8rem var(--font-mono); background:var(--code-bg); padding:.15em .45em; border-radius:4px; }
+.btn { font-size:.95rem; font-weight:600; color:#fff; background:var(--accent);
+       border:none; border-radius:8px; padding:.7rem 1.4rem; cursor:pointer; }
+.btn:hover { filter:brightness(1.08); }
+.btn.ghost { color:var(--accent-ink); background:none; border:1px solid var(--hairline); }
+#joinrow { display:flex; gap:.5rem; align-items:center; }
+#joincode { width:7.5ch; text-align:center; text-transform:uppercase; letter-spacing:.25em;
+  font:700 1.1rem var(--font-mono); color:var(--ink); background:var(--panel);
+  border:1px solid var(--hairline); border-radius:8px; padding:.55rem .4rem; }
+.divider { color:var(--ink-soft); font:.75rem var(--font-mono); letter-spacing:.12em; text-transform:uppercase; }
+#status { font:.8rem var(--font-mono); color:var(--ink-soft); min-height:1.2em; max-width:60ch; }
+#status.err { color:var(--accent-ink); }
+
+/* ==== recap layout ==== */
+#recap { display:none; }
+#recap.active { display:block; }
+main { max-width:72ch; margin:0 auto; padding:2.5rem 1.25rem 6rem; }
+header.pagehead { margin-bottom:3rem; padding-bottom:1.25rem; border-bottom:1px solid var(--hairline); }
+header.pagehead h1 { margin:0 0 .25rem; font-size:clamp(1.6rem,4vw,2.2rem); font-weight:750; letter-spacing:-0.02em; }
+header.pagehead .meta { font:.8rem var(--font-mono); color:var(--ink-soft); }
+.headbtns { display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.7rem; }
+.headbtns button { font:.75rem var(--font-mono); color:var(--ink-soft); background:none;
+  border:1px solid var(--hairline); border-radius:6px; padding:.3rem .7rem; cursor:pointer; }
+.headbtns button:hover { color:var(--accent-ink); border-color:var(--accent); }
+#sharebox { display:none; margin-top:.8rem; padding:.8rem 1rem; background:var(--panel);
+  border:1px solid var(--hairline); border-left:3px solid var(--accent); border-radius:8px;
+  font:.85rem var(--font-mono); }
+#sharebox.active { display:block; }
+#sharebox .code { font-size:1.3rem; font-weight:700; letter-spacing:.3em; color:var(--accent-ink); }
+#sharebox .row { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin-top:.4rem; }
+#sharebox small { color:var(--ink-soft); display:block; margin-top:.4rem; line-height:1.5; }
+
+/* TOC */
+nav#toc { margin:0 0 3rem; padding:1rem 1.25rem; background:var(--panel);
+  border:1px solid var(--hairline); border-radius:10px; font-size:.9rem; }
+nav#toc .toc-title { margin-bottom:.5rem; font:700 .7rem var(--font-mono);
+  letter-spacing:.14em; text-transform:uppercase; color:var(--ink-soft); }
+nav#toc ol { margin:0; padding:0; list-style:none; }
+nav#toc ol ol { padding-left:1rem; }
+nav#toc a { display:block; padding:.28rem .5rem; border-radius:6px; color:var(--ink);
+  text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+nav#toc a:hover { background:var(--code-bg); color:var(--accent-ink); }
+nav#toc a.active { background:var(--code-bg); color:var(--accent-ink); font-weight:600; }
+nav#toc .snum { font:700 .75rem var(--font-mono); color:var(--accent-ink); margin-right:.35em; }
+@media (min-width:1200px) {
+  main { margin-left:calc(var(--toc-w) + 6rem); }
+  nav#toc { position:fixed; top:2.5rem; left:2rem; width:var(--toc-w);
+    max-height:calc(100vh - 5rem); overflow-y:auto; overscroll-behavior:contain; }
+}
+
+/* sessions + entries */
+section.session { margin-top:4.5rem; padding-top:2rem; border-top:3px solid var(--accent); scroll-margin-top:1.5rem; }
+section.session > h2 { margin:0 0 .3rem; font-size:1.6rem; font-weight:750; letter-spacing:-0.015em; }
+section.session > .byline { font:.78rem var(--font-mono); color:var(--ink-soft); margin-bottom:1.5rem; }
+.entry { position:relative; margin-top:3rem; scroll-margin-top:1.5rem; }
+.entry > h3 { margin:0 0 .8rem; padding-top:1.2rem; border-top:1px solid var(--hairline);
+  font-size:1.15rem; font-weight:700; letter-spacing:-0.01em; }
+@media (min-width:760px) {
+  .entry::before { content:""; position:absolute; left:-2.4rem; top:-2.5rem; bottom:-1rem;
+    border-left:2px solid var(--hairline); }
+  .entry::after { content:""; position:absolute; left:calc(-2.4rem - 5px); top:1.7rem;
+    width:12px; height:12px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px var(--paper); }
+}
+.prompt { margin:0 0 1.5rem; padding:.9rem 1.1rem .9rem 2.4rem; position:relative;
+  background:var(--panel); border:1px solid var(--hairline); border-left:3px solid var(--accent);
+  border-radius:8px; font:.875rem/1.55 var(--font-mono); white-space:pre-wrap; word-break:break-word; }
+.prompt::before { content:"❯"; position:absolute; left:1rem; top:.85rem; color:var(--accent); font-weight:700; }
+.prompt.clamped { max-height:14em; overflow:hidden; }
+.prompt.clamped::after { content:""; position:absolute; left:0; right:0; bottom:0; height:4em;
+  background:linear-gradient(transparent, var(--panel)); }
+.expand { font:.75rem var(--font-mono); color:var(--accent-ink); background:none; border:none;
+  cursor:pointer; padding:0 0 1rem; }
+.answer p { margin:0 0 1.1rem; }
+.answer ul,.answer ol { margin:0 0 1.1rem; padding-left:1.4rem; }
+.answer li { margin-bottom:.35rem; }
+.answer h1,.answer h2,.answer h3,.answer h4 { font-size:1.05rem; font-weight:700; margin:1.6rem 0 .5rem; }
+.answer code { font:.86em var(--font-mono); background:var(--code-bg); padding:.12em .35em; border-radius:4px; }
+.answer pre { margin:1.25rem 0; padding:1rem 1.1rem; background:var(--code-bg);
+  border:1px solid var(--hairline); border-radius:8px; overflow-x:auto; line-height:1.5; }
+.answer pre code { background:none; padding:0; font-size:.84rem; }
+.answer blockquote { margin:1.25rem 0; padding:.25rem 1.1rem; border-left:3px solid var(--hairline); color:var(--ink-soft); }
+.answer table { width:100%; margin:1.25rem 0; border-collapse:collapse; font-size:.92rem; }
+.answer th,.answer td { padding:.5rem .7rem; text-align:left; border-bottom:1px solid var(--hairline); }
+.answer img { max-width:100%; height:auto; border-radius:8px; }
+</style>
+</head>
+<body>
+
+<div id="dropzone">
+  <h1>Session Recap</h1>
+  <p>Drop a Claude Code project folder (from <code>~/.claude/projects</code>) — or pick one. Everything stays in your browser.</p>
+  <div id="droptarget" role="button" tabindex="0" aria-label="Drop a project folder or click to pick one">
+    Drop project folder here<br><br><kbd>or click to browse</kbd>
+  </div>
+  <button id="pickbtn" class="btn" type="button">Pick folder…</button>
+  <div class="divider">or join a shared recap</div>
+  <div id="joinrow">
+    <input id="joincode" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false"
+           aria-label="4-character room code">
+    <button id="joinbtn" class="btn ghost" type="button">Join</button>
+  </div>
+  <div id="status" role="status"></div>
+</div>
+
+<div id="recap">
+  <nav id="toc" aria-label="Sessions"><div class="toc-title">Timeline</div><ol id="toclist"></ol></nav>
+  <main>
+    <header class="pagehead">
+      <h1 id="projname"></h1>
+      <div class="meta" id="projmeta"></div>
+      <div class="headbtns">
+        <button id="sharebtn" type="button">share live ⇢</button>
+        <button id="reload" type="button">load another folder</button>
+      </div>
+      <div id="sharebox">
+        <div>room <span class="code" id="roomcode"></span></div>
+        <div class="row">
+          <button id="copylink" class="btn ghost" type="button" style="font-size:.75rem;padding:.3rem .7rem">copy link</button>
+          <span id="guestcount">0 viewers</span>
+        </div>
+        <small id="sharehint"></small>
+      </div>
+    </header>
+    <div id="sessions"></div>
+  </main>
+</div>
+
+<script>
+'use strict';
+(() => {
+  const $ = s => document.querySelector(s);
+  const status = (msg, err=false) => { const el = $('#status'); el.textContent = msg; el.classList.toggle('err', err); };
+
+  marked.setOptions({ mangle:false, headerIds:false });
+  // AIDEV-NOTE: transcripts can embed arbitrary pasted HTML — and on the guest
+  // side this content arrives over the wire. Same sanitize path for both roles.
+  const md = text => DOMPurify.sanitize(marked.parse(text));
+
+  const firstWords = (text, n=7, max=64) => {
+    const words = text.replace(/\s+/g,' ').trim().split(' ').slice(0, n).join(' ');
+    return (words.length > max ? words.slice(0, max) : words) +
+           (text.trim().split(/\s+/).length > n ? '…' : '');
+  };
+  const fmtDate = ms => new Date(ms).toLocaleString(undefined,
+    { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+
+  // ============================ parsing ==================================
+  function parseSession(text) {
+    const entries = []; let current = null; let cwd = null;
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      let m; try { m = JSON.parse(line); } catch { continue; }
+      if (!cwd && m.cwd) cwd = m.cwd;
+      const c = m.message?.content;
+      if (m.type === 'user' && typeof c === 'string') {
+        current = { prompt: c, answers: [] };
+        entries.push(current);
+      } else if (m.type === 'assistant' && Array.isArray(c)) {
+        for (const block of c) {
+          if (block?.type === 'text' && block.text?.trim()) {
+            (current ??= (entries.push({ prompt:null, answers:[] }), entries.at(-1)))
+              .answers.push(block.text);
+          }
+        }
+      }
+    }
+    return { entries, cwd };
+  }
+
+  async function filesFromDrop(dt) {
+    const out = [];
+    const walk = entry => new Promise(resolve => {
+      if (entry.isFile) {
+        entry.file(f => { if (f.name.endsWith('.jsonl')) out.push(f); resolve(); }, resolve);
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const readAll = () => reader.readEntries(async batch => {
+          if (!batch.length) return resolve();
+          await Promise.all(batch.map(walk));
+          readAll();                     // AIDEV-NOTE: readEntries pages at 100
+        }, resolve);
+        readAll();
+      } else resolve();
+    });
+    await Promise.all([...dt.items].map(i => i.webkitGetAsEntry?.()).filter(Boolean).map(walk));
+    return out;
+  }
+
+  // projectData is the single shareable artifact:
+  // { name, cwd, sessions:[{ file, mtime, entries:[{prompt, answers[]}] }] }
+  let projectData = null;
+
+  async function buildProjectData(files, folderName) {
+    files = files.filter(f => f.name.endsWith('.jsonl'))
+                 .sort((a,b) => a.lastModified - b.lastModified);
+    if (!files.length) throw new Error('No .jsonl session files found in that folder.');
+    let cwd = null;
+    const sessions = [];
+    for (const f of files) {
+      const parsed = parseSession(await f.text());
+      cwd ??= parsed.cwd;
+      if (parsed.entries.length)
+        sessions.push({ file: f.name, mtime: f.lastModified, entries: parsed.entries });
+    }
+    if (!sessions.length) throw new Error('Sessions found, but none contained prompts.');
+    return { name: cwd ? cwd.split('/').pop() : folderName, cwd, sessions };
+  }
+
+  // ============================ rendering =================================
+  function renderData(data, { shared=false } = {}) {
+    const sessionsEl = $('#sessions'), tocEl = $('#toclist');
+    sessionsEl.textContent = ''; tocEl.textContent = '';
+    let totalEntries = 0;
+
+    data.sessions.forEach((sess, s) => {
+      const sid = `s${s+1}`;
+      const firstP = sess.entries.find(e => e.prompt);
+      const sTitle = firstP ? firstWords(firstP.prompt, 8, 72) : fmtDate(sess.mtime);
+
+      const section = document.createElement('section');
+      section.className = 'session'; section.id = sid;
+      const h2 = document.createElement('h2');
+      h2.textContent = `Session ${s+1} — ${sTitle}`;
+      const byline = document.createElement('div');
+      byline.className = 'byline';
+      byline.textContent = `${fmtDate(sess.mtime)} · ${sess.file}`;
+      section.append(h2, byline);
+
+      const tocLi = document.createElement('li');
+      const tocA = document.createElement('a');
+      tocA.href = `#${sid}`;
+      tocA.innerHTML = `<span class="snum">${String(s+1).padStart(2,'0')}</span>`;
+      tocA.append(document.createTextNode(sTitle));
+      const subOl = document.createElement('ol');
+      tocLi.append(tocA, subOl); tocEl.append(tocLi);
+
+      sess.entries.forEach((e, i) => {
+        totalEntries++;
+        const eid = `${sid}-p${i+1}`;
+        const entry = document.createElement('article');
+        entry.className = 'entry'; entry.id = eid;
+        const label = e.prompt ? firstWords(e.prompt) : '(continued)';
+        const h3 = document.createElement('h3');
+        h3.textContent = label;
+        entry.append(h3);
+
+        if (e.prompt) {
+          const p = document.createElement('div');
+          p.className = 'prompt';
+          p.textContent = e.prompt;            // textContent: no escaping needed
+          entry.append(p);
+          if (e.prompt.split('\n').length > 12 || e.prompt.length > 900) {
+            p.classList.add('clamped');
+            const btn = document.createElement('button');
+            btn.className = 'expand'; btn.type = 'button'; btn.textContent = 'show full prompt ▾';
+            btn.onclick = () => {
+              const open = p.classList.toggle('clamped');
+              btn.textContent = open ? 'show full prompt ▾' : 'collapse ▴';
+            };
+            entry.append(btn);
+          }
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = `#${eid}`; a.textContent = label;
+          li.append(a); subOl.append(li);
+        }
+        const ans = document.createElement('div');
+        ans.className = 'answer';
+        ans.innerHTML = md((e.answers || []).join('\n\n'));
+        entry.append(ans);
+        section.append(entry);
+      });
+      sessionsEl.append(section);
+    });
+
+    $('#projname').textContent = data.name || 'project';
+    $('#projmeta').textContent =
+      `${data.sessions.length} sessions · ${totalEntries} prompts` +
+      (data.cwd ? ` · ${data.cwd}` : '') + (shared ? ' · shared with you (live P2P)' : '');
+    $('#sharebtn').style.display = shared ? 'none' : '';
+    $('#dropzone').style.display = 'none';
+    $('#recap').classList.add('active');
+    document.title = `${$('#projname').textContent} — Recap`;
+
+    const links = new Map([...document.querySelectorAll('#toc a')].map(a => [a.hash.slice(1), a]));
+    const io = new IntersectionObserver(obs => {
+      for (const o of obs) if (o.isIntersecting) {
+        links.forEach(a => a.classList.remove('active'));
+        links.get(o.target.id)?.classList.add('active');
+      }
+    }, { rootMargin: '0px 0px -75% 0px' });
+    document.querySelectorAll('section.session, .entry').forEach(el => io.observe(el));
+  }
+
+  // ============================ P2P share =================================
+  // Star topology: whoever loaded the folder is the hub. One-shot transfer of
+  // projectData to each guest on connect. Synchronous-only: host tab must stay
+  // open while guests join (pure P2P, no relay).
+  const ALPHA = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';   // no 0/O, 1/l/I
+  const PEER_PREFIX = 'poprecap-';
+  const CHUNK_SIZE = 128 * 1024;
+  const BUF_HIGH = 1 * 1024 * 1024;                  // pause sends above this
+  const BUF_LOW  = 512 * 1024;                        // resume threshold
+  const MAX_TOTAL = 64 * 1024 * 1024;                 // guest intake cap (bytes)
+  const MAX_CHUNKS = 4096;                            // guest intake cap (count)
+  const peerOpts = () => window.RECAP_PEER_OPTIONS || {};  // config seam
+
+  const roomCode = () =>
+    Array.from(crypto.getRandomValues(new Uint8Array(4)), b => ALPHA[b % ALPHA.length]).join('');
+
+  let peer = null;            // single instance, host or guest — never two
+  let guests = 0;
+
+  // ---- host ----
+  function startShare(attempt = 0) {
+    if (peer) return;                                 // single-peer guard
+    if (!projectData) return;
+    const code = roomCode();
+    status('');
+    $('#sharebtn').disabled = true;
+    peer = new Peer(PEER_PREFIX + code, peerOpts());
+
+    peer.once('open', () => {
+      $('#roomcode').textContent = code;
+      $('#sharebox').classList.add('active');
+      $('#guestcount').textContent = '0 viewers';
+      const isHttp = /^https?:$/.test(location.protocol);
+      $('#sharehint').textContent = isHttp
+        ? 'Anyone with the link joins instantly — no account, no install.'
+        : 'Page is running from a local file: the viewer opens this same HTML file and enters the code above.';
+      $('#copylink').onclick = () => copyShare(code, isHttp);
+    });
+
+    peer.on('connection', conn => {
+      conn.on('open', () => {
+        guests++;
+        $('#guestcount').textContent = `${guests} viewer${guests>1?'s':''}`;
+        serve(conn).catch(() => {});
+      });
+      conn.on('close', () => {
+        guests = Math.max(0, guests - 1);
+        $('#guestcount').textContent = `${guests} viewer${guests>1?'s':''}`;
+      });
+    });
+
+    peer.on('error', err => {
+      // AIDEV-NOTE: capped retry on id collision; no parallel reconnect loops.
+      if (err.type === 'unavailable-id' && attempt < 5) {
+        peer.destroy(); peer = null;
+        startShare(attempt + 1);
+      } else {
+        status(`share error: ${err.type || err.message}`, true);
+        $('#sharebtn').disabled = false;
+        peer?.destroy(); peer = null;
+      }
+    });
+
+    window.addEventListener('beforeunload', e => {   // room dies with the host
+      if (guests > 0) { e.preventDefault(); e.returnValue = ''; }
+    });
+  }
+
+  async function serve(conn) {
+    const json = JSON.stringify(projectData);
+    const total = Math.ceil(json.length / CHUNK_SIZE);
+    conn.send({ t:'meta', name: projectData.name, bytes: json.length, chunks: total });
+    const dc = conn.dataChannel;
+    if (dc) dc.bufferedAmountLowThreshold = BUF_LOW;
+    for (let i = 0; i < total; i++) {
+      // AIDEV-NOTE: backpressure paced on bufferedAmount, never on timers.
+      if (dc && dc.bufferedAmount > BUF_HIGH) {
+        await new Promise(res => dc.addEventListener('bufferedamountlow', res, { once:true }));
+      }
+      conn.send({ t:'chunk', i, d: json.slice(i * CHUNK_SIZE, (i+1) * CHUNK_SIZE) });
+    }
+    conn.send({ t:'done' });
+  }
+
+  function copyShare(code, isHttp) {
+    const text = isHttp
+      ? `${location.origin}${location.pathname}?j=${code}`
+      : `Recap room code: ${code} — open recap-viewer.html and enter it`;
+    const done = () => { $('#copylink').textContent = 'copied ✓';
+                         setTimeout(() => $('#copylink').textContent = 'copy link', 1500); };
+    if (navigator.share && /Mobi/.test(navigator.userAgent)) {
+      navigator.share({ text }).catch(() => {});
+    } else if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+    } else fallbackCopy(text, done);
+  }
+  function fallbackCopy(text, done) {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.append(ta); ta.select();
+    try { document.execCommand('copy'); done(); } finally { ta.remove(); }
+  }
+
+  // ---- guest ----
+  let retryPending = false;
+  function joinRoom(code, attempt = 0) {
+    code = code.trim().toUpperCase();
+    if (!/^[A-Z2-9]{4}$/.test(code)) { status('Room code is 4 letters/digits.', true); return; }
+    if (peer && attempt === 0) return;               // single-peer guard
+    status(`Connecting to room ${code}…`);
+
+    if (!peer) {
+      peer = new Peer(peerOpts());
+      peer.once('open', () => connectTo(code, attempt));
+      peer.on('error', err => {
+        if (err.type === 'peer-unavailable') {
+          status('Room not found — is the host page still open?', true);
+        } else {
+          status(`connection error: ${err.type || err.message}`, true);
+        }
+      });
+    } else {
+      connectTo(code, attempt);
+    }
+  }
+
+  function connectTo(code, attempt) {
+    const conn = peer.connect(PEER_PREFIX + code, { reliable:true });
+    let meta = null, received = 0, bytes = 0, parts = [], finished = false;
+
+    conn.on('data', msg => {
+      // AIDEV-NOTE: normalize incoming binary — PeerJS can deliver ArrayBuffer.
+      if (msg?.d instanceof ArrayBuffer) msg.d = new TextDecoder().decode(msg.d);
+      if (msg?.t === 'meta') {
+        if (msg.bytes > MAX_TOTAL || msg.chunks > MAX_CHUNKS) {   // intake caps
+          status('Shared recap exceeds the size limit for this viewer.', true);
+          conn.close(); return;
+        }
+        meta = msg;
+        status(`Receiving “${String(msg.name).slice(0,40)}” (${(msg.bytes/1048576).toFixed(1)} MB)…`);
+      } else if (msg?.t === 'chunk' && meta) {
+        if (typeof msg.d !== 'string') return;
+        bytes += msg.d.length; received++;
+        if (bytes > MAX_TOTAL || received > meta.chunks) { conn.close(); return; }
+        parts[msg.i] = msg.d;
+        if (received % 20 === 0)
+          status(`Receiving… ${Math.round(100 * received / meta.chunks)}%`);
+      } else if (msg?.t === 'done' && meta) {
+        finished = true;
+        try {
+          const data = JSON.parse(parts.join(''));
+          if (!Array.isArray(data.sessions)) throw new Error('bad payload');
+          renderData(data, { shared:true });
+        } catch { status('Received data could not be parsed.', true); }
+      }
+    });
+
+    conn.on('close', () => {
+      // Auto-reconnect only mid-transfer; once rendered, data is local.
+      if (!finished && !retryPending && attempt < 5) {
+        retryPending = true;
+        const delay = Math.min(500 * 2 ** attempt, 8000);
+        status(`Connection dropped — retrying in ${(delay/1000).toFixed(1)}s…`);
+        setTimeout(() => { retryPending = false; connectTo(code, attempt + 1); }, delay);
+      } else if (!finished) {
+        status('Could not complete the transfer. Ask the host to keep the tab open and retry.', true);
+      }
+    });
+  }
+
+  // ============================ wiring ====================================
+  const dz = $('#droptarget'), picker = document.createElement('input');
+  picker.type = 'file'; picker.hidden = true;
+  picker.setAttribute('webkitdirectory',''); picker.setAttribute('multiple','');
+  document.body.append(picker);
+
+  const loadFiles = (files, folder) =>
+    buildProjectData(files, folder)
+      .then(data => { projectData = data; renderData(data); })
+      .catch(err => status(err.message, true));
+
+  const openPicker = () => picker.click();
+  dz.addEventListener('click', openPicker);
+  dz.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') openPicker(); });
+  $('#pickbtn').addEventListener('click', openPicker);
+  $('#reload').addEventListener('click', () => location.reload());
+  $('#sharebtn').addEventListener('click', () => startShare());
+
+  picker.addEventListener('change', () => {
+    const files = [...picker.files];
+    loadFiles(files, files[0]?.webkitRelativePath?.split('/')[0] || 'project');
+  });
+
+  ['dragover','dragenter'].forEach(ev =>
+    dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('over'); }));
+  ['dragleave','drop'].forEach(ev =>
+    dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('over'); }));
+  dz.addEventListener('drop', async e => {
+    try { loadFiles(await filesFromDrop(e.dataTransfer), 'project'); }
+    catch (err) { status(`Failed: ${err.message}`, true); }
+  });
+
+  $('#joinbtn').addEventListener('click', () => joinRoom($('#joincode').value));
+  $('#joincode').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('#joincode').value); });
+
+  // ?j=CODE autofill → auto-join (zero-friction onboarding)
+  const auto = new URLSearchParams(location.search).get('j');
+  if (auto) { $('#joincode').value = auto.toUpperCase(); joinRoom(auto); }
+})();
+</script>
+</body>
+</html>
