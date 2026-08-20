@@ -23,6 +23,13 @@
   #setup input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; background: #111; color: #eee; border: 1px solid #444; border-radius: 6px; }
   #setup code { color: #9c9; }
   .hint { color: #888; font-size: 13px; }
+  #blocked {
+    position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 20;
+    background: #1a1a1a; border: 1px solid #654; border-radius: 8px; padding: 12px 14px;
+  }
+  #blocked .row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  #blocked button { background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  #blocked code { background: #000; padding: 2px 6px; border-radius: 4px; user-select: all; }
 </style>
 </head>
 <body>
@@ -93,6 +100,31 @@ if (!target) {
   const show = () => { bar.classList.remove('hidden'); clearTimeout(t); t = setTimeout(() => bar.classList.add('hidden'), 4000); };
   window.addEventListener('pointermove', e => { if (e.clientY < 60) show(); });
   window.addEventListener('touchstart', e => { if (e.touches[0].clientY < 60) show(); });
+
+  // AIDEV: X-Frame-Options / frame-ancestors blocking is NOT detectable from JS
+  //        (cross-origin frames are opaque; Chrome fires `load` even when blocked).
+  //        Heuristic instead: show a hint once per host, user confirms it works.
+  try {
+    const host = new URL(target).host;
+    const okKey = 'kiosk-ok-' + host;
+    if (!localStorage.getItem(okKey)) {
+      setTimeout(() => {
+        const d = document.createElement('div');
+        d.id = 'blocked';
+        d.innerHTML = `Blank screen? <b>${host.replace(/</g,'&lt;')}</b> probably refuses embedding
+          (<code>X-Frame-Options</code> / <code>frame-ancestors</code>). No client-side fix exists.
+          <div class="row">
+            <button id="go">Open site directly</button>
+            <button id="ok">It loaded fine — don't ask again</button>
+          </div>
+          <div class="row hint">Keep-awake without iframe — macOS: <code>caffeinate -dis</code>
+            + Chrome <code>--kiosk &lt;url&gt;</code> &nbsp;·&nbsp; iPad: Auto-Lock “Never” + Guided Access</div>`;
+        document.body.appendChild(d);
+        d.querySelector('#go').onclick = () => location.href = target;
+        d.querySelector('#ok').onclick = () => { localStorage.setItem(okKey, '1'); d.remove(); };
+      }, 4000);
+    }
+  } catch (e) { /* bad URL already handled by regex gate */ }
 }
 </script>
 </body>
