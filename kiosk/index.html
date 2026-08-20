@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>kiosk</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; font: 15px/1.4 -apple-system, system-ui, sans-serif; color: #ddd; }
+  iframe { display: block; width: 100%; height: 100%; border: 0; }
+  #bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; gap: 12px; align-items: center; padding: 8px 12px;
+    background: rgba(0,0,0,.75); backdrop-filter: blur(6px);
+    transform: translateY(0); transition: transform .3s;
+  }
+  #bar.hidden { transform: translateY(-100%); }
+  #bar button { background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  #lock { font-variant: small-caps; }
+  #lock.on::before  { content: "● "; color: #4c4; }
+  #lock.off::before { content: "● "; color: #c44; }
+  #setup { max-width: 560px; margin: 15vh auto; padding: 0 16px; }
+  #setup input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; background: #111; color: #eee; border: 1px solid #444; border-radius: 6px; }
+  #setup code { color: #9c9; }
+  .hint { color: #888; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// AIDEV: target URL comes from the hash (#https://...) so its own ?query and #hash survive.
+//        Also accepts ?u=<encoded url> as fallback.
+const raw = location.hash.slice(1) || new URLSearchParams(location.search).get('u') || '';
+const target = raw && /^https?:\/\//.test(raw) ? raw : '';
+const app = document.getElementById('app');
+
+let wakeLock = null;
+async function acquire() {
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    setLock(true);
+    wakeLock.addEventListener('release', () => setLock(false));
+  } catch (e) { setLock(false); }
+}
+function setLock(on) {
+  const el = document.getElementById('lock');
+  if (el) { el.className = on ? 'on' : 'off'; el.textContent = on ? 'awake' : 'lock lost — tap'; }
+}
+// AIDEV: OS releases the lock when tab hides; re-acquire on return.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && target) acquire();
+});
+
+if (!target) {
+  app.innerHTML = `
+    <div id="setup">
+      <h2>kiosk</h2>
+      <p>Paste a URL. The page loads fullscreen and the screen stays awake.</p>
+      <input id="url" type="url" placeholder="https://example.com/dashboard" autofocus>
+      <p class="hint">Or link directly: <code>${location.origin}${location.pathname}#https://example.com</code></p>
+      <p class="hint">Sites that send X-Frame-Options / frame-ancestors (Google, most login pages) refuse to be embedded.</p>
+    </div>`;
+  document.getElementById('url').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.value) location.hash = e.target.value;
+  });
+  window.addEventListener('hashchange', () => location.reload());
+} else {
+  app.innerHTML = `
+    <div id="bar">
+      <button id="fs">Fullscreen</button>
+      <span id="lock" class="off">tap to keep awake</span>
+      <span class="hint" style="margin-left:auto">${target.replace(/</g,'&lt;')}</span>
+    </div>
+    <iframe src="${target.replace(/"/g,'&quot;')}" allow="autoplay; fullscreen"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>`;
+
+  // AIDEV: fullscreen + wake lock both want a user gesture; one tap does both.
+  const fsBtn = document.getElementById('fs');
+  fsBtn.addEventListener('click', async () => {
+    await acquire();
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(()=>{});
+  });
+  document.getElementById('bar').addEventListener('click', acquire);
+
+  // Try immediately too — Chrome grants it without a gesture on HTTPS.
+  if ('wakeLock' in navigator) acquire();
+  else setLock(false);
+
+  // Auto-hide the bar; reveal on mouse-to-top or tap near top.
+  const bar = document.getElementById('bar');
+  let t = setTimeout(() => bar.classList.add('hidden'), 4000);
+  const show = () => { bar.classList.remove('hidden'); clearTimeout(t); t = setTimeout(() => bar.classList.add('hidden'), 4000); };
+  window.addEventListener('pointermove', e => { if (e.clientY < 60) show(); });
+  window.addEventListener('touchstart', e => { if (e.touches[0].clientY < 60) show(); });
+}
+</script>
+</body>
+</html>
