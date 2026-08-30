@@ -20,7 +20,7 @@
   header .sub b{color:var(--gold);font-family:var(--mono);font-weight:600}
   .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 24px;border-bottom:1px solid var(--line);background:var(--panel)}
   .bar label{color:var(--muted);font-size:12px}
-  input[type=datetime-local],select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-family:var(--mono);font-size:12px}
+  input[type=datetime-local],input[type=text],select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-family:var(--mono);font-size:12px}
   button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer}
   button:hover{border-color:var(--gold)}
   button.primary{background:var(--gold);color:#1A1408;border-color:var(--gold);font-weight:600}
@@ -84,6 +84,8 @@
 <div class="bar">
   <label>Launch (EDT, UTC−4)</label>
   <input type="datetime-local" id="launchInput" step="60">
+  <input type="text" id="carFilter" placeholder="CAR id (e.g. 36 or 36.2)" style="width:150px">
+  <input type="text" id="nameFilter" placeholder="Search CAR name…" style="width:180px">
   <span class="spacer"></span>
   <button class="tab on" id="tabCarousel">Timeline</button>
   <button class="tab" id="tabCalendar">Calendar</button>
@@ -210,8 +212,14 @@ function ownerColor(o){
   return ownerColorMap[o];
 }
 function filtered(){
-  const f=document.getElementById("ownerFilter").value;
-  return f? activities.filter(a=>a.owner===f) : activities;
+  const owner=document.getElementById("ownerFilter").value;
+  const carQ=document.getElementById("carFilter").value.trim();
+  const nameQ=document.getElementById("nameFilter").value.trim().toLowerCase();
+  return activities.filter(a=>
+    (!owner || a.owner===owner) &&
+    (!carQ  || a.car===carQ || a.car.startsWith(carQ+".") || a.car.includes(carQ)) &&
+    (!nameQ || a.name.toLowerCase().includes(nameQ))
+  );
 }
 
 function renderRuler(){
@@ -240,7 +248,12 @@ function renderRuler(){
 function renderCarousel(){
   const el=document.getElementById("carousel"); el.innerHTML="";
   const acts=filtered();
-  if(!acts.length){ el.innerHTML='<div style="color:var(--muted);padding:30px">No activities loaded. Open “CSV data” and paste or upload your commissioning schedule.</div>'; renderRuler(); return; }
+  if(!acts.length){
+    el.innerHTML = activities.length
+      ? '<div style="color:var(--muted);padding:30px">No activities match the current filters.</div>'
+      : '<div style="color:var(--muted);padding:30px">No activities loaded. Open “CSV data” and paste or upload your commissioning schedule.</div>';
+    renderRuler(); return;
+  }
   acts.forEach(a=>{
     const s=metToDate(a.metStartNum), e=new Date(s.getTime()+a.durMin*60000);
     const deps=[a.pre1,a.pre2,a.pre3].filter(Boolean).join(", ");
@@ -359,6 +372,8 @@ document.getElementById("clearBtn").onclick=()=>{ store.del(LS_CSV); activities=
 document.getElementById("toggleInput").onclick=()=>document.getElementById("inputPanel").classList.toggle("hidden");
 document.getElementById("icsBtn").onclick=exportICS;
 document.getElementById("ownerFilter").onchange=renderAll;
+document.getElementById("carFilter").addEventListener("input",renderAll);
+document.getElementById("nameFilter").addEventListener("input",renderAll);
 document.getElementById("prevBtn").onclick=()=>document.getElementById("carousel").scrollBy({left:-640,behavior:"smooth"});
 document.getElementById("nextBtn").onclick=()=>document.getElementById("carousel").scrollBy({left: 640,behavior:"smooth"});
 document.getElementById("tabCarousel").onclick=()=>switchTab(true);
