@@ -110,12 +110,19 @@
 
 <header>
   <h1>ROMAN COMMISSIONING</h1>
-  <span class="sub">Launch epoch <b id="epochLbl"></b> · MET = elapsed days after launch · all times UTC</span>
+  <span class="sub">Launch epoch <b id="epochLbl"></b> · MET = elapsed days after launch · <span id="tzNote"></span></span>
 </header>
 
 <div class="bar">
   <label>Launch (EDT, UTC−4)</label>
   <input type="datetime-local" id="launchInput" step="60">
+  <label>TZ</label>
+  <select id="tzSelect">
+    <option value="America/Los_Angeles">Pacific (PT)</option>
+    <option value="America/New_York">Eastern (ET)</option>
+    <option value="UTC">UTC</option>
+    <option value="local">Browser local</option>
+  </select>
   <select id="ownerFilter"><option value="">All owners</option></select>
   <input type="text" id="carFilter" placeholder="CAR id (e.g. 36 or 36.2)" style="width:150px">
   <input type="text" id="nameFilter" placeholder="Search CAR name…" style="width:180px">
@@ -179,7 +186,7 @@ Activity Owner | Dependency Notes | Pre CAR1 | Pre CAR2 | Pre CAR3 | Temp Driven
 
 <footer>
   MET Start/End = decimal days after launch. Duration parsed from hh:mm (hours may exceed 24, e.g. 240:00).
-  Event times computed as launch&nbsp;+&nbsp;MET·24h; end = start&nbsp;+&nbsp;duration. Data persists in this browser via localStorage.
+  Event times computed as launch&nbsp;+&nbsp;MET·24h; end = start&nbsp;+&nbsp;duration. Display follows the selected time zone (DST-aware); .ics exports use UTC timestamps and are converted by your calendar app. Data persists in this browser via localStorage.
 </footer>
 
 <script>
@@ -189,7 +196,7 @@ Activity Owner | Dependency Notes | Pre CAR1 | Pre CAR2 | Pre CAR3 | Temp Driven
 // ---------- constants & storage ----------
 const COLS = ["owner","depNotes","pre1","pre2","pre3","tempDriven","tempCriteria","car","pid","method","name","metStart","dur","metEnd","plot"];
 const DEFAULT_LAUNCH_EDT = "2026-08-30T07:25"; // EDT = UTC-4
-const LS_CSV = "romanTimeline.csv", LS_LAUNCH = "romanTimeline.launchEDT";
+const LS_CSV = "romanTimeline.csv", LS_LAUNCH = "romanTimeline.launchEDT", LS_TZ = "romanTimeline.tz";
 const OWNER_COLORS = ["#E8B44A","#5FD4D0","#A78BFA","#F2837B","#8FD18C","#6EA8FE","#E88AC1","#D0C063"];
 
 // localStorage may be unavailable (sandboxed preview) -> in-memory fallback
@@ -253,6 +260,14 @@ function fmtUTC(d,withTime=true){
   return withTime? `${base} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}Z` : base;
 }
 const fmtICS = d => fmtUTC(d).replace(/[-: ]/g,"").replace("Z","") + "Z";
+// display time zone (internal model stays UTC; ICS stays UTC)
+let tzSel = store.get(LS_TZ) || "America/Los_Angeles";
+const tz = () => tzSel==="local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : tzSel;
+const dayKey = d => d.toLocaleDateString("en-CA",{timeZone:tz()});               // "YYYY-MM-DD" in display TZ
+const tzDateUTC = d => { const [Y,M,D]=dayKey(d).split("-").map(Number); return new Date(Date.UTC(Y,M-1,D)); }; // calendar date holder
+const hmT = d => d.toLocaleTimeString("en-GB",{timeZone:tz(),hour:"2-digit",minute:"2-digit"});
+const tzAbbr = d => { try{ return new Intl.DateTimeFormat("en-US",{timeZone:tz(),timeZoneName:"short"}).formatToParts(d).find(p=>p.type==="timeZoneName").value; }catch(e){ return tz(); } };
+const fmtT = (d,withTime=true) => withTime ? `${dayKey(d)} ${hmT(d)} ${tzAbbr(d)}` : dayKey(d);
 function fmtDur(min){ const h=Math.floor(min/60),m=min%60; return h>=48? `${(min/1440).toFixed(1)} d` : `${h}h ${String(m).padStart(2,"0")}m`; }
 
 // ---------- rendering ----------
@@ -305,12 +320,12 @@ function renderCarousel(){
       : '<div style="color:var(--muted);padding:30px">No activities loaded. Open “CSV data” and paste or upload your commissioning schedule.</div>';
     renderRuler(); return;
   }
-  const todayKey=fmtUTC(utcMidnight(new Date()),false);
+  const todayKey=dayKey(new Date());
   acts.forEach(a=>{
     const s=metToDate(a.metStartNum), e=new Date(s.getTime()+a.durMin*60000);
     const deps=[a.pre1,a.pre2,a.pre3].filter(Boolean).join(", ");
-    const dayLbl=s.toLocaleString("en-US",{weekday:"long",month:"long",day:"numeric",timeZone:"UTC"});
-    const isToday=fmtUTC(s,false)===todayKey;
+    const dayLbl=s.toLocaleString("en-US",{weekday:"long",month:"long",day:"numeric",timeZone:tz()});
+    const isToday=dayKey(s)===todayKey;
     const card=document.createElement("article"); card.className="card"; card.style.setProperty("--oc",ownerColor(a.owner));
     card.innerHTML=`
       <div class="owner">${esc(a.owner)}</div>
@@ -319,8 +334,8 @@ function renderCarousel(){
       <div class="car">CAR ${esc(a.car)}${a.pid?` · PID ${esc(a.pid)}`:""} · ${esc(a.method||"—")}</div>
       <h3>${esc(a.name)}</h3>
       <div class="kv">
-        <span>Start</span><b>${fmtUTC(s)}</b>
-        <span>End</span><b>${fmtUTC(e)}</b>
+        <span>Start</span><b>${fmtT(s)}</b>
+        <span>End</span><b>${fmtT(e)}</b>
         <span>Duration</span><b>${fmtDur(a.durMin)}</b>
         ${deps?`<span>Pre-CARs</span><b>${esc(deps)}</b>`:""}
         ${a.tempCriteria?`<span>Temp crit.</span><b style="white-space:normal">${esc(a.tempCriteria)}</b>`:""}
@@ -344,16 +359,16 @@ function renderCalendar(){
   const byDay={};
   filtered().forEach(a=>{
     const s=metToDate(a.metStartNum), e=new Date(s.getTime()+Math.max(a.durMin,1)*60000);
-    let d=new Date(Date.UTC(s.getUTCFullYear(),s.getUTCMonth(),s.getUTCDate()));
-    while(d<e){ (byDay[fmtUTC(d,false)] ||= []).push(a); d=new Date(d.getTime()+86400000); }
+    let d=tzDateUTC(s); const last=tzDateUTC(new Date(e.getTime()-1));
+    while(d<=last){ (byDay[fmtUTC(d,false)] ||= []).push(a); d=new Date(d.getTime()+86400000); }
   });
   const first=new Date(Date.UTC(y,m,1)), startDow=first.getUTCDay();
-  const launchKey=fmtUTC(launchUTC,false);
+  const launchDateUTC=tzDateUTC(launchUTC), launchKey=fmtUTC(launchDateUTC,false);
   for(let i=0;i<42;i++){
     const d=new Date(Date.UTC(y,m,1-startDow+i));
     const key=fmtUTC(d,false), inMonth=d.getUTCMonth()===m;
     const cell=document.createElement("div"); cell.className="day"+(inMonth?"":" out")+(key===launchKey?" launch":"");
-    const lplus=Math.floor((d-launchUTC)/86400000);
+    const lplus=Math.round((d-launchDateUTC)/86400000);
     cell.innerHTML=`<div class="dnum"><span>${d.getUTCDate()}</span>${lplus>=0?`<span class="lp">L+${lplus}</span>`:""}</div>`;
     const evs=byDay[key]||[];
     evs.slice(0,3).forEach(a=>{
@@ -374,21 +389,20 @@ function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;"
 function renderAgenda(){
   document.getElementById("calGrid").classList.add("hidden");
   const ag=document.getElementById("agenda"); ag.classList.remove("hidden"); ag.innerHTML="";
-  const dayStart=calDay.getTime(), dayEnd=dayStart+86400000;
-  const lplus=Math.floor((dayStart-launchUTC.getTime())/86400000);
+  const key=fmtUTC(calDay,false);
+  const lplus=Math.round((calDay.getTime()-tzDateUTC(launchUTC).getTime())/86400000);
   document.getElementById("calTitle").textContent =
     calDay.toLocaleString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric",timeZone:"UTC"}) + (lplus>=0?` · L+${lplus}`:"");
   const evs=filtered()
     .map(a=>{ const s=metToDate(a.metStartNum); return {a,s,e:new Date(s.getTime()+Math.max(a.durMin,1)*60000)}; })
-    .filter(x=>x.s.getTime()<dayEnd && x.e.getTime()>dayStart)
+    .filter(x=> tzDateUTC(x.s).getTime()<=calDay.getTime() && calDay.getTime()<=tzDateUTC(new Date(x.e.getTime()-1)).getTime())
     .sort((p,q)=>p.s-q.s);
   if(!evs.length){ ag.innerHTML='<div style="color:var(--muted);padding:20px">No activities on this day.</div>'; return; }
-  const p=n=>String(n).padStart(2,"0"), hm=t=>`${p(t.getUTCHours())}:${p(t.getUTCMinutes())}`;
-  const md=t=>t.toLocaleString("en-US",{month:"short",day:"numeric",timeZone:"UTC"});
+  const md=t=>t.toLocaleString("en-US",{month:"short",day:"numeric",timeZone:tz()});
   const now=Date.now();
   evs.forEach(({a,s,e})=>{
-    const startLbl = s.getTime()<dayStart ? `◀ ${md(s)}` : hm(s);
-    const endLbl   = e.getTime()>dayEnd   ? `${md(e)} ▶` : hm(e);
+    const startLbl = dayKey(s)!==key ? `◀ ${md(s)}` : hmT(s);
+    const endLbl   = dayKey(new Date(e.getTime()-1))!==key ? `${md(e)} ▶` : hmT(e);
     const live = now>=s.getTime() && now<e.getTime();
     const item=document.createElement("div"); item.className="ag-item"+(live?" live":"");
     item.style.setProperty("--oc",ownerColor(a.owner));
@@ -415,7 +429,7 @@ let liveMode=false, liveTimer=null, liveIdx=-1;
 const nowMet=()=> (Date.now()-launchUTC.getTime())/86400000;
 function syncLive(){
   const acts=filtered(), nm=nowMet();
-  document.getElementById("liveLbl").textContent=`L+${nm.toFixed(3)} · ${fmtUTC(new Date())}`;
+  document.getElementById("liveLbl").textContent=`L+${nm.toFixed(3)} · ${fmtT(new Date())}`;
   const cards=document.querySelectorAll("#carousel .card");
   let idx=acts.findIndex(a=> nm>=a.metStartNum && nm < a.metStartNum+Math.max(a.durMin,1)/1440);
   if(idx<0) idx=acts.findIndex(a=>a.metStartNum>=nm);           // next upcoming
@@ -457,7 +471,7 @@ function renderGantt(){
     parts.push(`<div class="g-row g-owner"><div class="g-label" style="color:${col}">${esc(o)}</div><div class="g-track" style="width:${W}px;height:20px;--ppd:${ppd}px"></div></div>`);
     groups[o].forEach(a=>{
       const s=metToDate(a.metStartNum), e=new Date(s.getTime()+a.durMin*60000);
-      const tip=esc(`CAR ${a.car} · ${a.name}`)+"&#10;"+esc(`L+${a.metStartNum} → L+${(a.metStartNum+a.durMin/1440).toFixed(2)} (${fmtDur(a.durMin)})`)+"&#10;"+esc(`${fmtUTC(s)} → ${fmtUTC(e)}`)+(a.depNotes?"&#10;"+esc(a.depNotes):"");
+      const tip=esc(`CAR ${a.car} · ${a.name}`)+"&#10;"+esc(`L+${a.metStartNum} → L+${(a.metStartNum+a.durMin/1440).toFixed(2)} (${fmtDur(a.durMin)})`)+"&#10;"+esc(`${fmtT(s)} → ${fmtT(e)}`)+(a.depNotes?"&#10;"+esc(a.depNotes):"");
       parts.push(`<div class="g-row"><div class="g-label" title="${esc(a.name)}"><span class="car">${esc(a.car)}</span>${esc(a.name)}</div>
         <div class="g-track" style="width:${W}px;--ppd:${ppd}px">
           <div class="g-bar" style="left:${x(a.metStartNum)}px;width:${Math.max(a.durMin/1440*ppd,3)}px;background:${col}" title="${tip}"></div>
@@ -522,7 +536,7 @@ function renderAll(){ renderCarousel(); renderCalendar(); renderGantt(); }
 function setLaunch(edtStr){
   launchUTC=launchFromEDT(edtStr);
   store.set(LS_LAUNCH,edtStr);
-  document.getElementById("epochLbl").textContent = fmtUTC(launchUTC)+` (${edtStr.replace("T"," ")} EDT)`;
+  document.getElementById("epochLbl").textContent = fmtT(launchUTC)+` (${edtStr.replace("T"," ")} EDT)`;
   if(!calCursor) calCursor={y:launchUTC.getUTCFullYear(), m:launchUTC.getUTCMonth()};
   renderAll();
 }
@@ -564,10 +578,17 @@ document.getElementById("calNext").onclick=()=>{
   else { calCursor.m++; if(calCursor.m>11){calCursor.m=0;calCursor.y++;} renderCalendar(); }
 };
 document.getElementById("calToday").onclick=()=>{
-  const t=utcMidnight(new Date());
+  const t=tzDateUTC(new Date());
   if(calMode==="day"){ calDay=t; renderCalendar(); }
   else { calCursor={y:t.getUTCFullYear(),m:t.getUTCMonth()}; renderCalendar(); }
 };
+document.getElementById("tzSelect").onchange=e=>{
+  tzSel=e.target.value; store.set(LS_TZ,tzSel);
+  calDay=tzDateUTC(new Date());
+  updateTzNote();
+  setLaunch(document.getElementById("launchInput").value); // refreshes epoch label + all views
+};
+function updateTzNote(){ document.getElementById("tzNote").textContent=`times shown in ${tzAbbr(new Date())}`; }
 document.getElementById("calModeMonth").onclick=()=>setCalMode("month");
 document.getElementById("calModeDay").onclick=()=>setCalMode("day");
 document.getElementById("playBtn").onclick=()=>{
@@ -586,7 +607,9 @@ window.addEventListener("resize",()=>renderRuler());
 
 // ---------- init ----------
 const savedLaunch = store.get(LS_LAUNCH) || DEFAULT_LAUNCH_EDT;
-calDay = utcMidnight(new Date());
+calDay = tzDateUTC(new Date());
+document.getElementById("tzSelect").value = tzSel;
+updateTzNote();
 document.getElementById("launchInput").value = savedLaunch;
 setLaunch(savedLaunch);
 document.getElementById("storageHint").textContent = store.persistent
