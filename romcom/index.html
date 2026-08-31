@@ -25,6 +25,10 @@
   button:hover{border-color:var(--gold)}
   button.primary{background:var(--gold);color:#1A1408;border-color:var(--gold);font-weight:600}
   button.on{background:var(--gold);color:#1A1408;border-color:var(--gold);font-weight:600}
+  .menu{position:absolute;top:calc(100% + 4px);left:0;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px;z-index:60;min-width:190px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:6px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  .menu.right{left:auto;right:0}
+  .menu.hidden{display:none}
+  .menu label{display:flex;gap:8px;align-items:center;font-size:12.5px;cursor:pointer;color:var(--ink);white-space:nowrap}
   button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
   .spacer{flex:1}
   /* input panel */
@@ -123,7 +127,10 @@
     <option value="UTC">UTC</option>
     <option value="local">Browser local</option>
   </select>
-  <select id="ownerFilter"><option value="">All owners</option></select>
+  <div id="ownerDrop" style="position:relative">
+    <button id="ownerBtn">Owners: All ▾</button>
+    <div id="ownerMenu" class="menu hidden"></div>
+  </div>
   <input type="text" id="carFilter" placeholder="CAR id (e.g. 36 or 36.2)" style="width:150px">
   <input type="text" id="nameFilter" placeholder="Search CAR name…" style="width:180px">
   <span class="spacer"></span>
@@ -131,7 +138,10 @@
   <button class="tab" id="tabGantt">Gantt</button>
   <button class="tab" id="tabCalendar">Calendar</button>
   <button id="toggleInput">CSV data</button>
-  <button class="primary" id="icsBtn">Export .ics</button>
+  <div id="icsDrop" style="position:relative">
+    <button class="primary" id="icsBtn">Export .ics</button>
+    <div id="icsMenu" class="menu right hidden"></div>
+  </div>
 </div>
 
 <div id="inputPanel">
@@ -259,7 +269,10 @@ function fmtUTC(d,withTime=true){
   const base=`${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())}`;
   return withTime? `${base} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}Z` : base;
 }
-const fmtICS = d => fmtUTC(d).replace(/[-: ]/g,"").replace("Z","") + "Z";
+const fmtICS = d => {
+  const p=n=>String(n).padStart(2,"0");
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth()+1)}${p(d.getUTCDate())}T${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
+};
 // display time zone (internal model stays UTC; ICS stays UTC)
 let tzSel = store.get(LS_TZ) || "America/Los_Angeles";
 const tz = () => tzSel==="local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : tzSel;
@@ -277,15 +290,30 @@ function ownerColor(o){
   }
   return ownerColorMap[o];
 }
+let allOwners=[], ownerSel=new Set();   // empty set = all owners
 function filtered(){
-  const owner=document.getElementById("ownerFilter").value;
   const carQ=document.getElementById("carFilter").value.trim();
   const nameQ=document.getElementById("nameFilter").value.trim().toLowerCase();
   return activities.filter(a=>
-    (!owner || a.owner===owner) &&
+    (!ownerSel.size || ownerSel.has(a.owner)) &&
     (!carQ  || a.car===carQ || a.car.startsWith(carQ+".") || a.car.includes(carQ)) &&
     (!nameQ || a.name.toLowerCase().includes(nameQ))
   );
+}
+function ownerBtnLabel(){
+  document.getElementById("ownerBtn").textContent = ownerSel.size ? `Owners: ${ownerSel.size} ▾` : "Owners: All ▾";
+}
+function buildOwnerMenu(){
+  const m=document.getElementById("ownerMenu");
+  m.innerHTML =
+    `<label><input type="checkbox" id="ownAll" ${ownerSel.size?"":"checked"}><span>All owners</span></label>`+
+    allOwners.map(o=>`<label><input type="checkbox" class="ownCb" value="${esc(o)}" ${ownerSel.has(o)?"checked":""}><span>${esc(o)}</span></label>`).join("");
+  m.querySelector("#ownAll").onchange=()=>{ ownerSel.clear(); buildOwnerMenu(); renderAll(); };
+  m.querySelectorAll(".ownCb").forEach(cb=>cb.onchange=()=>{
+    cb.checked ? ownerSel.add(cb.value) : ownerSel.delete(cb.value);
+    buildOwnerMenu(); renderAll();
+  });
+  ownerBtnLabel();
 }
 
 function renderRuler(){
@@ -492,8 +520,19 @@ function renderGantt(){
 
 // ---------- ICS export ----------
 function icsEscape(s){ return String(s).replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\r?\n/g,"\\n"); }
-function exportICS(){
-  const acts=filtered();
+// RFC 5545 §3.1: fold content lines longer than 75 octets (continuation lines start with a space)
+function foldICS(line){
+  const enc=new TextEncoder();
+  if(enc.encode(line).length<=75) return line;
+  const out=[]; let cur="";
+  for(const ch of line){
+    if(enc.encode(cur).length + enc.encode(ch).length > 75){ out.push(cur); cur=" "+ch; }
+    else cur+=ch;
+  }
+  out.push(cur);
+  return out.join("\r\n");
+}
+function exportICS(acts){
   if(!acts.length){ setStatus("Nothing to export — load data first.", true); return; }
   const now=fmtICS(new Date());
   const lines=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Roman Commissioning Timeline//EN","CALSCALE:GREGORIAN"];
@@ -511,7 +550,7 @@ function exportICS(){
       "END:VEVENT");
   });
   lines.push("END:VCALENDAR");
-  const blob=new Blob([lines.join("\r\n")],{type:"text/calendar"});
+  const blob=new Blob([lines.map(foldICS).join("\r\n")+"\r\n"],{type:"text/calendar"});
   const u=URL.createObjectURL(blob), aEl=document.createElement("a");
   aEl.href=u; aEl.download="roman-commissioning.ics"; aEl.click(); URL.revokeObjectURL(u);
   setStatus(`Exported ${acts.length} events to roman-commissioning.ics`);
@@ -525,9 +564,9 @@ function loadData(text,label){
   if(!rows.length){ setStatus(`No valid rows parsed from ${label}. ${errs[0]||"Check delimiter and column order."}`, true); return; }
   activities=rows; ownerColorMap={};
   store.set(LS_CSV,text);
-  const owners=[...new Set(rows.map(a=>a.owner).filter(Boolean))].sort();
-  const sel=document.getElementById("ownerFilter");
-  sel.innerHTML='<option value="">All owners</option>'+owners.map(o=>`<option>${esc(o)}</option>`).join("");
+  allOwners=[...new Set(rows.map(a=>a.owner).filter(Boolean))].sort();
+  ownerSel=new Set([...ownerSel].filter(o=>allOwners.includes(o)));
+  buildOwnerMenu();
   setStatus(`Loaded ${rows.length} activities (${delim==="\t"?"tab":"comma"}-separated)`+(errs.length?` · skipped ${errs.length}: ${errs.slice(0,2).join("; ")}`:""), errs.length>0);
   renderAll();
 }
@@ -547,10 +586,23 @@ document.getElementById("fileInput").addEventListener("change",e=>{
   const f=e.target.files[0]; if(!f) return;
   const r=new FileReader(); r.onload=()=>{ document.getElementById("csvText").value=r.result; loadData(r.result,f.name); }; r.readAsText(f);
 });
-document.getElementById("clearBtn").onclick=()=>{ store.del(LS_CSV); activities=[]; document.getElementById("csvText").value=""; setStatus("Stored data cleared."); renderAll(); };
+document.getElementById("clearBtn").onclick=()=>{ store.del(LS_CSV); activities=[]; allOwners=[]; ownerSel.clear(); buildOwnerMenu(); document.getElementById("csvText").value=""; setStatus("Stored data cleared."); renderAll(); };
 document.getElementById("toggleInput").onclick=()=>document.getElementById("inputPanel").classList.toggle("hidden");
-document.getElementById("icsBtn").onclick=exportICS;
-document.getElementById("ownerFilter").onchange=renderAll;
+document.getElementById("ownerBtn").onclick=()=>document.getElementById("ownerMenu").classList.toggle("hidden");
+document.getElementById("icsBtn").onclick=()=>{
+  if(!activities.length){ setStatus("Nothing to export — load data first.", true); return; }
+  const f=filtered();
+  if(f.length===activities.length){ exportICS(activities); return; }   // no active filter -> export all
+  const m=document.getElementById("icsMenu");
+  m.innerHTML=`<button id="icsFiltered">Filtered (${f.length})</button><button id="icsAll">All (${activities.length})</button>`;
+  m.querySelector("#icsFiltered").onclick=()=>{ m.classList.add("hidden"); exportICS(filtered()); };
+  m.querySelector("#icsAll").onclick=()=>{ m.classList.add("hidden"); exportICS(activities); };
+  m.classList.toggle("hidden");
+};
+document.addEventListener("click",e=>{
+  if(!document.getElementById("ownerDrop").contains(e.target)) document.getElementById("ownerMenu").classList.add("hidden");
+  if(!document.getElementById("icsDrop").contains(e.target)) document.getElementById("icsMenu").classList.add("hidden");
+});
 document.getElementById("carFilter").addEventListener("input",renderAll);
 document.getElementById("nameFilter").addEventListener("input",renderAll);
 document.getElementById("prevBtn").onclick=()=>document.getElementById("carousel").scrollBy({left:-640,behavior:"smooth"});
