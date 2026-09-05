@@ -764,5 +764,14 @@ window.addEventListener("beforeunload", () => {
   if (mediaPeer)  try{ mediaPeer.destroy(); }catch(e){}
 });
 </script>
+     <script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
+<script>
+  kofiWidgetOverlay.draw('kreepto', {
+    'type': 'floating-chat',
+    'floating-chat.donateButton.text': 'Donate',
+    'floating-chat.donateButton.background-color': '#323842',
+    'floating-chat.donateButton.text-color': '#fff'
+  });
+</script>
 </body>
 </html>
