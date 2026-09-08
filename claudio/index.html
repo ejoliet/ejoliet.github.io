@@ -116,6 +116,11 @@ section.session > .byline { font:.78rem var(--font-mono); color:var(--ink-soft);
   background:linear-gradient(transparent, var(--panel)); }
 .expand { font:.75rem var(--font-mono); color:var(--accent-ink); background:none; border:none;
   cursor:pointer; padding:0 0 1rem; }
+.anstools { display:flex; justify-content:flex-end; margin:0 0 .4rem; }
+.copymd { font:.72rem var(--font-mono); color:var(--ink-soft); background:none;
+  border:1px solid var(--hairline); border-radius:6px; padding:.2rem .6rem; cursor:pointer; }
+.copymd:hover { color:var(--accent-ink); border-color:var(--accent); }
+.copymd.ok { color:var(--accent-ink); border-color:var(--accent); }
 .answer p { margin:0 0 1.1rem; }
 .answer ul,.answer ol { margin:0 0 1.1rem; padding-left:1.4rem; }
 .answer li { margin-bottom:.35rem; }
@@ -310,9 +315,22 @@ section.session > .byline { font:.78rem var(--font-mono); color:var(--ink-soft);
           a.href = `#${eid}`; a.textContent = label;
           li.append(a); subOl.append(li);
         }
+        const rawMd = (e.answers || []).join('\n\n');
+        if (rawMd.trim()) {
+          // AIDEV-NOTE: export path — copies the assistant's original markdown,
+          // not the rendered HTML, so it round-trips into any .md file.
+          const tools = document.createElement('div');
+          tools.className = 'anstools';
+          const cp = document.createElement('button');
+          cp.className = 'copymd'; cp.type = 'button'; cp.textContent = 'copy markdown ⧉';
+          cp.title = 'Copy this answer as raw markdown';
+          cp.onclick = () => copyText(rawMd, cp, 'copy markdown ⧉');
+          tools.append(cp);
+          entry.append(tools);
+        }
         const ans = document.createElement('div');
         ans.className = 'answer';
-        ans.innerHTML = md((e.answers || []).join('\n\n'));
+        ans.innerHTML = md(rawMd);
         entry.append(ans);
         section.append(entry);
       });
@@ -431,6 +449,13 @@ section.session > .byline { font:.78rem var(--font-mono); color:var(--ink-soft);
     if (navigator.share && /Mobi/.test(navigator.userAgent)) {
       navigator.share({ text }).catch(() => {});
     } else if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+    } else fallbackCopy(text, done);
+  }
+  function copyText(text, btn, label) {
+    const done = () => { btn.textContent = 'copied ✓'; btn.classList.add('ok');
+      setTimeout(() => { btn.textContent = label; btn.classList.remove('ok'); }, 1500); };
+    if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
     } else fallbackCopy(text, done);
   }
