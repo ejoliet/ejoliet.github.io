@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>icsview — private ICS calendar viewer</title>
+<!--
+  AIDEV-NOTE: Single-file, zero-dependency ICS viewer.
+  - No external requests except the optional user-supplied ICS URL fetch.
+  - Data persists ONLY in localStorage under key 'icsview.v1'.
+  - Embed export: (a) iframe pointing at this same file with data in the URL
+    #fragment (fragments are never sent to servers), (b) standalone HTML file
+    with events inlined, (c) srcdoc iframe (no hosting needed).
+  - RRULE support: FREQ=DAILY/WEEKLY/MONTHLY/YEARLY, INTERVAL, COUNT, UNTIL,
+    BYDAY (weekly only), EXDATE. Exotic rules (BYSETPOS, BYMONTHDAY lists) are
+    rendered as single events with a warning.
+  - TZID values are treated as local wall-clock time; 'Z' times converted to
+    local. Good enough for personal calendars; documented limitation.
+-->
+<style>
+  :root{
+    --paper:#F6F7F4; --panel:#FDFDFB; --ink:#20262B; --muted:#66707A;
+    --accent:#0F6B5C; --accent-soft:#DEEDE8; --line:#D8DDD9;
+    --danger:#A64B2A; --today:#0F6B5C;
+    --mono:ui-monospace,'SF Mono','Cascadia Mono','JetBrains Mono',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:Seravek,'Gill Sans Nova',Ubuntu,Calibri,'DejaVu Sans',sans-serif;
+    font-size:15px; line-height:1.45;
+  }
+  .wrap{max-width:960px;margin:0 auto;padding:28px 20px 60px}
+  header.app h1{font-size:26px;font-weight:600;letter-spacing:-.02em;margin:0}
+  header.app p{margin:4px 0 0;color:var(--muted)}
+  header.app{margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
+  .netbadge{font-size:12.5px;color:var(--accent);border:1px solid var(--accent-soft);
+    background:var(--accent-soft);padding:4px 10px;border-radius:99px;white-space:nowrap}
+
+  /* Source panel */
+  .source{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;margin-bottom:26px}
+  @media(max-width:680px){.source{grid-template-columns:1fr}}
+  .drop{
+    border:1.5px dashed var(--line); border-radius:10px; padding:26px 20px;
+    text-align:center; color:var(--muted); background:var(--panel);
+    cursor:pointer; transition:border-color .15s, background .15s;
+  }
+  .drop.over{border-color:var(--accent);background:var(--accent-soft)}
+  .drop strong{color:var(--ink);display:block;font-size:16px;margin-bottom:4px}
+  .urlbox{display:flex;flex-direction:column;gap:8px;justify-content:center}
+  .urlbox label{font-size:13px;color:var(--muted)}
+  .row{display:flex;gap:8px}
+  input[type=url],input[type=text]{
+    flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+    background:var(--panel);color:var(--ink);font:inherit;min-width:0;
+  }
+  input:focus-visible,button:focus-visible,select:focus-visible,textarea:focus-visible{
+    outline:2px solid var(--accent);outline-offset:1px}
+  button{
+    font:inherit;padding:9px 14px;border:1px solid var(--line);border-radius:8px;
+    background:var(--panel);color:var(--ink);cursor:pointer;
+  }
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.quiet{border-color:transparent;background:transparent;color:var(--muted)}
+  button:disabled{opacity:.5;cursor:default}
+  .hint{font-size:12.5px;color:var(--muted)}
+  .msg{margin:10px 0 0;font-size:13.5px}
+  .msg.err{color:var(--danger)}
+  .msg.ok{color:var(--accent)}
+
+  /* Loaded-source bar */
+  .loadedbar{
+    display:none;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px;
+    padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);
+  }
+  .loadedbar.show{display:flex}
+  .loadedbar .name{font-weight:600}
+  .loadedbar .meta{color:var(--muted);font-size:13px}
+  .spacer{flex:1}
+
+  /* Calendar */
+  .calhead{display:flex;align-items:center;gap:10px;margin:6px 0 12px;flex-wrap:wrap}
+  .calhead h2{font-size:19px;font-weight:600;margin:0;min-width:170px}
+  .viewtoggle{margin-left:auto;display:flex;gap:6px}
+  .viewtoggle button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+  table.cal{width:100%;border-collapse:collapse;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .cal th{font-size:12px;font-weight:600;color:var(--muted);padding:8px 6px;
+    border-bottom:1px solid var(--line);text-align:left}
+  .cal td{
+    vertical-align:top;border:1px solid var(--line);width:14.28%;
+    height:96px;padding:5px 6px;font-size:12.5px;
+  }
+  .cal td.dim .dnum{color:var(--line)}
+  .dnum{font-size:12px;color:var(--muted);margin-bottom:3px}
+  td.today .dnum{color:#fff;background:var(--today);border-radius:99px;
+    display:inline-block;min-width:20px;text-align:center;padding:1px 4px}
+  .chip{
+    display:block;background:var(--accent-soft);color:var(--ink);
+    border-left:3px solid var(--accent);border-radius:4px;
+    padding:1px 5px;margin:2px 0;cursor:pointer;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;
+  }
+  .chip:hover{background:#cfe4dd}
+  .more{color:var(--muted);font-size:11.5px;cursor:pointer}
+
+  /* Agenda list */
+  .agenda{border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}
+  .agenda .day{padding:10px 14px;border-bottom:1px solid var(--line)}
+  .agenda .day:last-child{border-bottom:0}
+  .agenda h3{margin:0 0 6px;font-size:13.5px;color:var(--muted);font-weight:600}
+  .agenda .ev{display:flex;gap:12px;padding:3px 0;cursor:pointer}
+  .agenda .ev:hover .t{text-decoration:underline}
+  .agenda .time{color:var(--accent);font-family:var(--mono);font-size:12.5px;min-width:110px}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+
+  /* Detail dialog */
+  dialog{border:1px solid var(--line);border-radius:12px;padding:20px 22px;
+    max-width:440px;background:var(--panel);color:var(--ink)}
+  dialog::backdrop{background:rgba(32,38,43,.35)}
+  dialog h3{margin:0 0 6px;font-size:17px}
+  dialog .kv{margin:8px 0 0;font-size:14px}
+  dialog .kv span{color:var(--muted);display:inline-block;min-width:72px}
+  dialog .desc{margin-top:10px;white-space:pre-wrap;font-size:13.5px;color:var(--muted);
+    max-height:180px;overflow:auto}
+  dialog form{margin-top:16px;text-align:right}
+
+  /* Export */
+  details.export{margin-top:30px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+  details.export>summary{padding:12px 16px;cursor:pointer;font-weight:600}
+  .exbody{padding:0 16px 18px;display:grid;gap:18px}
+  .exopt h4{margin:0 0 4px;font-size:14.5px}
+  .exopt p{margin:0 0 8px;font-size:13px;color:var(--muted)}
+  textarea.snippet{
+    width:100%;height:76px;font-family:var(--mono);font-size:12px;
+    border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--paper);
+    color:var(--ink);resize:vertical;
+  }
+  .exrow{display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap}
+
+  footer{margin-top:34px;color:var(--muted);font-size:12.5px}
+  .hidden{display:none !important}
+
+  /* Embed mode strips chrome */
+  body.embed .wrap{padding:10px}
+  body.embed header.app, body.embed .source, body.embed details.export,
+  body.embed footer, body.embed .loadedbar .actions{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="app">
+    <div>
+      <h1>icsview</h1>
+      <p>Your calendar never leaves this page.</p>
+    </div>
+    <span class="netbadge" id="netbadge">0 network requests</span>
+  </header>
+
+  <section class="source" id="sourcePanel">
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Load an ICS file">
+      <strong>Drop an .ics file here</strong>
+      or click to choose one — parsed in your browser, stored only in this browser's localStorage.
+      <input type="file" id="file" accept=".ics,text/calendar" class="hidden">
+    </div>
+    <div class="urlbox">
+      <label for="url">…or fetch from a URL you control</label>
+      <div class="row">
+        <input type="url" id="url" placeholder="https://example.com/calendar.ics" spellcheck="false">
+        <button id="fetchBtn" class="primary">Fetch</button>
+      </div>
+      <span class="hint">The URL is fetched directly by your browser. The server must send CORS
+        headers (<code>Access-Control-Allow-Origin</code>) or the fetch will fail — no proxy is used.</span>
+      <div class="msg" id="msg" role="status"></div>
+    </div>
+  </section>
+
+  <div class="loadedbar" id="loadedbar">
+    <span class="name" id="srcName"></span>
+    <span class="meta" id="srcMeta"></span>
+    <span class="spacer"></span>
+    <span class="actions">
+      <button id="reloadBtn" class="quiet hidden" title="Re-fetch from the saved URL">Refresh</button>
+      <button id="clearBtn" class="quiet">Clear data</button>
+    </span>
+  </div>
+
+  <section id="calSection" class="hidden">
+    <div class="calhead">
+      <button id="prevBtn" aria-label="Previous month">‹</button>
+      <button id="todayBtn">Today</button>
+      <button id="nextBtn" aria-label="Next month">›</button>
+      <h2 id="monthTitle"></h2>
+      <div class="viewtoggle" role="group" aria-label="View">
+        <button id="viewMonth" class="on">Month</button>
+        <button id="viewList">List</button>
+      </div>
+    </div>
+    <div id="calBody"></div>
+  </section>
+
+  <details class="export" id="exportPanel">
+    <summary>Embed &amp; export</summary>
+    <div class="exbody">
+      <div class="exopt">
+        <h4>1 — Iframe with data in the URL fragment</h4>
+        <p>Host this file yourself; the calendar data travels in the <code>#fragment</code>,
+           which browsers never send to any server. Best for calendars under ~50&nbsp;KB.</p>
+        <textarea class="snippet" id="snipHash" readonly spellcheck="false"></textarea>
+        <div class="exrow">
+          <input type="text" id="hostUrl" placeholder="https://your-host/icsview.html" spellcheck="false">
+          <button data-copy="snipHash">Copy</button>
+        </div>
+      </div>
+      <div class="exopt">
+        <h4>2 — Standalone HTML file</h4>
+        <p>A self-contained read-only viewer with the events baked in. Host it anywhere,
+           or open it from disk. No storage, no requests.</p>
+        <div class="exrow"><button id="dlStandalone" class="primary">Download embed.html</button></div>
+      </div>
+      <div class="exopt">
+        <h4>3 — Inline srcdoc iframe (no hosting at all)</h4>
+        <p>Paste this straight into any HTML page. The whole viewer and its data live inside
+           the attribute. Bulky, but fully self-contained.</p>
+        <textarea class="snippet" id="snipSrcdoc" readonly spellcheck="false"></textarea>
+        <div class="exrow"><button data-copy="snipSrcdoc">Copy</button></div>
+      </div>
+    </div>
+  </details>
+
+  <footer>
+    Single file, no dependencies, no analytics. Recurring events: DAILY / WEEKLY (BYDAY) /
+    MONTHLY / YEARLY with INTERVAL, COUNT, UNTIL and EXDATE. Times with a TZID are shown as
+    wall-clock local time.
+  </footer>
+</div>
+
+<dialog id="dlg">
+  <h3 id="dTitle"></h3>
+  <div class="kv"><span>When</span><b id="dWhen"></b></div>
+  <div class="kv" id="dLocRow"><span>Where</span><span id="dLoc"></span></div>
+  <div class="desc" id="dDesc"></div>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
+
+<script>
+'use strict';
+/* ============================== ICS PARSER ============================== */
+// AIDEV-NOTE: minimal RFC 5545 subset. Unfold, split VEVENTs, parse props.
+
+function unfold(text){
+  return text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').replace(/\n[ \t]/g,'');
+}
+function unescapeText(v){
+  return v.replace(/\\n/gi,'\n').replace(/\\,/g,',').replace(/\\;/g,';').replace(/\\\\/g,'\\');
+}
+// Parse "DTSTART;TZID=X;VALUE=DATE" style lines -> {name, params:{}, value}
+function parseLine(line){
+  const i = line.indexOf(':');
+  if (i < 0) return null;
+  const left = line.slice(0, i), value = line.slice(i + 1);
+  const parts = left.split(';');
+  const name = parts[0].toUpperCase();
+  const params = {};
+  for (let p = 1; p < parts.length; p++){
+    const eq = parts[p].indexOf('=');
+    if (eq > 0) params[parts[p].slice(0,eq).toUpperCase()] = parts[p].slice(eq+1);
+  }
+  return {name, params, value};
+}
+// -> {date:Date, allDay:bool, floating:bool}
+function parseICSDate(value, params){
+  params = params || {};
+  const v = value.trim();
+  if ((params.VALUE === 'DATE') || /^\d{8}$/.test(v)){
+    const y=+v.slice(0,4), m=+v.slice(4,6)-1, d=+v.slice(6,8);
+    return {date:new Date(y,m,d), allDay:true};
+  }
+  const m = v.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?$/);
+  if (!m) return null;
+  const [,Y,Mo,D,H,Mi,S,z] = m;
+  if (z) return {date:new Date(Date.UTC(+Y,+Mo-1,+D,+H,+Mi,+(S||0))), allDay:false};
+  // TZID or floating: treat as local wall-clock (documented limitation)
+  return {date:new Date(+Y,+Mo-1,+D,+H,+Mi,+(S||0)), allDay:false};
+}
+function parseDuration(v){ // e.g. PT1H30M, P1D
+  const m = v.match(/^-?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/);
+  if (!m) return 0;
+  const [,w,d,h,mi,s] = m.map(x=>+x||0);
+  return ((((w*7+d)*24+h)*60+mi)*60+s)*1000;
+}
+function parseICS(text){
+  const lines = unfold(text).split('\n');
+  const events = [];
+  let cur = null, warnings = [];
+  for (const raw of lines){
+    const line = raw.trim();
+    if (line === 'BEGIN:VEVENT'){ cur = {exdates:new Set()}; continue; }
+    if (line === 'END:VEVENT'){
+      if (cur && cur.start){
+        if (!cur.end){
+          cur.end = cur.durationMs != null
+            ? {date:new Date(cur.start.date.getTime()+cur.durationMs), allDay:cur.start.allDay}
+            : (cur.start.allDay
+                ? {date:new Date(cur.start.date.getTime()+864e5), allDay:true}
+                : {date:new Date(cur.start.date.getTime()), allDay:false});
+        }
+        events.push(cur);
+      }
+      cur = null; continue;
+    }
+    if (!cur) continue;
+    const p = parseLine(line);
+    if (!p) continue;
+    switch (p.name){
+      case 'SUMMARY':     cur.summary = unescapeText(p.value); break;
+      case 'DESCRIPTION': cur.description = unescapeText(p.value); break;
+      case 'LOCATION':    cur.location = unescapeText(p.value); break;
+      case 'UID':         cur.uid = p.value; break;
+      case 'DTSTART':     cur.start = parseICSDate(p.value, p.params); break;
+      case 'DTEND':       cur.end   = parseICSDate(p.value, p.params); break;
+      case 'DURATION':    cur.durationMs = parseDuration(p.value); break;
+      case 'RRULE':       cur.rrule = parseRRule(p.value, warnings, cur); break;
+      case 'EXDATE':
+        for (const part of p.value.split(',')){
+          const d = parseICSDate(part, p.params);
+          if (d) cur.exdates.add(dayKey(d.date) + (d.allDay ? '' : 'T' + d.date.getHours()+':'+d.date.getMinutes()));
+        }
+        break;
+    }
+  }
+  return {events, warnings};
+}
+const BYDAY_MAP = {SU:0,MO:1,TU:2,WE:3,TH:4,FR:5,SA:6};
+function parseRRule(v, warnings, ev){
+  const r = {};
+  for (const part of v.split(';')){
+    const [k, val] = part.split('=');
+    if (!k || val == null) continue;
+    r[k.toUpperCase()] = val;
+  }
+  const rule = {
+    freq: r.FREQ, interval: Math.max(1, +(r.INTERVAL || 1)),
+    count: r.COUNT ? +r.COUNT : null,
+    until: r.UNTIL ? (parseICSDate(r.UNTIL, {}) || {}).date : null,
+    byday: null,
+  };
+  if (r.BYDAY){
+    if (rule.freq === 'WEEKLY'){
+      rule.byday = r.BYDAY.split(',').map(d => BYDAY_MAP[d.replace(/^[-+]?\d+/,'')]).filter(x => x != null);
+    } else {
+      warnings.push('BYDAY on ' + rule.freq + ' not supported — "' + (ev.summary||'event') + '" shown as single occurrence.');
+      return null;
+    }
+  }
+  if (r.BYMONTHDAY || r.BYSETPOS || r.BYMONTH){
+    warnings.push('Complex RRULE not supported — "' + (ev.summary||'event') + '" shown as single occurrence.');
+    return null;
+  }
+  if (!['DAILY','WEEKLY','MONTHLY','YEARLY'].includes(rule.freq)) return null;
+  return rule;
+}
+
+/* =========================== OCCURRENCE EXPANSION ======================== */
+function dayKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function addDays(d, n){ const x = new Date(d); x.setDate(x.getDate()+n); return x; }
+function startOfWeek(d){ return addDays(d, -d.getDay()); }
+function weeksBetween(a, b){ return Math.round((startOfWeek(b) - startOfWeek(a)) / (7*864e5)); }
+
+// AIDEV-NOTE: expand within [rangeStart, rangeEnd); safety cap 5000 iterations.
+function expandOccurrences(ev, rangeStart, rangeEnd){
+  const out = [];
+  const durMs = ev.end.date - ev.start.date;
+  const push = (startDate) => {
+    const key = dayKey(startDate) + (ev.start.allDay ? '' : 'T'+startDate.getHours()+':'+startDate.getMinutes());
+    if (ev.exdates.has(key) || ev.exdates.has(dayKey(startDate))) return;
+    const endDate = new Date(startDate.getTime() + durMs);
+    if (endDate > rangeStart && startDate < rangeEnd)
+      out.push({ev, start:startDate, end:endDate, allDay:ev.start.allDay});
+  };
+  if (!ev.rrule){ push(ev.start.date); return out; }
+  const r = ev.rrule;
+  let count = 0, iter = 0;
+  let cur = new Date(ev.start.date);
+  const hardEnd = r.until && r.until < rangeEnd ? r.until : rangeEnd;
+  if (r.freq === 'WEEKLY'){
+    const days = r.byday && r.byday.length ? r.byday : [ev.start.date.getDay()];
+    while (cur < hardEnd && iter++ < 5000){
+      const inInterval = weeksBetween(ev.start.date, cur) % r.interval === 0;
+      if (cur >= ev.start.date && inInterval && days.includes(cur.getDay())){
+        count++;
+        if (r.count && count > r.count) break;
+        push(new Date(cur.getFullYear(),cur.getMonth(),cur.getDate(),
+                      ev.start.date.getHours(),ev.start.date.getMinutes()));
+      }
+      cur = addDays(cur, 1);
+    }
+    return out;
+  }
+  while (cur < hardEnd && iter++ < 5000){
+    count++;
+    if (r.count && count > r.count) break;
+    push(new Date(cur));
+    if (r.freq === 'DAILY')   cur = addDays(cur, r.interval);
+    else if (r.freq === 'MONTHLY'){
+      const d = new Date(cur); let n = 0;
+      do { d.setMonth(d.getMonth() + r.interval); n++; }
+      while (d.getDate() !== cur.getDate() && n < 48); // skip short months
+      cur = d;
+    }
+    else if (r.freq === 'YEARLY'){ const d = new Date(cur); d.setFullYear(d.getFullYear()+r.interval); cur = d; }
+    else break;
+  }
+  return out;
+}
+
+/* ================================ STATE ================================= */
+const LS_KEY = 'icsview.v1';
+const state = { ics:null, name:null, url:null, events:[], warnings:[],
+                view:'month', cursor:new Date(), embed:false };
+
+function lsGet(){ try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch(e){ return null; } }
+function lsSet(obj){ try { localStorage.setItem(LS_KEY, JSON.stringify(obj)); } catch(e){ /* private mode / preview */ } }
+function lsClear(){ try { localStorage.removeItem(LS_KEY); } catch(e){} }
+
+/* ================================= UI =================================== */
+const $ = id => document.getElementById(id);
+const fmtTime = d => d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+const fmtDay  = d => d.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'});
+const MONTHS = 'January February March April May June July August September October November December'.split(' ');
+
+function setMsg(text, cls){ const m = $('msg'); m.textContent = text || ''; m.className = 'msg ' + (cls || ''); }
+
+function loadICS(text, name, url){
+  let parsed;
+  try { parsed = parseICS(text); }
+  catch(e){ setMsg('Could not parse this file: ' + e.message, 'err'); return; }
+  if (!parsed.events.length){ setMsg('No VEVENT entries found in this file.', 'err'); return; }
+  state.ics = text; state.name = name; state.url = url || null;
+  state.events = parsed.events; state.warnings = parsed.warnings;
+  if (!state.embed) lsSet({ics:text, name, url:url||null, view:state.view, savedAt:Date.now()});
+  // jump to first upcoming (or last) event month
+  const now = new Date();
+  const future = parsed.events.map(e=>e.start.date).filter(d=>d>=now).sort((a,b)=>a-b);
+  state.cursor = future[0] || parsed.events.map(e=>e.start.date).sort((a,b)=>b-a)[0] || now;
+  setMsg(parsed.events.length + ' events loaded.' +
+    (parsed.warnings.length ? ' ' + parsed.warnings.length + ' recurrence warning(s).' : ''), 'ok');
+  renderAll();
+}
+
+function renderAll(){
+  const has = state.events.length > 0;
+  $('calSection').classList.toggle('hidden', !has);
+  $('loadedbar').classList.toggle('show', has && !state.embed);
+  if (!has) return;
+  $('srcName').textContent = state.name || 'calendar.ics';
+  $('srcMeta').textContent = state.events.length + ' events' + (state.url ? ' · from URL' : ' · from file');
+  $('reloadBtn').classList.toggle('hidden', !state.url);
+  $('viewMonth').classList.toggle('on', state.view === 'month');
+  $('viewList').classList.toggle('on', state.view === 'list');
+  const y = state.cursor.getFullYear(), m = state.cursor.getMonth();
+  $('monthTitle').textContent = MONTHS[m] + ' ' + y;
+  const mStart = new Date(y, m, 1), mEnd = new Date(y, m+1, 1);
+  const occ = [];
+  for (const ev of state.events) occ.push(...expandOccurrences(ev, mStart, mEnd));
+  occ.sort((a,b)=>a.start-b.start);
+  $('calBody').innerHTML = '';
+  $('calBody').appendChild(state.view === 'month' ? renderMonth(y, m, occ) : renderList(occ));
+  refreshExport();
+}
+
+function renderMonth(y, m, occ){
+  const byDay = {};
+  for (const o of occ){
+    // spread multi-day occurrences across covered days (DTEND exclusive for all-day)
+    let d = new Date(o.start.getFullYear(), o.start.getMonth(), o.start.getDate());
+    const endEx = o.allDay ? o.end : new Date(o.end.getTime() - 1);
+    const last = new Date(endEx.getFullYear(), endEx.getMonth(), endEx.getDate());
+    let guard = 0;
+    while (d <= last && guard++ < 62){
+      (byDay[dayKey(d)] = byDay[dayKey(d)] || []).push(o);
+      d = addDays(d, 1);
+      if (o.allDay && d >= o.end) break;
+    }
+  }
+  const table = document.createElement('table');
+  table.className = 'cal';
+  const thead = table.createTHead().insertRow();
+  for (const w of ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']){
+    const th = document.createElement('th'); th.textContent = w; thead.appendChild(th);
+  }
+  const first = new Date(y, m, 1);
+  let cur = addDays(first, -first.getDay());
+  const todayK = dayKey(new Date());
+  const tbody = table.createTBody();
+  for (let row = 0; row < 6; row++){
+    const tr = tbody.insertRow();
+    for (let col = 0; col < 7; col++){
+      const td = tr.insertCell();
+      if (cur.getMonth() !== m) td.className = 'dim';
+      if (dayKey(cur) === todayK) td.classList.add('today');
+      td.innerHTML = '<div class="dnum">' + cur.getDate() + '</div>';
+      const list = byDay[dayKey(cur)] || [];
+      list.slice(0, 3).forEach(o => td.appendChild(chip(o)));
+      if (list.length > 3){
+        const more = document.createElement('span');
+        more.className = 'more'; more.textContent = '+' + (list.length - 3) + ' more';
+        const extra = list.slice(3);
+        more.onclick = () => extra.forEach(o => { td.insertBefore(chip(o), more); more.remove(); });
+        td.appendChild(more);
+      }
+      cur = addDays(cur, 1);
+    }
+    if (cur.getMonth() !== m && row >= 3) break;
+  }
+  return table;
+}
+function chip(o){
+  const el = document.createElement('span');
+  el.className = 'chip';
+  el.textContent = (o.allDay ? '' : fmtTime(o.start) + ' ') + (o.ev.summary || '(untitled)');
+  el.title = o.ev.summary || '';
+  el.onclick = () => showDetail(o);
+  return el;
+}
+function renderList(occ){
+  const box = document.createElement('div');
+  box.className = 'agenda';
+  if (!occ.length){ box.innerHTML = '<div class="empty">No events this month.</div>'; return box; }
+  let curKey = null, dayEl = null;
+  for (const o of occ){
+    const k = dayKey(o.start);
+    if (k !== curKey){
+      curKey = k;
+      dayEl = document.createElement('div'); dayEl.className = 'day';
+      dayEl.innerHTML = '<h3>' + fmtDay(o.start) + '</h3>';
+      box.appendChild(dayEl);
+    }
+    const row = document.createElement('div');
+    row.className = 'ev';
+    row.innerHTML = '<span class="time">' +
+      (o.allDay ? 'all day' : fmtTime(o.start) + '–' + fmtTime(o.end)) +
+      '</span><span class="t"></span>';
+    row.querySelector('.t').textContent = o.ev.summary || '(untitled)';
+    row.onclick = () => showDetail(o);
+    dayEl.appendChild(row);
+  }
+  return box;
+}
+function showDetail(o){
+  $('dTitle').textContent = o.ev.summary || '(untitled)';
+  $('dWhen').textContent = o.allDay
+    ? fmtDay(o.start) + (o.end - o.start > 864e5 ? ' → ' + fmtDay(addDays(o.end,-1)) : '') + ' (all day)'
+    : fmtDay(o.start) + ', ' + fmtTime(o.start) + '–' + fmtTime(o.end);
+  $('dLocRow').style.display = o.ev.location ? '' : 'none';
+  $('dLoc').textContent = o.ev.location || '';
+  $('dDesc').textContent = o.ev.description || '';
+  $('dlg').showModal();
+}
+
+/* ============================== EXPORT ================================== */
+// base64url of UTF-8 text
+function b64u(text){
+  const bytes = new TextEncoder().encode(text);
+  let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function fromB64u(s){
+  s = s.replace(/-/g,'+').replace(/_/g,'/');
+  const bin = atob(s), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+function hostBase(){
+  const v = $('hostUrl').value.trim();
+  if (v) return v;
+  if (location.protocol.startsWith('http')) return location.origin + location.pathname;
+  return 'https://YOUR-HOST/icsview.html';
+}
+function refreshExport(){
+  if (!state.ics){ return; }
+  const frag = '#ics=' + b64u(state.ics) + '&view=' + state.view;
+  const kb = Math.round(frag.length / 1024);
+  $('snipHash').value =
+    '<iframe src="' + hostBase() + frag + '"\n' +
+    '        style="border:0;width:100%;height:640px" loading="lazy"\n' +
+    '        title="Calendar"></iframe>  <!-- fragment size: ~' + kb + ' KB -->';
+  const standalone = buildStandalone();
+  $('snipSrcdoc').value =
+    '<iframe style="border:0;width:100%;height:640px" title="Calendar" srcdoc="' +
+    standalone.replace(/&/g,'&amp;').replace(/"/g,'&quot;') + '"></iframe>';
+}
+// AIDEV-NOTE: compact read-only viewer generated from a template; events inlined as JSON.
+function buildStandalone(){
+  const occ2json = state.events.map(e => ({
+    s: e.start.date.getTime(), e: e.end.date.getTime(), a: !!e.start.allDay,
+    t: e.summary || '', l: e.location || '', d: e.description || '',
+    r: e.rrule || null, x: [...e.exdates],
+  }));
+  return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+'<meta name="viewport" content="width=device-width,initial-scale=1"><title>Calendar</title>' +
+'<style>' +
+'body{margin:0;font-family:Seravek,Ubuntu,Calibri,sans-serif;font-size:14px;color:#20262B;background:#F6F7F4}' +
+'.h{display:flex;gap:8px;align-items:center;padding:10px}.h b{font-size:16px;min-width:150px}' +
+'button{font:inherit;padding:5px 10px;border:1px solid #D8DDD9;border-radius:6px;background:#fff;cursor:pointer}' +
+'table{width:100%;border-collapse:collapse;background:#fff}' +
+'th{font-size:11px;color:#66707A;padding:5px;border-bottom:1px solid #D8DDD9;text-align:left}' +
+'td{border:1px solid #D8DDD9;vertical-align:top;height:84px;width:14.28%;padding:4px;font-size:11.5px}' +
+'td.o{color:#ccc}.n{font-size:11px;color:#66707A}' +
+'td.td .n{background:#0F6B5C;color:#fff;border-radius:99px;padding:1px 5px}' +
+'.c{display:block;background:#DEEDE8;border-left:3px solid #0F6B5C;border-radius:3px;padding:0 4px;margin:2px 0;' +
+'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}' +
+'</style></head><body><div class="h"><button id="p">\u2039</button><button id="x">\u203a</button>' +
+'<b id="m"></b></div><div id="c"></div>' +
+'<scr'+'ipt>var EV=' + JSON.stringify(occ2json).replace(/</g,'\\u003c') + ';\n' +
+minirender.toString() + ';minirender(EV);</scr'+'ipt></body></html>';
+}
+// Runs inside the standalone export. Serialized via toString(); keep self-contained (no outer refs).
+function minirender(EV){
+  var cur = new Date(), M = 'January February March April May June July August September October November December'.split(' ');
+  function dk(d){ return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+  function ad(d,n){ var x = new Date(d); x.setDate(x.getDate()+n); return x; }
+  function sow(d){ return ad(d, -d.getDay()); }
+  function wb(a,b){ return Math.round((sow(b)-sow(a))/(7*864e5)); }
+  function expand(e, rs, re){
+    var out = [], dur = e.e - e.s, st = new Date(e.s);
+    function push(sd){
+      var k = dk(sd) + (e.a ? '' : 'T'+sd.getHours()+':'+sd.getMinutes());
+      if ((e.x||[]).indexOf(k) >= 0 || (e.x||[]).indexOf(dk(sd)) >= 0) return;
+      var ed = new Date(sd.getTime()+dur);
+      if (ed > rs && sd < re) out.push({s:sd, e:ed, a:e.a, t:e.t, l:e.l, d:e.d});
+    }
+    if (!e.r){ push(st); return out; }
+    var r = e.r, cnt = 0, it = 0, c = new Date(st),
+        he = r.until && new Date(r.until) < re ? new Date(r.until) : re;
+    if (r.freq === 'WEEKLY'){
+      var days = (r.byday && r.byday.length) ? r.byday : [st.getDay()];
+      while (c < he && it++ < 5000){
+        if (c >= st && wb(st,c) % r.interval === 0 && days.indexOf(c.getDay()) >= 0){
+          cnt++; if (r.count && cnt > r.count) break;
+          push(new Date(c.getFullYear(),c.getMonth(),c.getDate(),st.getHours(),st.getMinutes()));
+        }
+        c = ad(c,1);
+      }
+      return out;
+    }
+    while (c < he && it++ < 5000){
+      cnt++; if (r.count && cnt > r.count) break;
+      push(new Date(c));
+      if (r.freq === 'DAILY') c = ad(c, r.interval);
+      else if (r.freq === 'MONTHLY'){ var d2 = new Date(c), g = 0;
+        do { d2.setMonth(d2.getMonth()+r.interval); g++; } while (d2.getDate() !== c.getDate() && g < 48);
+        c = d2; }
+      else if (r.freq === 'YEARLY'){ var d3 = new Date(c); d3.setFullYear(d3.getFullYear()+r.interval); c = d3; }
+      else break;
+    }
+    return out;
+  }
+  function render(){
+    var y = cur.getFullYear(), m = cur.getMonth();
+    document.getElementById('m').textContent = M[m] + ' ' + y;
+    var rs = new Date(y,m,1), re = new Date(y,m+1,1), occ = [];
+    for (var i = 0; i < EV.length; i++) occ = occ.concat(expand(EV[i], rs, re));
+    var by = {};
+    occ.forEach(function(o){
+      var d = new Date(o.s.getFullYear(),o.s.getMonth(),o.s.getDate()),
+          le = o.a ? o.e : new Date(o.e.getTime()-1),
+          last = new Date(le.getFullYear(),le.getMonth(),le.getDate()), g = 0;
+      while (d <= last && g++ < 62){
+        (by[dk(d)] = by[dk(d)] || []).push(o);
+        d = ad(d,1); if (o.a && d >= o.e) break;
+      }
+    });
+    var h = '<table><tr>';
+    'Sun Mon Tue Wed Thu Fri Sat'.split(' ').forEach(function(w){ h += '<th>'+w+'</th>'; });
+    h += '</tr>';
+    var c = ad(rs, -rs.getDay()), tk = dk(new Date());
+    for (var r2 = 0; r2 < 6; r2++){
+      h += '<tr>';
+      for (var c2 = 0; c2 < 7; c2++){
+        var cls = (c.getMonth() !== m ? 'o' : '') + (dk(c) === tk ? ' td' : '');
+        h += '<td class="'+cls+'"><span class="n">'+c.getDate()+'</span>';
+        (by[dk(c)]||[]).forEach(function(o){
+          var tt = (o.a ? '' : o.s.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+' ') + (o.t||'');
+          var ti = (o.t||'') + (o.l ? ' @ '+o.l : '');
+          h += '<span class="c" title="'+ti.replace(/"/g,'&quot;')+'">'+
+               tt.replace(/</g,'&lt;')+'</span>';
+        });
+        h += '</td>'; c = ad(c,1);
+      }
+      h += '</tr>';
+      if (c.getMonth() !== m && r2 >= 3) break;
+    }
+    document.getElementById('c').innerHTML = h + '</table>';
+  }
+  document.getElementById('p').onclick = function(){ cur.setMonth(cur.getMonth()-1); render(); };
+  document.getElementById('x').onclick = function(){ cur.setMonth(cur.getMonth()+1); render(); };
+  render();
+}
+
+/* ============================== WIRING ================================== */
+function wire(){
+  const drop = $('drop'), file = $('file');
+  drop.onclick = () => file.click();
+  drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') file.click(); };
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+  drop.ondragleave = () => drop.classList.remove('over');
+  drop.ondrop = e => {
+    e.preventDefault(); drop.classList.remove('over');
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) readFile(f);
+  };
+  file.onchange = () => { if (file.files[0]) readFile(file.files[0]); };
+  function readFile(f){
+    const r = new FileReader();
+    r.onload = () => loadICS(String(r.result), f.name, null);
+    r.onerror = () => setMsg('Could not read the file.', 'err');
+    r.readAsText(f);
+  }
+
+  $('fetchBtn').onclick = async () => {
+    const url = $('url').value.trim();
+    if (!url) return;
+    setMsg('Fetching…');
+    $('netbadge').textContent = '1 network request (your ICS URL)';
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      loadICS(await res.text(), url.split('/').pop() || 'calendar.ics', url);
+    } catch (e){
+      setMsg('Fetch failed: ' + e.message +
+        '. Likely a CORS restriction — download the .ics and drop it here instead.', 'err');
+    }
+  };
+  $('reloadBtn').onclick = () => { if (state.url){ $('url').value = state.url; $('fetchBtn').click(); } };
+  $('clearBtn').onclick = () => {
+    lsClear();
+    state.ics = null; state.events = []; state.url = null;
+    $('calSection').classList.add('hidden');
+    $('loadedbar').classList.remove('show');
+    setMsg('Local data cleared.', 'ok');
+  };
+
+  $('prevBtn').onclick  = () => { state.cursor.setMonth(state.cursor.getMonth()-1); renderAll(); };
+  $('nextBtn').onclick  = () => { state.cursor.setMonth(state.cursor.getMonth()+1); renderAll(); };
+  $('todayBtn').onclick = () => { state.cursor = new Date(); renderAll(); };
+  $('viewMonth').onclick = () => { state.view = 'month'; persistView(); renderAll(); };
+  $('viewList').onclick  = () => { state.view = 'list';  persistView(); renderAll(); };
+  function persistView(){ const s = lsGet(); if (s){ s.view = state.view; lsSet(s); } }
+
+  $('hostUrl').oninput = refreshExport;
+  document.querySelectorAll('button[data-copy]').forEach(b => {
+    b.onclick = async () => {
+      const ta = $(b.dataset.copy);
+      try { await navigator.clipboard.writeText(ta.value); b.textContent = 'Copied'; }
+      catch(e){ ta.select(); document.execCommand('copy'); b.textContent = 'Copied'; }
+      setTimeout(() => b.textContent = 'Copy', 1500);
+    };
+  });
+  $('dlStandalone').onclick = () => {
+    const blob = new Blob([buildStandalone()], {type:'text/html'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'calendar-embed.html';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+}
+
+function boot(){
+  wire();
+  // Embed mode: data arrives in the fragment, never sent to any server.
+  const h = location.hash.slice(1);
+  if (h.startsWith('ics=')){
+    const params = new URLSearchParams(h);
+    try {
+      state.embed = true;
+      document.body.classList.add('embed');
+      state.view = params.get('view') === 'list' ? 'list' : 'month';
+      loadICS(fromB64u(params.get('ics')), 'embedded calendar', null);
+      return;
+    } catch(e){ /* fall through to normal mode */ state.embed = false; document.body.classList.remove('embed'); }
+  }
+  const saved = lsGet();
+  if (saved && saved.ics){
+    state.view = saved.view || 'month';
+    loadICS(saved.ics, saved.name, saved.url);
+    setMsg('Restored from this browser\u2019s local storage.', 'ok');
+  }
+}
+boot();
+</script>
+</body>
+</html>
