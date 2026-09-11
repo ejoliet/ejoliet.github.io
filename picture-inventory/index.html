@@ -1,0 +1,999 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Picture Inventory</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --fg: #15233b;
+      --muted: #5e6e85;
+      --accent: #2563eb;
+      --accent-2: #0ea5e9;
+      --danger: #dc2626;
+      --warning: #d97706;
+      --border: #d9e2ef;
+      --shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --card: #111c33;
+        --fg: #e9f1ff;
+        --muted: #9fb0cb;
+        --accent: #60a5fa;
+        --accent-2: #38bdf8;
+        --danger: #f87171;
+        --warning: #fbbf24;
+        --border: #22314f;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at top, color-mix(in srgb, var(--accent-2) 16%, var(--bg)), var(--bg) 45%);
+      color: var(--fg);
+      min-height: 100vh;
+    }
+    .wrap {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .hero, .panel, .item {
+      background: color-mix(in srgb, var(--card) 92%, transparent);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+    }
+    .hero { padding: 18px; margin-bottom: 12px; }
+    .hero h1 { margin: 0 0 6px; font-size: 1.45rem; }
+    .hero p, .hint, .status, .small, .empty, .note, .loading {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .panel { padding: 14px; margin-bottom: 14px; }
+    .toolbar, .toolbar-right {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .toolbar { justify-content: space-between; }
+    .btn {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+    }
+    .btn.secondary {
+      background: color-mix(in srgb, var(--accent) 12%, var(--card));
+      color: var(--fg);
+      border: 1px solid var(--border);
+    }
+    .btn.danger { background: var(--danger); }
+    .btn:disabled { opacity: 0.6; cursor: wait; }
+    .control {
+      display: grid;
+      gap: 4px;
+      min-width: 220px;
+    }
+    .control label {
+      font-size: 0.83rem;
+      color: var(--muted);
+    }
+    .range-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .range-wrap input { width: min(220px, 50vw); }
+    .badge, .summary-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: color-mix(in srgb, var(--card) 82%, transparent);
+    }
+    .status { margin-top: 8px; min-height: 1.1rem; font-size: 0.87rem; }
+    .hint { font-size: 0.85rem; margin-top: 10px; }
+    .feed {
+      display: grid;
+      gap: 14px;
+    }
+    .item {
+      padding: 14px;
+      display: grid;
+      gap: 14px;
+    }
+    .item-top {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: start;
+    }
+    .item-top h2 {
+      margin: 0 0 6px;
+      font-size: 1.08rem;
+    }
+    .small { font-size: 0.84rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .analysis-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    }
+    .image-panel, .inventory-panel {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 12px;
+      background: color-mix(in srgb, var(--card) 88%, transparent);
+    }
+    .image-stage {
+      position: relative;
+      width: 100%;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #00000010;
+      aspect-ratio: 1 / 1;
+    }
+    .inventory-image {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      background: #00000012;
+    }
+    .box {
+      position: absolute;
+      border: 2px solid var(--accent-2);
+      border-radius: 10px;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.45) inset;
+      pointer-events: none;
+    }
+    .box-label {
+      position: absolute;
+      top: -1px;
+      left: -1px;
+      transform: translateY(-100%);
+      background: var(--accent-2);
+      color: #fff;
+      padding: 4px 7px;
+      border-radius: 8px 8px 8px 0;
+      font-size: 0.76rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .section-title {
+      margin: 0 0 10px;
+      font-size: 0.95rem;
+    }
+    .group {
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+      margin-top: 12px;
+    }
+    .group:first-of-type {
+      border-top: 0;
+      padding-top: 0;
+      margin-top: 0;
+    }
+    .group h3 {
+      margin: 0 0 10px;
+      font-size: 0.95rem;
+    }
+    .row-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px;
+      margin-bottom: 10px;
+      background: color-mix(in srgb, var(--card) 86%, transparent);
+    }
+    .row-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .field {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+    .field-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    .field-value {
+      font-size: 0.9rem;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+    .empty, .loading, .note {
+      text-align: center;
+      padding: 20px 10px;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+    }
+    .warn {
+      color: var(--warning);
+      font-weight: 600;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+    @media (max-width: 860px) {
+      .analysis-grid { grid-template-columns: 1fr; }
+      .image-stage { aspect-ratio: 4 / 3; }
+      .row-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 520px) {
+      .wrap { padding: 12px; }
+      .panel, .hero, .item { border-radius: 16px; }
+      .toolbar { align-items: stretch; }
+      .toolbar-right { width: 100%; }
+      .control { width: 100%; }
+      .range-wrap { width: 100%; }
+      .range-wrap input { flex: 1; width: auto; }
+      .row-grid { grid-template-columns: 1fr; }
+      .box-label { font-size: 0.68rem; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <h1>Picture Inventory</h1>
+      <p>Share one photo or screenshot, run in-browser object detection, and review a numbered overlay with grouped inventory details.</p>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div class="toolbar-right">
+          <label class="btn secondary" for="picker">Add from file</label>
+          <input id="picker" type="file" accept="image/*" hidden>
+          <button id="analyze-all" class="btn secondary" type="button">Analyze all</button>
+          <button id="clear-all" class="btn danger" type="button">Clear all</button>
+        </div>
+        <div class="control">
+          <label for="threshold">Confidence threshold</label>
+          <div class="range-wrap">
+            <input id="threshold" type="range" min="0.2" max="0.9" value="0.45" step="0.05">
+            <span id="threshold-value" class="badge">45%</span>
+          </div>
+        </div>
+      </div>
+      <p class="hint">Setup: import <code>picture-inventory/Picture-Inventory.shortcut</code> into iOS Shortcuts, then edit its <code>Replace Text</code> action to replace <code>YOUR_HOST</code> (for this repo, use <code>ejoliet.github.io</code>) before sharing a photo from Photos. Detection runs locally in the browser with a CDN-loaded COCO-SSD model; the confidence slider filters displayed detections after analysis.</p>
+      <div id="status" class="status" aria-live="polite"></div>
+    </section>
+
+    <section id="feed" class="feed"></section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+  <script>
+    (function () {
+      const storageKey = "pictureInventoryItemsV2";
+      const picker = document.getElementById("picker");
+      const clearAll = document.getElementById("clear-all");
+      const analyzeAll = document.getElementById("analyze-all");
+      const threshold = document.getElementById("threshold");
+      const thresholdValue = document.getElementById("threshold-value");
+      const feed = document.getElementById("feed");
+      const status = document.getElementById("status");
+      const maxItems = 100;
+      const IOU_DEDUP_THRESHOLD = 0.45; // IOU = Intersection over Union overlap threshold for merging same-label boxes.
+      const MAX_DETECTIONS = 30; // Preserve a broader raw candidate set per image before UI filtering.
+      const MIN_RAW_SCORE = 0.05; // Keep low-score candidates so the confidence slider can hide/show them later.
+      const analyzingIds = new Set();
+      let detectorPromise = null;
+
+      const CATEGORY_LOOKUP = {
+        person: "People",
+        bicycle: "Vehicles",
+        car: "Vehicles",
+        motorcycle: "Vehicles",
+        airplane: "Vehicles",
+        bus: "Vehicles",
+        train: "Vehicles",
+        truck: "Vehicles",
+        boat: "Vehicles",
+        bird: "Animals",
+        cat: "Animals",
+        dog: "Animals",
+        horse: "Animals",
+        sheep: "Animals",
+        cow: "Animals",
+        elephant: "Animals",
+        bear: "Animals",
+        zebra: "Animals",
+        giraffe: "Animals",
+        backpack: "Personal items",
+        umbrella: "Personal items",
+        handbag: "Personal items",
+        tie: "Personal items",
+        suitcase: "Personal items",
+        frisbee: "Sports",
+        skis: "Sports",
+        snowboard: "Sports",
+        "sports ball": "Sports",
+        kite: "Sports",
+        "baseball bat": "Sports",
+        "baseball glove": "Sports",
+        skateboard: "Sports",
+        surfboard: "Sports",
+        "tennis racket": "Sports",
+        bottle: "Kitchen",
+        "wine glass": "Kitchen",
+        cup: "Kitchen",
+        fork: "Kitchen",
+        knife: "Kitchen",
+        spoon: "Kitchen",
+        bowl: "Kitchen",
+        banana: "Food",
+        apple: "Food",
+        sandwich: "Food",
+        orange: "Food",
+        broccoli: "Food",
+        carrot: "Food",
+        "hot dog": "Food",
+        pizza: "Food",
+        donut: "Food",
+        cake: "Food",
+        chair: "Furniture",
+        couch: "Furniture",
+        "potted plant": "Home",
+        bed: "Furniture",
+        "dining table": "Furniture",
+        toilet: "Home",
+        tv: "Electronics",
+        laptop: "Electronics",
+        mouse: "Electronics",
+        remote: "Electronics",
+        keyboard: "Electronics",
+        "cell phone": "Electronics",
+        microwave: "Appliances",
+        oven: "Appliances",
+        toaster: "Appliances",
+        sink: "Appliances",
+        refrigerator: "Appliances",
+        book: "Media",
+        clock: "Home",
+        vase: "Home",
+        scissors: "Tools",
+        "teddy bear": "Toys",
+        "hair drier": "Personal care",
+        toothbrush: "Personal care"
+      };
+
+      function setStatus(message) {
+        status.textContent = message || "";
+      }
+
+      function safeParse(json, fallback) {
+        try {
+          return JSON.parse(json);
+        } catch (err) {
+          console.error(err);
+          return fallback;
+        }
+      }
+
+      function updateThresholdBadge() {
+        thresholdValue.textContent = `${Math.round(Number(threshold.value) * 100)}%`;
+      }
+
+      function toKB(bytes) {
+        if (bytes <= 0) return "0 KB";
+        if (bytes < 1024) return "< 1 KB";
+        return `${Math.round(bytes / 1024)} KB`;
+      }
+
+      function nowIso() {
+        return new Date().toISOString();
+      }
+
+      function fmtDate(iso) {
+        return new Date(iso).toLocaleString();
+      }
+
+      function extractBase64Payload(dataUrl) {
+        const parts = String(dataUrl || "").split(",", 2);
+        return parts[1] || "";
+      }
+
+      function normalizeItem(item) {
+        const analysis = item && item.analysis && Array.isArray(item.analysis.rawDetections)
+          ? item.analysis
+          : {
+              rawDetections: [],
+              generatedAt: null,
+              attemptedAt: item && item.analysis ? item.analysis.attemptedAt || null : null,
+              error: item && item.analysis && item.analysis.error ? item.analysis.error : ""
+            };
+        return {
+          id: item.id,
+          fingerprint: item.fingerprint || "",
+          name: item.name || "Picture",
+          downloadName: item.downloadName || "picture.jpg",
+          createdAt: item.createdAt || nowIso(),
+          width: Number(item.width) || 0,
+          height: Number(item.height) || 0,
+          bytes: Number(item.bytes) || 0,
+          dataUrl: item.dataUrl || "",
+          analysis
+        };
+      }
+
+      function loadItems() {
+        return safeParse(localStorage.getItem(storageKey) || "[]", []).map(normalizeItem);
+      }
+
+      function saveItems(items) {
+        localStorage.setItem(storageKey, JSON.stringify(items.slice(0, maxItems)));
+      }
+
+      // The shortcut normalizes shared images to JPEG before opening the app, so the hash expects JPEG payloads.
+      function buildDataUrlFromHash() {
+        const hash = location.hash.startsWith("#") ? location.hash.slice(1) : location.hash;
+        const prefix = "image=";
+        if (!hash || !hash.startsWith(prefix)) return null;
+        const raw = hash.slice(prefix.length);
+        if (!raw) return null;
+        const decoded = decodeURIComponent(raw.replace(/\s/g, ""));
+        const base64 = decoded.replace(/^data:image\/jpeg;base64,/i, "");
+        if (!/^[A-Za-z0-9+/=]+$/.test(base64)) return null;
+        if ((base64.length % 4) !== 0) return null;
+        if (/=/.test(base64.slice(0, -2))) return null;
+        return `data:image/jpeg;base64,${base64}`;
+      }
+
+      function imageMeta(dataUrl) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+          img.onerror = () => reject(new Error("Could not read image"));
+          img.src = dataUrl;
+        });
+      }
+
+      function loadImage(dataUrl) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("Could not load image for analysis"));
+          img.src = dataUrl;
+        });
+      }
+
+      function fingerprint(dataUrl) {
+        const body = extractBase64Payload(dataUrl);
+        return `${body.length}:${body.slice(0, 24)}:${body.slice(-24)}`;
+      }
+
+      function toJpegName(name) {
+        const base = (name || "picture").replace(/\.[^.]+$/, "").trim() || "picture";
+        return `${base}.jpg`;
+      }
+
+      function createId() {
+        if (globalThis.crypto && crypto.randomUUID) return crypto.randomUUID();
+        if (globalThis.crypto && crypto.getRandomValues) {
+          const arr = new Uint32Array(4);
+          crypto.getRandomValues(arr);
+          return `pic-${Date.now()}-${Array.from(arr, (n) => n.toString(16)).join("")}`;
+        }
+        return `pic-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
+      function positionFromBox(box, width, height) {
+        const centerX = box.x + (box.width / 2);
+        const centerY = box.y + (box.height / 2);
+        const xBand = centerX < width / 3 ? "left" : (centerX > (2 * width) / 3 ? "right" : "center");
+        const yBand = centerY < height / 3 ? "top" : (centerY > (2 * height) / 3 ? "bottom" : "middle");
+        if (xBand === "center" && yBand === "middle") return "center";
+        if (xBand === "center") return yBand;
+        if (yBand === "middle") return xBand;
+        return `${yBand}-${xBand}`;
+      }
+
+      function descriptionFromBox(box, width, height) {
+        // Size and aspect bands produce lightweight "distinguishing description" text from the detection geometry.
+        const areaRatio = (box.width * box.height) / Math.max(1, width * height);
+        const aspect = box.width / Math.max(1, box.height);
+        const tags = [];
+        if (areaRatio > 0.28) tags.push("large");
+        else if (areaRatio < 0.06) tags.push("small");
+        if (aspect > 1.45) tags.push("wide");
+        else if (aspect < 0.7) tags.push("tall");
+        const edgeGap = Math.min(box.x, box.y, width - (box.x + box.width), height - (box.y + box.height));
+        if (edgeGap < Math.min(width, height) * 0.04) tags.push("near edge");
+        return tags.length ? `${tags.join(" ")} object` : "—";
+      }
+
+      function formatLabelForDisplay(label) {
+        return String(label || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+
+      function categorizeLabel(label) {
+        const key = String(label || "").toLowerCase();
+        if (CATEGORY_LOOKUP[key]) return CATEGORY_LOOKUP[key];
+        return "Other";
+      }
+
+      // Return Intersection over Union overlap for two bounding boxes with x/y/width/height fields.
+      function iou(a, b) {
+        const left = Math.max(a.x, b.x);
+        const top = Math.max(a.y, b.y);
+        const right = Math.min(a.x + a.width, b.x + b.width);
+        const bottom = Math.min(a.y + a.height, b.y + b.height);
+        const w = Math.max(0, right - left);
+        const h = Math.max(0, bottom - top);
+        const intersection = w * h;
+        const union = (a.width * a.height) + (b.width * b.height) - intersection;
+        return union > 0 ? intersection / union : 0;
+      }
+
+      function dedupeDetections(rawDetections, thresholdValueNumber, width, height) {
+        const candidates = rawDetections
+          .filter((entry) => Number(entry.score) >= thresholdValueNumber && Array.isArray(entry.bbox))
+          .map((entry) => ({
+            label: entry.label,
+            score: Number(entry.score),
+            x: Math.max(0, entry.bbox[0]),
+            y: Math.max(0, entry.bbox[1]),
+            width: Math.max(0, entry.bbox[2]),
+            height: Math.max(0, entry.bbox[3]),
+            quantity: 1
+          }))
+          .filter((entry) => entry.width > 0 && entry.height > 0)
+          .sort((a, b) => b.score - a.score);
+
+        const merged = [];
+        for (const candidate of candidates) {
+          const match = merged.find((entry) => entry.label === candidate.label && iou(entry, candidate) >= IOU_DEDUP_THRESHOLD);
+          if (match) {
+            match.quantity += 1;
+            if (candidate.score > match.score) {
+              match.score = candidate.score;
+              match.x = candidate.x;
+              match.y = candidate.y;
+              match.width = candidate.width;
+              match.height = candidate.height;
+            }
+            continue;
+          }
+          merged.push(candidate);
+        }
+
+        merged.sort((a, b) => a.y - b.y || a.x - b.x || b.score - a.score);
+        return merged.map((entry, index) => ({
+          overlay: index + 1,
+          label: formatLabelForDisplay(entry.label),
+          category: categorizeLabel(entry.label),
+          quantity: entry.quantity,
+          confidence: entry.score,
+          position: positionFromBox(entry, width, height),
+          description: descriptionFromBox(entry, width, height),
+          box: entry
+        }));
+      }
+
+      function summarizeRows(rows) {
+        const totalObjects = rows.reduce((sum, row) => sum + row.quantity, 0);
+        const categoryCounts = rows.reduce((acc, row) => {
+          acc[row.category] = (acc[row.category] || 0) + row.quantity;
+          return acc;
+        }, {});
+        return { totalObjects, categoryCounts };
+      }
+
+      function groupRows(rows) {
+        return rows.reduce((acc, row) => {
+          acc[row.category] = acc[row.category] || [];
+          acc[row.category].push(row);
+          return acc;
+        }, {});
+      }
+
+      function getPresentation(item) {
+        const rows = dedupeDetections(item.analysis.rawDetections || [], Number(threshold.value), item.width, item.height);
+        const grouped = groupRows(rows);
+        const summary = summarizeRows(rows);
+        return { rows, grouped, summary };
+      }
+
+      function esc(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function overlayHtml(row, item) {
+        const left = (row.box.x / item.width) * 100;
+        const top = (row.box.y / item.height) * 100;
+        const width = (row.box.width / item.width) * 100;
+        const height = (row.box.height / item.height) * 100;
+        return `
+          <div class="box" style="left:${left}%;top:${top}%;width:${width}%;height:${height}%;">
+            <div class="box-label">#${row.overlay} ${esc(row.label)}</div>
+          </div>
+        `;
+      }
+
+      function rowHtml(row) {
+        return `
+          <div class="row-card">
+            <div class="row-grid">
+              <div class="field"><span class="field-label">Overlay</span><span class="field-value">#${row.overlay}</span></div>
+              <div class="field"><span class="field-label">Object</span><span class="field-value">${esc(row.label)}</span></div>
+              <div class="field"><span class="field-label">Quantity</span><span class="field-value">${row.quantity}</span></div>
+              <div class="field"><span class="field-label">Confidence</span><span class="field-value">${Math.round(row.confidence * 100)}%</span></div>
+              <div class="field"><span class="field-label">Position</span><span class="field-value">${esc(row.position)}</span></div>
+              <div class="field"><span class="field-label">Description</span><span class="field-value">${esc(row.description)}</span></div>
+            </div>
+          </div>
+        `;
+      }
+
+      function summaryHtml(summary) {
+        const categoryChips = Object.entries(summary.categoryCounts)
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([category, count]) => `<span class="summary-chip">${esc(category)}: ${count}</span>`)
+          .join("");
+        return `
+          <div class="summary">
+            <span class="summary-chip">Total objects: ${summary.totalObjects}</span>
+            ${categoryChips || '<span class="summary-chip">No category counts</span>'}
+          </div>
+        `;
+      }
+
+      function groupedInventoryHtml(item) {
+        if (analyzingIds.has(item.id)) {
+          return `<div class="loading">Analyzing objects… this runs locally in your browser.</div>`;
+        }
+        if (item.analysis.error) {
+          return `
+            <div class="note">
+              <div class="warn">${esc(item.analysis.error)}</div>
+              <div style="margin-top:10px;">
+                <button class="btn secondary" type="button" data-analyze="${item.id}">Retry analysis</button>
+              </div>
+            </div>
+          `;
+        }
+        if (!item.analysis.generatedAt) {
+          return `
+            <div class="note">
+              <div>No object analysis yet.</div>
+              <div style="margin-top:10px;">
+                <button class="btn secondary" type="button" data-analyze="${item.id}">Analyze objects</button>
+              </div>
+            </div>
+          `;
+        }
+
+        const presentation = getPresentation(item);
+        const groups = Object.entries(presentation.grouped)
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([category, rows]) => `
+            <section class="group">
+              <h3>${esc(category)} (${rows.reduce((sum, row) => sum + row.quantity, 0)})</h3>
+              ${rows.map(rowHtml).join("")}
+            </section>
+          `)
+          .join("");
+
+        return `
+          <h3 class="section-title">Inventory</h3>
+          ${summaryHtml(presentation.summary)}
+          ${presentation.rows.length
+            ? groups
+            : '<div class="note">No detections above the current confidence threshold.</div>'}
+        `;
+      }
+
+      function imagePanelHtml(item) {
+        const presentation = item.analysis.generatedAt ? getPresentation(item) : { rows: [] };
+        return `
+          <div class="image-panel">
+            <h3 class="section-title">Numbered overlay</h3>
+            <div class="image-stage">
+              <img class="inventory-image" src="${item.dataUrl}" alt="${esc(item.name)}">
+              ${presentation.rows.map((row) => overlayHtml(row, item)).join("")}
+            </div>
+            <div class="summary" style="margin-top:10px;">
+              <span class="summary-chip">Image: ${item.width}×${item.height}</span>
+              <span class="summary-chip">Stored: ${toKB(item.bytes)}</span>
+              ${item.analysis.generatedAt ? `<span class="summary-chip">Analyzed: ${esc(fmtDate(item.analysis.generatedAt))}</span>` : ""}
+            </div>
+          </div>
+        `;
+      }
+
+      function render(items) {
+        if (!items.length) {
+          feed.innerHTML = `<div class="empty">No pictures yet. Share one from iOS Shortcut or add from file.</div>`;
+          return;
+        }
+
+        feed.innerHTML = items.map((item) => `
+          <article class="item">
+            <div class="item-top">
+              <div>
+                <h2 title="${esc(item.name)}">${esc(item.name)}</h2>
+                <div class="small">${esc(fmtDate(item.createdAt))} · ${item.width}×${item.height} · ${toKB(item.bytes)}</div>
+              </div>
+              <div class="actions">
+                <button class="btn secondary" type="button" data-analyze="${item.id}" ${analyzingIds.has(item.id) ? "disabled" : ""}>${analyzingIds.has(item.id) ? "Analyzing…" : (item.analysis.generatedAt ? "Reanalyze" : "Analyze")}</button>
+                <a class="btn secondary" href="${item.dataUrl}" target="_blank" rel="noopener">Open</a>
+                <a class="btn secondary" href="${item.dataUrl}" download="${esc(item.downloadName)}">Download</a>
+                <button class="btn secondary" type="button" data-copy="${item.id}">Copy Base64</button>
+                <button class="btn danger" type="button" data-delete="${item.id}">Delete</button>
+              </div>
+            </div>
+            <div class="analysis-grid">
+              ${imagePanelHtml(item)}
+              <div class="inventory-panel">${groupedInventoryHtml(item)}</div>
+            </div>
+          </article>
+        `).join("");
+      }
+
+      function upsertItem(updatedItem) {
+        const items = loadItems();
+        const index = items.findIndex((item) => item.id === updatedItem.id);
+        if (index >= 0) {
+          items[index] = updatedItem;
+          saveItems(items);
+        }
+      }
+
+      async function getDetector() {
+        if (detectorPromise) return detectorPromise;
+        detectorPromise = (async () => {
+          try {
+            if (!globalThis.cocoSsd) {
+              throw new Error("Model scripts did not load.");
+            }
+            return await cocoSsd.load({ base: "lite_mobilenet_v2" });
+          } catch (err) {
+            detectorPromise = null;
+            console.error(err);
+            throw new Error("Model failed to load. Check internet access to the CDN and refresh.");
+          }
+        })();
+        return detectorPromise;
+      }
+
+      async function analyzeItem(itemId) {
+        if (analyzingIds.has(itemId)) return;
+        const items = loadItems();
+        const item = items.find((entry) => entry.id === itemId);
+        if (!item) return;
+
+        analyzingIds.add(itemId);
+        render(items);
+        setStatus(`Analyzing ${item.name}…`);
+
+        try {
+          const detector = await getDetector();
+          const image = await loadImage(item.dataUrl);
+          // Keep a broader raw candidate set here; the user-controlled threshold filters what is shown.
+          const rawDetections = await detector.detect(image, MAX_DETECTIONS, MIN_RAW_SCORE);
+          item.analysis = {
+            generatedAt: nowIso(),
+            attemptedAt: nowIso(),
+            error: "",
+            rawDetections: rawDetections.map((entry) => ({
+              label: entry.class,
+              score: entry.score,
+              bbox: entry.bbox
+            }))
+          };
+          upsertItem(item);
+          setStatus(`Analysis updated for ${item.name}.`);
+        } catch (err) {
+          console.error(err);
+          item.analysis = {
+            generatedAt: null,
+            attemptedAt: nowIso(),
+            error: err && err.message ? err.message : "Object analysis failed.",
+            rawDetections: []
+          };
+          upsertItem(item);
+          setStatus(`Analysis failed for ${item.name}.`);
+        } finally {
+          analyzingIds.delete(itemId);
+          render(loadItems());
+        }
+      }
+
+      async function analyzeMissingItems() {
+        for (const item of loadItems()) {
+          if (!item.analysis.generatedAt && !analyzingIds.has(item.id)) {
+            await analyzeItem(item.id);
+          }
+        }
+      }
+
+      async function addImage(dataUrl, source) {
+        const items = loadItems();
+        const fp = fingerprint(dataUrl);
+        if (items.some((item) => item.fingerprint === fp && item.dataUrl === dataUrl)) {
+          setStatus("Image already exists in inventory.");
+          return;
+        }
+        const meta = await imageMeta(dataUrl);
+        const payload = extractBase64Payload(dataUrl);
+        const pad = (payload.match(/=+$/) || [""])[0].length;
+        // Base64 stores 3 bytes in 4 characters; trailing "=" padding must be excluded from the decoded size.
+        const bytes = Math.max(0, Math.floor((payload.length * 3) / 4) - pad);
+        const item = {
+          id: createId(),
+          fingerprint: fp,
+          name: source || `Picture ${items.length + 1}`,
+          downloadName: toJpegName(source || `picture-${items.length + 1}`),
+          createdAt: nowIso(),
+          width: meta.width,
+          height: meta.height,
+          bytes,
+          dataUrl,
+          analysis: { rawDetections: [], generatedAt: null, attemptedAt: null, error: "" }
+        };
+        items.unshift(item);
+        saveItems(items);
+        render(loadItems());
+        setStatus("Added image to inventory. Starting analysis…");
+        await analyzeItem(item.id);
+      }
+
+      async function toJpegDataUrl(file, maxDim = 1024, quality = 0.7) {
+        const src = URL.createObjectURL(file);
+        try {
+          const image = await new Promise((resolve, reject) => {
+            const element = new Image();
+            element.onload = () => resolve(element);
+            element.onerror = () => reject(new Error("Invalid image"));
+            element.src = src;
+          });
+          const largestDim = Math.max(image.naturalWidth, image.naturalHeight);
+          if (!Number.isFinite(largestDim) || largestDim <= 0) {
+            throw new Error("Image has invalid dimensions");
+          }
+          const scale = Math.min(1, maxDim / largestDim);
+          const width = Math.max(1, Math.round(image.naturalWidth * scale));
+          const height = Math.max(1, Math.round(image.naturalHeight * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext("2d");
+          context.drawImage(image, 0, 0, width, height);
+          return canvas.toDataURL("image/jpeg", quality);
+        } finally {
+          URL.revokeObjectURL(src);
+        }
+      }
+
+      picker.addEventListener("change", async () => {
+        const file = picker.files && picker.files[0];
+        if (!file) return;
+        try {
+          const dataUrl = await toJpegDataUrl(file);
+          await addImage(dataUrl, file.name.replace(/\.[^.]+$/, ""));
+        } catch (err) {
+          console.error(err);
+          setStatus(err && err.message ? err.message : "Failed to process image file.");
+        } finally {
+          picker.value = "";
+        }
+      });
+
+      threshold.addEventListener("input", () => {
+        updateThresholdBadge();
+        render(loadItems());
+      });
+
+      analyzeAll.addEventListener("click", async () => {
+        const items = loadItems();
+        if (!items.length) {
+          setStatus("No images available to analyze.");
+          return;
+        }
+        for (const [index, item] of items.entries()) {
+          setStatus(`Analyzing ${index + 1} of ${items.length}: ${item.name}…`);
+          await analyzeItem(item.id);
+        }
+      });
+
+      clearAll.addEventListener("click", () => {
+        if (!confirm("Delete all saved pictures and analyses from this browser?")) return;
+        localStorage.removeItem(storageKey);
+        render([]);
+        setStatus("Inventory cleared.");
+      });
+
+      feed.addEventListener("click", async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+
+        const analyzeId = target.getAttribute("data-analyze");
+        if (analyzeId) {
+          await analyzeItem(analyzeId);
+          return;
+        }
+
+        const deleteId = target.getAttribute("data-delete");
+        if (deleteId) {
+          const items = loadItems().filter((item) => item.id !== deleteId);
+          saveItems(items);
+          render(items);
+          setStatus("Deleted image.");
+          return;
+        }
+
+        const copyId = target.getAttribute("data-copy");
+        if (!copyId) return;
+        const item = loadItems().find((entry) => entry.id === copyId);
+        if (!item) return;
+        try {
+          await navigator.clipboard.writeText(extractBase64Payload(item.dataUrl));
+          setStatus("Base64 copied to clipboard.");
+        } catch (err) {
+          console.error(err);
+          setStatus("Clipboard copy failed. Check browser permissions.");
+        }
+      });
+
+      updateThresholdBadge();
+      render(loadItems());
+
+      (async function importFromHashIfPresent() {
+        const dataUrl = buildDataUrlFromHash();
+        if (!dataUrl) {
+          setTimeout(() => { analyzeMissingItems(); }, 0);
+          return;
+        }
+        try {
+          await addImage(dataUrl, "Shared photo");
+          history.replaceState(null, "", location.pathname);
+        } catch (err) {
+          console.error(err);
+          setStatus("Could not import image from URL hash.");
+        }
+      })();
+    })();
+  </script>
+</body>
+</html>
