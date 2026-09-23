@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>gitenv — what does this repo need to run?</title>
+<meta name="description" content="Replace hub with env in any GitHub URL. Every environment variable, port, external service, CLI flag and runtime the code needs, scanned in your browser. Generates .env.example.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230F7B6C'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='16' fill='white' text-anchor='middle'%3EENV%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --page:#EEF1F5; --panel:#FFFFFF; --ink:#14213D; --muted:#5B6B82; --line:#D5DCE6;
+  --accent:#0F7B6C; --accent-ink:#FFFFFF; --accent-soft:#DDF1ED; --warn:#9A3B00; --warn-soft:#FBEBDD; --secret:#8A1C3B; --secret-soft:#FBE3EA;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  box-sizing:border-box;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--page:#1B2333;--panel:#232D40;--ink:#E7ECF4;--muted:#9AA8BD;--line:#34405A;--accent:#5BC8B4;--accent-ink:#0B2A25;--accent-soft:#1F4A43;--warn:#FFB77A;--warn-soft:#4A2E17;--secret:#FF9FB8;--secret-soft:#4A1F2C}
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--page);color:var(--ink);font:15px/1.5 var(--sans);padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+a{color:var(--accent)}
+button{font:inherit;color:inherit;cursor:pointer}
+code,pre,.mono{font-family:var(--mono)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+
+header.hero{padding:44px 0 28px}
+.brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.brand h1{margin:0;font-size:28px;font-weight:600;letter-spacing:-.01em}
+.brand h1 span{color:var(--accent)}
+.brand p{margin:0;color:var(--muted)}
+.tagline{margin:22px 0 0;font-size:clamp(22px,3.4vw,38px);line-height:1.15;font-weight:500;max-width:24ch;letter-spacing:-.015em}
+.urlbar{margin-top:26px;display:flex;align-items:stretch;background:var(--panel);border:1.5px solid var(--line);border-radius:12px;overflow:hidden;max-width:820px}
+.urlbar:focus-within{border-color:var(--accent)}
+.urlbar .prefix{display:flex;align-items:center;padding:0 0 0 16px;font-family:var(--mono);font-size:17px;color:var(--muted);white-space:nowrap;user-select:none}
+.urlbar .prefix b{font-weight:500;color:var(--ink);display:inline-block;position:relative}
+.urlbar .prefix b .a,.urlbar .prefix b .b{display:inline-block;transition:transform .5s cubic-bezier(.2,.8,.2,1),opacity .5s}
+.urlbar .prefix b .b{position:absolute;left:0;top:0;color:var(--accent);opacity:0;transform:translateY(110%)}
+.urlbar .prefix b.swapped .a{opacity:0;transform:translateY(-110%)}
+.urlbar .prefix b.swapped .b{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.urlbar .prefix b .a,.urlbar .prefix b .b{transition:none}}
+.urlbar input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--ink);font-family:var(--mono);font-size:17px;padding:14px 8px}
+.urlbar button{border:0;background:var(--accent);color:var(--accent-ink);padding:0 22px;font-weight:600}
+.urlbar button:disabled{opacity:.5;cursor:progress}
+.hero .sub{margin:12px 0 0;color:var(--muted);font-size:14px}
+.examples{margin:10px 0 0;display:flex;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.examples button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:3px 10px;font-family:var(--mono);font-size:12.5px}
+.examples button:hover{border-color:var(--accent)}
+details.settings{margin-top:14px;max-width:820px;font-size:14px}
+details.settings summary{cursor:pointer;color:var(--muted)}
+.settings .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:10px}
+.settings label{display:flex;flex-direction:column;gap:4px;color:var(--muted)}
+.settings input{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
+
+.status{margin:18px 0 0;padding:12px 14px;border-radius:10px;background:var(--panel);border:1px solid var(--line);font-size:14px;display:none;max-width:820px}
+.status.show{display:block}
+.status.err{border-color:var(--warn);background:var(--warn-soft);color:var(--warn)}
+.progress{height:6px;background:var(--line);border-radius:3px;margin-top:8px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
+
+.report{display:none;margin:30px 0 60px}
+.report.show{display:block}
+.summary{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:15px;margin-bottom:22px}
+.summary b{font-weight:600}
+.summary .miss{color:var(--warn)}
+section.block{margin-bottom:28px}
+section.block h2{font-size:17px;font-weight:600;margin:0 0 4px}
+section.block p.lead{margin:0 0 10px;color:var(--muted);font-size:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.card .bar{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.card .bar button{border:1px solid var(--line);background:transparent;border-radius:8px;padding:5px 11px;font-size:13px}
+.card .bar button:hover{border-color:var(--accent)}
+.card .bar button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.card .bar .meta{margin-left:auto;color:var(--muted);font-size:13px}
+pre.env{margin:0;padding:12px 14px;font-size:13px;line-height:1.55;overflow:auto;max-height:420px;white-space:pre}
+pre.env .c{color:var(--muted)}
+pre.env .k{color:var(--ink);font-weight:500}
+pre.env .s{color:var(--secret)}
+table.t{border-collapse:collapse;width:100%;font-size:13.5px}
+table.t th{text-align:left;padding:8px 10px;border-bottom:2px solid var(--line);font-weight:500;color:var(--muted);white-space:nowrap}
+table.t td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.t tr:last-child td{border-bottom:0}
+table.t td.mono{font-family:var(--mono);white-space:nowrap}
+.tag{display:inline-block;font-size:12px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-right:4px;white-space:nowrap}
+.tag.secret{color:var(--secret);background:var(--secret-soft);border-color:transparent}
+.tag.doc{color:var(--accent);background:var(--accent-soft);border-color:transparent}
+.tag.undoc{color:var(--warn);background:var(--warn-soft);border-color:transparent}
+.where{font-size:12.5px;color:var(--muted);font-family:var(--mono)}
+.where a{color:inherit}
+.filter{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.filter input{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);min-width:220px}
+.filter label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:4px}
+ul.plain{margin:0;padding:0;list-style:none}
+ul.plain li{padding:7px 12px;border-bottom:1px solid var(--line);display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}
+ul.plain li:last-child{border-bottom:0}
+.empty{padding:16px;color:var(--muted);font-size:14px}
+footer{padding:20px 0 40px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+footer p{margin:6px 0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="hero">
+  <div class="brand">
+    <h1>git<span>env</span></h1>
+    <p>What does this repo need before it will run?</p>
+  </div>
+  <p class="tagline">Replace <code>hub</code> with <code>env</code>. Get the <code>.env.example</code> nobody wrote.</p>
+
+  <form class="urlbar" id="form" autocomplete="off">
+    <span class="prefix">https://git<b id="swap"><span class="a">hub</span><span class="b">env</span></b>.com/</span>
+    <input id="repo" type="text" placeholder="owner/repo" aria-label="GitHub owner/repo or full URL" spellcheck="false">
+    <button id="load" type="submit">Scan</button>
+  </form>
+  <p class="sub">Static scan in your browser. Files come from GitHub's CDN; nothing leaves your machine. Finds every environment variable the code reads, with defaults, and checks whether it is documented.</p>
+  <div class="examples" aria-label="Examples">
+    <span>Try:</span>
+    <button type="button" data-repo="cyclotruc/gitingest">cyclotruc/gitingest</button>
+    <button type="button" data-repo="apache/airflow">apache/airflow</button>
+    <button type="button" data-repo="langchain-ai/langchain">langchain-ai/langchain</button>
+    <button type="button" data-repo="vercel/next.js">vercel/next.js</button>
+  </div>
+  <details class="settings">
+    <summary>Scan options and GitHub token</summary>
+    <div class="grid">
+      <label>Max files to read<input id="optMax" type="number" min="20" max="3000" value="600"></label>
+      <label>Max file size (KB)<input id="optSize" type="number" min="8" max="2048" value="200"></label>
+      <label>Branch or tag (blank = default)<input id="optRef" type="text" placeholder="main"></label>
+      <label>GitHub token (optional, only for the 2 API calls)<input id="optToken" type="password" placeholder="ghp_…"></label>
+    </div>
+  </details>
+  <div class="status" id="status" role="status"></div>
+</header>
+
+<main class="report" id="report">
+  <div class="summary" id="summary"></div>
+
+  <section class="block">
+    <h2>.env.example, generated</h2>
+    <p class="lead">Every variable the code reads, grouped by where it is read. Defaults found in code are filled in. Secrets are left blank on purpose.</p>
+    <div class="card">
+      <div class="bar">
+        <button class="primary" id="copyEnv">Copy</button>
+        <button id="dlEnv">Download .env.example</button>
+        <button id="dlMd">Download report (Markdown)</button>
+        <button id="share">Copy share link</button>
+        <span class="meta" id="envMeta"></span>
+      </div>
+      <pre class="env" id="envOut"></pre>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Environment variables</h2>
+    <p class="lead">"Documented" means the name appears in a .env.example / .env.sample, README, or docs folder in the repo.</p>
+    <div class="filter">
+      <input id="q" type="search" placeholder="Filter by name or file…">
+      <label><input type="checkbox" id="onlyUndoc"> undocumented only</label>
+      <label><input type="checkbox" id="onlySecret"> secrets only</label>
+    </div>
+    <div class="card" id="envTable"></div>
+  </section>
+
+  <section class="block">
+    <h2>How to run it</h2>
+    <p class="lead">Runtimes, versions and entry points detected from manifests, Dockerfiles and task runners.</p>
+    <div class="card" id="runtime"></div>
+  </section>
+
+  <section class="block">
+    <h2>Ports</h2>
+    <div class="card" id="ports"></div>
+  </section>
+
+  <section class="block">
+    <h2>External services</h2>
+    <p class="lead">Guessed from imported SDKs, client libraries, connection-string schemes and hostnames.</p>
+    <div class="card" id="services"></div>
+  </section>
+
+  <section class="block">
+    <h2>CLI flags</h2>
+    <div class="card" id="flags"></div>
+  </section>
+
+  <section class="block">
+    <h2>Files read by the program</h2>
+    <p class="lead">Config and data files the code opens at runtime.</p>
+    <div class="card" id="configs"></div>
+  </section>
+</main>
+
+<footer>
+  <p><strong>How it works:</strong> one GitHub API call for the tree, then each candidate file is fetched from jsDelivr's GitHub mirror and matched against ~40 language-specific patterns (Python, Node, Go, Rust, Java, Ruby, PHP, .NET, shell, Dockerfile, Compose, GitHub Actions, Spring, Helm). No AI. False positives are possible; every finding links to its line.</p>
+  <p><strong>Bookmarklet</strong> — drag to your bar, click on any GitHub page: <a id="bm" href="#">gitenv this repo</a></p>
+  <p>Open source, single HTML file, no server. Source and issues: <a href="https://github.com/ejoliet/gitenv">github.com/ejoliet/gitenv</a>.</p>
+</footer>
+</div>
+
+<script>
+// AIDEV-NOTE: one-file app. Sections: URL/state, fetch tree, pick files, fetch contents, detectors, report, exports.
+const $ = id => document.getElementById(id);
+const el = (t,a={},...kids)=>{const n=document.createElement(t);for(const [k,v] of Object.entries(a)) k==='text'?n.textContent=v:k==='html'?n.innerHTML=v:n.setAttribute(k,v);kids.forEach(k=>n.append(k));return n;};
+const state = { repo:null, sha:null, result:null, busy:false };
+
+// ---------- URL ----------
+function parseRepo(input){
+  let s=(input||'').trim(); if(!s) return null;
+  s=s.replace(/^https?:\/\/(www\.)?(github|gitenv)\.com\//i,'').replace(/\.git$/,'');
+  const m=s.match(/^([\w.-]+)\/([\w.-]+)(?:\/tree\/([^/]+))?/); if(!m) return null;
+  return {owner:m[1], name:m[2], ref:m[3]||null};
+}
+function readHash(){ const h=location.hash.replace(/^#\/?/,''); const qs=new URLSearchParams(location.search); return parseRepo(h) || parseRepo(qs.get('repo')||''); }
+function writeHash(){ if(state.repo) history.replaceState(null,'',`#${state.repo.owner}/${state.repo.name}${state.repo.ref?`/tree/${state.repo.ref}`:''}`); }
+
+// ---------- GitHub ----------
+function ghHeaders(){ const h={'Accept':'application/vnd.github+json'}; const t=$('optToken').value.trim()||localStorage.getItem('gitenv:token')||''; if(t) h.Authorization=`Bearer ${t}`; return h; }
+async function gh(path, params={}){
+  const u=new URL('https://api.github.com'+path); Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));
+  const r=await fetch(u,{headers:ghHeaders()});
+  if(r.status===404) throw new Error('Repository not found. Private? Add a token in scan options.');
+  if(r.status===403||r.status===429){ const reset=r.headers.get('x-ratelimit-reset'); throw new Error(`GitHub API rate limit hit${reset?` (resets ${new Date(reset*1000).toLocaleTimeString()})`:''}. Add a token in scan options.`); }
+  if(!r.ok) throw new Error(`GitHub ${r.status} on ${path}`);
+  return r.json();
+}
+async function fetchFile(repo, sha, path){
+  // jsDelivr mirrors GitHub with CORS and no rate limit; raw.githubusercontent.com is the fallback
+  const enc = path.split('/').map(encodeURIComponent).join('/');
+  const urls=[`https://cdn.jsdelivr.net/gh/${repo.owner}/${repo.name}@${sha}/${enc}`, `https://raw.githubusercontent.com/${repo.owner}/${repo.name}/${sha}/${enc}`];
+  for(const u of urls){ try{ const r=await fetch(u); if(r.ok) return await r.text(); }catch{} }
+  return null;
+}
+
+// ---------- file selection ----------
+const SKIP_DIRS=/(^|\/)(node_modules|vendor|third_party|thirdparty|dist|build|out|target|\.git|__pycache__|\.venv|venv|site-packages|\.tox|\.mypy_cache|coverage|\.next|\.nuxt|bower_components|jspm_packages|testdata|fixtures|snapshots|__snapshots__|migrations|locales?|i18n)(\/|$)/i;
+const SKIP_FILES=/(\.min\.(js|css)$|\.lock$|-lock\.(json|yaml)$|\.map$|\.snap$|\.(png|jpe?g|gif|svg|ico|webp|pdf|woff2?|ttf|eot|zip|gz|tar|jar|class|pyc|so|dylib|dll|exe|bin|mp[34]|wav|fits|parquet|h5|npy|csv|tsv|ipynb)$)/i;
+const CODE_EXT=new Set(['py','js','mjs','cjs','ts','tsx','jsx','vue','svelte','go','rs','java','kt','scala','rb','php','cs','fs','swift','dart','ex','exs','erl','hs','lua','pl','pm','r','jl','c','cc','cpp','h','hpp','m','mm','sh','bash','zsh','fish','ps1','bat','cmd','sql','tf','tfvars','hcl','toml','yaml','yml','json','json5','ini','cfg','conf','properties','env','example','sample','template','tpl','tmpl','xml','gradle','groovy','mk','make','cmake','nix','dockerfile','containerfile','md','mdx','rst','txt','adoc']);
+const NAMED=/(^|\/)(Dockerfile[^/]*|Containerfile|docker-compose[^/]*\.ya?ml|compose\.ya?ml|Makefile|GNUmakefile|Justfile|justfile|Procfile|Taskfile\.ya?ml|\.env[^/]*|\.envrc|\.python-version|\.nvmrc|\.node-version|\.tool-versions|\.ruby-version|go\.mod|Cargo\.toml|pyproject\.toml|setup\.py|setup\.cfg|requirements[^/]*\.txt|Pipfile|package\.json|Gemfile|pom\.xml|build\.gradle(\.kts)?|composer\.json|mix\.exs|Chart\.yaml|values[^/]*\.ya?ml|skaffold\.yaml|fly\.toml|render\.yaml|vercel\.json|netlify\.toml|app\.yaml|serverless\.ya?ml|template\.ya?ml|samconfig\.toml|README[^/]*|\.devcontainer\/devcontainer\.json|\.github\/workflows\/[^/]+\.ya?ml)$/i;
+const DOC_FILE=/(^|\/)(\.env\.(example|sample|template|dist|local\.example)|\.env-example|env\.example|example\.env|sample\.env|README[^/]*|docs?\/.*\.(md|rst|mdx|txt)|CONTRIBUTING[^/]*|INSTALL[^/]*|SETUP[^/]*|DEVELOP[^/]*)$/i;
+function isCandidate(f){
+  if(SKIP_DIRS.test(f.path)||SKIP_FILES.test(f.path)) return false;
+  if(NAMED.test(f.path)) return true;
+  const ext=f.path.split('.').pop().toLowerCase();
+  return CODE_EXT.has(ext);
+}
+function priority(f){
+  if(/(^|\/)\.env/i.test(f.path)||/README/i.test(f.path)) return 0;
+  if(NAMED.test(f.path)) return 1;
+  if(/(^|\/)(config|settings|env|environment|conf)[^/]*\.\w+$/i.test(f.path)) return 2;
+  if(/(^|\/)(tests?|spec|__tests__|examples?|samples?|benchmarks?|scripts?)\//i.test(f.path)) return 5;
+  return 3 + Math.min(1, f.path.split('/').length/20);
+}
+
+// ---------- detectors ----------
+const V='([A-Z][A-Z0-9_]{1,63})'; // env var names: upper snake, at least 2 chars
+const STR=`['"\`]`;
+// each: {re (global), name group, default group?, langs: regex on path or null}
+const ENV_PATTERNS=[
+  {re:new RegExp(`process\\.env\\.${V}\\b(?:\\s*(?:\\|\\||\\?\\?)\\s*${STR}([^'"\`\\n]*)${STR})?`,'g'), n:1,d:2, lang:/\.(m?js|cjs|tsx?|jsx|vue|svelte)$/},
+  {re:new RegExp(`process\\.env\\[${STR}${V}${STR}\\]`,'g'), n:1, lang:/\.(m?js|cjs|tsx?|jsx|vue|svelte)$/},
+  {re:new RegExp(`import\\.meta\\.env\\.${V}\\b`,'g'), n:1, lang:/\.(m?js|tsx?|jsx|vue|svelte)$/},
+  {re:new RegExp(`Deno\\.env\\.get\\(${STR}${V}${STR}\\)`,'g'), n:1, lang:/\.(m?js|tsx?)$/},
+  {re:new RegExp(`Bun\\.env\\.${V}\\b`,'g'), n:1, lang:/\.(m?js|tsx?)$/},
+  {re:new RegExp(`os\\.environ\\[${STR}${V}${STR}\\]`,'g'), n:1, lang:/\.py$/},
+  {re:new RegExp(`os\\.environ\\.get\\(\\s*${STR}${V}${STR}(?:\\s*,\\s*(?:${STR}([^'"\`\\n]*)${STR}|([\\w.\\-]+)))?`,'g'), n:1,d:2,d2:3, lang:/\.py$/},
+  {re:new RegExp(`os\\.getenv\\(\\s*${STR}${V}${STR}(?:\\s*,\\s*(?:${STR}([^'"\`\\n]*)${STR}|([\\w.\\-]+)))?`,'g'), n:1,d:2,d2:3, lang:/\.py$/},
+  {re:new RegExp(`environ\\.get\\(\\s*${STR}${V}${STR}`,'g'), n:1, lang:/\.py$/},
+  {re:new RegExp(`(?:env|config)\\(\\s*${STR}${V}${STR}(?:\\s*,\\s*(?:default=)?(?:${STR}([^'"\`\\n]*)${STR}|([\\w.\\-]+)))?`,'g'), n:1,d:2,d2:3, lang:/\.py$/}, // django-environ / decouple
+  {re:new RegExp(`os\\.Getenv\\(${STR}${V}${STR}\\)`,'g'), n:1, lang:/\.go$/},
+  {re:new RegExp(`os\\.LookupEnv\\(${STR}${V}${STR}\\)`,'g'), n:1, lang:/\.go$/},
+  {re:new RegExp(`(?:envconfig|env):${STR}${V}(?:,[^'"\`]*)?${STR}`,'g'), n:1, lang:/\.go$/}, // struct tags
+  {re:new RegExp(`(?:std::)?env::var(?:_os)?\\(${STR}${V}${STR}\\)`,'g'), n:1, lang:/\.rs$/},
+  {re:new RegExp(`env!\\(${STR}${V}${STR}\\)`,'g'), n:1, lang:/\.rs$/},
+  {re:new RegExp(`System\\.getenv\\(${STR}${V}${STR}\\)`,'g'), n:1, lang:/\.(java|kt|scala|groovy)$/},
+  {re:new RegExp(`\\$\\{${V}(?::([^}\\n]*))?\\}`,'g'), n:1,d:2, lang:/\.(properties|ya?ml)$|application[^/]*\.(properties|ya?ml)$/}, // Spring placeholders
+  {re:new RegExp(`ENV(?:\\.fetch)?[\\[(]\\s*${STR}${V}${STR}(?:\\s*,\\s*${STR}([^'"\`\\n]*)${STR})?`,'g'), n:1,d:2, lang:/\.rb$|Gemfile|Rakefile/},
+  {re:new RegExp(`(?<![\\w$])getenv\\(\\s*${STR}${V}${STR}(?:\\s*,\\s*(?:${STR}([^'"\`\\n]*)${STR}|([\\w.\\-]+)))?`,'g'), n:1,d:2,d2:3, lang:/\.(php|c|cc|cpp|h|hpp|m|mm|py|jl)$/},
+  {re:new RegExp(`\\$_(?:ENV|SERVER)\\[${STR}${V}${STR}\\]`,'g'), n:1, lang:/\.php$/},
+  {re:new RegExp(`env\\(${STR}${V}${STR}(?:\\s*,\\s*${STR}([^'"\`\\n]*)${STR})?\\)`,'g'), n:1,d:2, lang:/\.php$/}, // Laravel
+  {re:new RegExp(`Environment\\.GetEnvironmentVariable\\(${STR}${V}${STR}`,'g'), n:1, lang:/\.(cs|fs|vb)$/},
+  {re:new RegExp(`System\\.get_env\\(${STR}${V}${STR}(?:\\s*,\\s*${STR}([^'"\`\\n]*)${STR})?`,'g'), n:1,d:2, lang:/\.exs?$/},
+  {re:new RegExp(`os\\.getenv\\(${STR}${V}${STR}`,'g'), n:1, lang:/\.lua$/},
+  {re:new RegExp(`Sys\\.getenv\\(${STR}${V}${STR}`,'g'), n:1, lang:/\.[rR]$/},
+  {re:new RegExp(`ENV\\[${STR}${V}${STR}\\]|get\\(ENV,\\s*${STR}${V}${STR}`,'g'), n:1, n2:2, lang:/\.jl$/},
+  {re:new RegExp(`\\$\\{${V}(?::?[-=?+]([^}\\n]*))?\\}`,'g'), n:1,d:2, lang:/\.(sh|bash|zsh|fish|envrc|mk|make)$|Makefile|Dockerfile|Containerfile|compose|docker-compose|\.ya?ml$|\.tpl$|\.tmpl$/},
+  {re:new RegExp(`(?<![\\w{$])\\$${V}\\b`,'g'), n:1, lang:/\.(sh|bash|zsh|envrc)$|Dockerfile|Containerfile/},
+  {re:new RegExp(`^\\s*(?:ENV|ARG)\\s+${V}(?:[= ]\\s*(\\S.*)?)?$`,'gm'), n:1,d:2, lang:/Dockerfile|Containerfile/},
+  {re:new RegExp(`^[ \\t]*(?:export[ \\t]+)?${V}[ \\t]*=[ \\t]*(.*)$`,'gm'), n:1,d:2, lang:/(^|\/)\.env[^/]*$|env\.example$|\.env-example$|example\.env$|sample\.env$/},
+  {re:new RegExp(`^\\s*-\\s*${V}=(.*)$`,'gm'), n:1,d:2, lang:/compose[^/]*\.ya?ml$|docker-compose[^/]*\.ya?ml$/},
+  {re:new RegExp(`^[ \\t]{2,}${V}[ \\t]*:[ \\t]*(.*)$`,'gm'), n:1,d:2, lang:/compose[^/]*\.ya?ml$|docker-compose[^/]*\.ya?ml$|\.github\/workflows\/|values[^/]*\.ya?ml$/},
+  {re:new RegExp(`secrets\\.${V}\\b`,'g'), n:1, lang:/\.github\/workflows\//, secret:true},
+  {re:new RegExp(`vars\\.${V}\\b`,'g'), n:1, lang:/\.github\/workflows\//},
+  {re:new RegExp(`env_prefix\\s*=\\s*${STR}([A-Za-z0-9_]+)${STR}`,'g'), n:1, lang:/\.py$/, prefix:true}, // pydantic-settings
+  {re:new RegExp(`(?:variable|env)\\s*${STR}${V}${STR}`,'g'), n:1, lang:/\.(tf|tfvars)$/},
+];
+const EXAMPLE_FILE=/(^|\/)(\.env\.(example|sample|template|dist)|\.env-example|env\.example|example\.env|sample\.env)$/i;
+const SECRET_NAME=/(SECRET|TOKEN|PASSW(OR)?D|PASSWD|PWD|API_?KEY|APIKEY|PRIVATE|CREDENTIAL|CLIENT_SECRET|ACCESS_KEY|SIGNING|SALT|AUTH(_|$)|_KEY$|^KEY_|DSN$|LICENSE_KEY|WEBHOOK_SECRET|SESSION_KEY|ENCRYPTION|CERT(IFICATE)?$)/i;
+const IGNORE_NAMES=new Set(['PATH','HOME','USER','SHELL','PWD','TERM','LANG','LC_ALL','TMPDIR','TEMP','TMP','HOSTNAME','PS1','IFS','OLDPWD','SHLVL','EDITOR','PAGER','DISPLAY','XDG_CONFIG_HOME','XDG_DATA_HOME','XDG_CACHE_HOME','LOGNAME','USERNAME','USERPROFILE','APPDATA','LOCALAPPDATA','PROGRAMFILES','SYSTEMROOT','WINDIR','COMSPEC','TZ','NODE_ENV','CI','GITHUB_TOKEN','GITHUB_ACTIONS','GITHUB_SHA','GITHUB_REF','GITHUB_REPOSITORY','GITHUB_WORKSPACE','GITHUB_OUTPUT','GITHUB_ENV','GITHUB_STEP_SUMMARY','GITHUB_EVENT_NAME','GITHUB_HEAD_REF','GITHUB_BASE_REF','GITHUB_RUN_ID','GITHUB_ACTOR','RUNNER_OS','RUNNER_TEMP','DEBIAN_FRONTEND','PYTHONPATH','PYTHONUNBUFFERED','PYTHONDONTWRITEBYTECODE','PIP_NO_CACHE_DIR','PIP_DISABLE_PIP_VERSION_CHECK','LD_LIBRARY_PATH','GOPATH','GOROOT','GOFLAGS','CGO_ENABLED','GOOS','GOARCH','CARGO_HOME','RUSTUP_HOME','JAVA_HOME','MAVEN_OPTS','GRADLE_OPTS','VIRTUAL_ENV','CONDA_PREFIX','HTTP_PROXY','HTTPS_PROXY','NO_PROXY','SSH_AUTH_SOCK','COLORTERM','FORCE_COLOR','NO_COLOR','TERM_PROGRAM','CFLAGS','LDFLAGS','CC','CXX','MAKEFLAGS','MAKE','SHELLOPTS','BASH_SOURCE','LINENO','RANDOM','UID','EUID','PPID','HISTFILE','HOSTTYPE','OSTYPE','MACHTYPE']);
+const IGNORE_RE=/^(GITHUB_|RUNNER_|INPUT_|ACTIONS_|npm_|NPM_CONFIG_|CARGO_PKG_|CARGO_CFG_|CARGO_MANIFEST|OUT_DIR$|TARGET$|PROFILE$|OPT_LEVEL$|DEBUG$|HOST$|NUM_JOBS$|RUSTC|RUSTFLAGS|DOCKER_BUILDKIT|BUILDKIT_|COMPOSE_)/;
+const LIKELY_SHELL_NOISE=/^(ARGS?|CMD|DIR|FILE|FILES|NAME|VERSION|TAG|IMAGE|OUT|OUTPUT|INPUT|SRC|DST|DEST|TMPFILE|LINE|ITEM|KEY|VAL|VALUE|RESULT|RET|RC|STATUS|COUNT|N|I|J|X|Y|Z|F|D|P|S|T|A|B|C|E|K|M|V|W)$/;
+
+const PORT_PATTERNS=[
+  {re:/^\s*EXPOSE\s+([\d\s/tcpud]+)$/gm, kind:'Dockerfile EXPOSE', lang:/Dockerfile|Containerfile/},
+  {re:/^\s*-\s*["']?(?:\d{1,3}\.){0,3}\d{0,3}:?(\d{2,5}):(\d{2,5})(?:\/\w+)?["']?\s*$/gm, kind:'compose ports (host:container)', lang:/compose|docker-compose/},
+  {re:/\.listen\(\s*(\d{2,5})\b/g, kind:'listen()', lang:/\.(m?js|cjs|tsx?|jsx)$/},
+  {re:/\b(?:port|PORT)\b\s*[:=]\s*(\d{2,5})\b/g, kind:'port = N'},
+  {re:/--port(?:=|\s+)["']?(\d{2,5})\b/g, kind:'--port'},
+  {re:/uvicorn\.run\([^)]*port\s*=\s*(\d{2,5})/g, kind:'uvicorn', lang:/\.py$/},
+  {re:/app\.run\([^)]*port\s*=\s*(\d{2,5})/g, kind:'flask app.run', lang:/\.py$/},
+  {re:/ListenAndServe\(\s*["']:(\d{2,5})["']/g, kind:'ListenAndServe', lang:/\.go$/},
+  {re:/localhost:(\d{2,5})\b/g, kind:'localhost URL'},
+  {re:/containerPort:\s*(\d{2,5})/g, kind:'k8s containerPort', lang:/\.ya?ml$/},
+];
+const SERVICE_SIGNS=[
+  ['AWS (boto3 / aws-sdk)', /\b(boto3|botocore|aws-sdk|@aws-sdk\/|aws_sdk_|github\.com\/aws\/aws-sdk-go)/],
+  ['Amazon S3', /\bs3:\/\/|s3\.amazonaws|\bS3Client\b|client\(['"]s3['"]\)|resource\(['"]s3['"]\)/],
+  ['Amazon SQS / SNS', /client\(['"](sqs|sns)['"]\)|\bSQSClient\b|\bSNSClient\b/],
+  ['DynamoDB', /dynamodb/i],
+  ['Google Cloud', /\bgoogle-cloud-|@google-cloud\/|cloud\.google\.com\/go|googleapis\.com/],
+  ['Azure', /\bazure-|@azure\/|\.azure\.com|github\.com\/Azure\//],
+  ['PostgreSQL', /\bpostgres(ql)?:\/\/|\bpsycopg2?\b|\basyncpg\b|\bpg\b['"]?\)|from ['"]pg['"]|\bgithub\.com\/lib\/pq|\bpgx\b|jdbc:postgresql|\bsqlx::postgres|\bPgPool\b/],
+  ['MySQL / MariaDB', /\bmysql:\/\/|\bpymysql\b|mysqlclient|\bmysql2\b|jdbc:mysql|go-sql-driver\/mysql/],
+  ['SQLite', /\bsqlite3?\b|\.sqlite\b|\.db['"]/],
+  ['MongoDB', /\bmongodb(\+srv)?:\/\/|\bpymongo\b|\bmongoose\b|\bmotor\b|go\.mongodb\.org/],
+  ['Redis', /\bredis(s)?:\/\/|\bredis\b|\bioredis\b|go-redis/],
+  ['Elasticsearch / OpenSearch', /\belasticsearch\b|\bopensearch\b/i],
+  ['Kafka', /\bkafka\b/i],
+  ['RabbitMQ (AMQP)', /\bamqps?:\/\/|\bpika\b|\bamqplib\b|\brabbitmq\b/i],
+  ['Celery', /\bcelery\b/],
+  ['Stripe', /\bstripe\b/i],
+  ['OpenAI', /\bopenai\b|api\.openai\.com/i],
+  ['Anthropic', /\banthropic\b|api\.anthropic\.com/i],
+  ['Hugging Face', /\bhuggingface\b|\btransformers\b|huggingface\.co/],
+  ['SendGrid', /\bsendgrid\b/i],
+  ['Twilio', /\btwilio\b/i],
+  ['Slack', /\bslack_sdk\b|@slack\/|hooks\.slack\.com|slack_bolt/],
+  ['Discord', /\bdiscord(\.py|\.js)?\b|discord\.com\/api/],
+  ['Sentry', /\bsentry[-_]sdk\b|@sentry\/|\bsentry\.io\b/],
+  ['Datadog', /\bdatadog\b|\bddtrace\b/i],
+  ['Prometheus', /\bprometheus\b|prom-client|prometheus_client/],
+  ['Firebase', /\bfirebase\b/i],
+  ['Supabase', /\bsupabase\b/i],
+  ['Auth0 / OAuth provider', /\bauth0\b|oauth2|openid/i],
+  ['SMTP mail', /\bsmtp(s)?:\/\/|\bsmtplib\b|\bnodemailer\b|\bSMTP_/],
+  ['Docker daemon', /\bdocker\.sock\b|\bdockerode\b|docker\.from_env/],
+  ['Kubernetes API', /\bkubernetes\b|k8s\.io\/client-go|@kubernetes\/client-node/],
+  ['GitHub API', /api\.github\.com|\bPyGithub\b|@octokit\/|google\/go-github/],
+  ['Vector DB (Pinecone / Weaviate / Chroma / Qdrant / Milvus)', /\b(pinecone|weaviate|chromadb|qdrant|milvus|pgvector)\b/i],
+  ['Terraform / cloud IaC', /\bterraform\b/i],
+];
+const FLAG_PATTERNS=[
+  {re:/add_argument\(\s*['"](--?[\w-]+)['"]/g, lang:/\.py$/, via:'argparse'},
+  {re:/@(?:click|typer)\.option\(\s*['"](--?[\w-]+)['"]/g, lang:/\.py$/, via:'click'},
+  {re:/typer\.Option\([^)]*['"](--[\w-]+)['"]/g, lang:/\.py$/, via:'typer'},
+  {re:/\.option\(\s*['"](--?[\w-]+)/g, lang:/\.(m?js|cjs|tsx?)$/, via:'commander/yargs'},
+  {re:/flag\.(?:String|Int|Bool|Duration|Float64|Var|StringVar|IntVar|BoolVar)\(\s*(?:&\w+,\s*)?["']([\w-]+)["']/g, lang:/\.go$/, via:'flag'},
+  {re:/Flags\(\)\.(?:String|Int|Bool|Duration|StringVar|IntVar|BoolVar|StringP|IntP|BoolP)\(\s*(?:&\w+,\s*)?["']([\w-]+)["']/g, lang:/\.go$/, via:'cobra'},
+  {re:/#\[(?:arg|clap)\([^\]]*long(?:\s*=\s*"([\w-]+)")?/g, lang:/\.rs$/, via:'clap'},
+  {re:/@Option\([^)]*names?\s*=\s*\{?\s*"(--?[\w-]+)"/g, lang:/\.(java|kt)$/, via:'picocli'},
+];
+const CONFIG_FILE_PATTERNS=[
+  {re:/(?:open|Path|read_text|load|safe_load|toml\.load|json\.load|yaml\.load|ConfigParser\(\)\.read|\.read)\(\s*['"]([^'"\n]+\.(?:ya?ml|toml|json|ini|cfg|conf|env|properties|xml|csv|txt|pem|key|crt))['"]/g, lang:/\.py$/},
+  {re:/(?:readFileSync|readFile|require|import)\(\s*['"]([^'"\n]+\.(?:ya?ml|toml|json|ini|env|properties|pem|key|crt))['"]/g, lang:/\.(m?js|cjs|tsx?)$/},
+  {re:/(?:os\.Open|os\.ReadFile|ioutil\.ReadFile|viper\.SetConfigName|viper\.SetConfigFile)\(\s*"([^"\n]+)"/g, lang:/\.go$/},
+  {re:/(?:fs::read_to_string|File::open)\(\s*"([^"\n]+)"/g, lang:/\.rs$/},
+  {re:/dotenv[\s\S]{0,40}?['"]([^'"\n]*\.env[^'"\n]*)['"]/g},
+];
+
+function lineOf(text, idx){ let n=1; for(let i=0;i<idx;i++) if(text.charCodeAt(i)===10) n++; return n; }
+function ghLink(path,line){ return `https://github.com/${state.repo.owner}/${state.repo.name}/blob/${state.sha}/${path}${line?`#L${line}`:''}`; }
+
+function scan(files){
+  // files: [{path, text}]
+  const env=new Map(); // NAME -> {name, hits:[{path,line,default,via}], defaults:Set, documented:Set(paths), secret, prefixes}
+  const ports=new Map(); const services=new Map(); const flags=new Map(); const configs=new Map();
+  const runtime={ node:null, python:null, go:null, rust:null, java:null, ruby:null, dockerfiles:[], compose:[], makeTargets:[], procfile:[], workflows:[], pyproject:null, packageScripts:[], entry:[], devcontainer:false, helm:false, terraform:false, justfile:[] };
+  const docText=[];
+  const addEnv=(name,{path,line,def,via,secret,doc})=>{
+    if(!name) return;
+    if(IGNORE_NAMES.has(name)||IGNORE_RE.test(name)) return;
+    if(name.length<3&&!doc) return;
+    let e=env.get(name); if(!e){ e={name, hits:[], defaults:new Set(), documented:new Set(), secret:false, files:new Set()}; env.set(name,e); }
+    if(doc){ e.documented.add(path); if(def) e.defaults.add(def); return; }
+    if(e.hits.some(h=>h.path===path&&h.line===line)) { if(def) e.defaults.add(def); if(secret) e.secret=true; return; } // AIDEV-NOTE: several patterns can match the same call
+    e.hits.push({path,line,def,via}); e.files.add(path);
+    if(def!==undefined&&def!==null&&def!==''&&!/^(None|nil|null|undefined|""|'')$/.test(def)) e.defaults.add(def);
+    if(secret) e.secret=true;
+  };
+  for(const f of files){
+    const {path,text}=f; if(!text) continue;
+    const base=path.split('/').pop();
+    const isDoc=DOC_FILE.test(path), isExample=EXAMPLE_FILE.test(path);
+    if(isDoc) docText.push({path,text});
+    // ---- env
+    for(const p of ENV_PATTERNS){
+      if(p.lang&&!p.lang.test(path)) continue;
+      if(p.prefix){ let m; p.re.lastIndex=0; while((m=p.re.exec(text))){ const e=env.get('__prefix__')||{name:'__prefix__',hits:[],defaults:new Set(),documented:new Set(),files:new Set()}; e.defaults.add(m[1]); env.set('__prefix__',e); } continue; }
+      let m; p.re.lastIndex=0;
+      while((m=p.re.exec(text))){
+        const name=m[p.n]||(p.n2?m[p.n2]:null); if(!name) continue;
+        // shell noise: only keep $FOO in shell files if it also looks like config, or is uppercase with underscore
+        if(/\$\{?[A-Z]/.test(m[0])&&/\.(sh|bash|zsh|envrc)$|Dockerfile|Containerfile|Makefile|\.mk$/.test(path)){ if(LIKELY_SHELL_NOISE.test(name)) continue; if(!name.includes('_')&&name.length<6) continue; }
+        // yaml indented keys are noisy: require they sit under an `env:`/`environment:` block
+        if(p.lang&&/values|workflows|compose/.test(String(p.lang))&&/^[ \t]{2,}/.test(m[0])){ const before=text.slice(Math.max(0,m.index-800),m.index); if(!/(^|\n)\s*(env|environment|secrets)\s*:\s*(\n|$)/.test(before)) continue; }
+        const def=(p.d&&m[p.d]!==undefined)?m[p.d]:(p.d2&&m[p.d2]!==undefined?m[p.d2]:undefined);
+        addEnv(name,{path,line:lineOf(text,m.index),def:def?String(def).trim():undefined,via:base,secret:p.secret,doc:isExample});
+      }
+    }
+    // ---- ports
+    for(const p of PORT_PATTERNS){
+      if(p.lang&&!p.lang.test(path)) continue;
+      let m; p.re.lastIndex=0;
+      while((m=p.re.exec(text))){
+        const nums=(m[0].match(/\d{2,5}/g)||[]).map(Number).filter(n=>n>=80&&n<=65535&&![100,200,404,500,1000,3600,8601,1024,2048,4096,1970,2020,2021,2022,2023,2024,2025,2026].includes(n));
+        for(const n of new Set(nums)){ const k=String(n); const e=ports.get(k)||{port:n,kinds:new Set(),where:[]}; e.kinds.add(p.kind); if(e.where.length<5) e.where.push({path,line:lineOf(text,m.index)}); ports.set(k,e); }
+      }
+    }
+    // ---- services (skip docs to avoid README mentions inflating counts)
+    if(!isDoc){ for(const [name,re] of SERVICE_SIGNS){ const m=re.exec(text); if(m){ const e=services.get(name)||{name,files:new Set(),where:[]}; e.files.add(path); if(e.where.length<4) e.where.push({path,line:lineOf(text,m.index)}); services.set(name,e); } } }
+    // ---- flags
+    for(const p of FLAG_PATTERNS){ if(p.lang&&!p.lang.test(path)) continue; let m; p.re.lastIndex=0; while((m=p.re.exec(text))){ const flag=m[1]; if(!flag) continue; const key=flag.replace(/^-+/,''); const e=flags.get(key)||{flag:flag.startsWith('-')?flag:(key.length===1?'-'+key:'--'+key),via:p.via,where:[]}; if(e.where.length<3) e.where.push({path,line:lineOf(text,m.index)}); flags.set(key,e); } }
+    // ---- config files
+    for(const p of CONFIG_FILE_PATTERNS){ if(p.lang&&!p.lang.test(path)) continue; let m; p.re.lastIndex=0; while((m=p.re.exec(text))){ const fn=m[1]; if(!fn||fn.length>120||/^https?:/.test(fn)) continue; const e=configs.get(fn)||{file:fn,where:[]}; if(e.where.length<3) e.where.push({path,line:lineOf(text,m.index)}); configs.set(fn,e); } }
+    // ---- runtime
+    if(/(^|\/)package\.json$/.test(path)){ try{ const j=JSON.parse(text); if(j.engines?.node) runtime.node=j.engines.node; if(j.scripts){ runtime.packageScripts.push(...Object.keys(j.scripts).filter(k=>/^(start|dev|build|test|serve|preview|lint)$/.test(k)).map(k=>`npm run ${k}  # ${j.scripts[k]}`.slice(0,120))); } if(j.packageManager) runtime.entry.push(`packageManager: ${j.packageManager}`); }catch{} if(!runtime.node) runtime.node='(unspecified)'; }
+    if(/(^|\/)\.nvmrc$|(^|\/)\.node-version$/.test(path)) runtime.node=text.trim();
+    if(/(^|\/)pyproject\.toml$/.test(path)){ const m=text.match(/requires-python\s*=\s*"([^"]+)"/); runtime.python=m?m[1]:(runtime.python||'(unspecified)'); const s=text.match(/\[project\.scripts\]([\s\S]*?)(\n\[|$)/); if(s) runtime.entry.push(...s[1].split('\n').map(l=>l.trim()).filter(l=>/=/.test(l)).slice(0,8).map(l=>`console script: ${l}`)); if(/\[tool\.uv\]|uv\.lock/.test(text)) runtime.entry.push('uses uv'); if(/\[tool\.poetry\]/.test(text)) runtime.entry.push('uses poetry'); }
+    if(/(^|\/)\.python-version$/.test(path)) runtime.python=text.trim();
+    if(/(^|\/)requirements[^/]*\.txt$|(^|\/)setup\.py$|(^|\/)Pipfile$/.test(path)) runtime.python=runtime.python||'(unspecified)';
+    if(/(^|\/)go\.mod$/.test(path)){ const m=text.match(/^go\s+(\S+)/m); runtime.go=m?m[1]:'(unspecified)'; }
+    if(/(^|\/)Cargo\.toml$/.test(path)){ const m=text.match(/rust-version\s*=\s*"([^"]+)"/); runtime.rust=m?m[1]:'(unspecified)'; }
+    if(/(^|\/)(pom\.xml|build\.gradle(\.kts)?)$/.test(path)){ const m=text.match(/(?:maven\.compiler\.(?:source|release)|java\.version|sourceCompatibility|jvmTarget|languageVersion\.of)\D*(\d\d?)/); runtime.java=m?m[1]:'(unspecified)'; }
+    if(/(^|\/)(Gemfile|\.ruby-version)$/.test(path)){ const m=text.match(/ruby\s+['"]?([\d.]+)/)||text.match(/^([\d.]+)/); runtime.ruby=m?m[1]:'(unspecified)'; }
+    if(/Dockerfile|Containerfile/.test(base)){ const from=[...text.matchAll(/^\s*FROM\s+(\S+)/gm)].map(m=>m[1]).filter(x=>!/^\$/.test(x)); const cmd=(text.match(/^\s*(?:CMD|ENTRYPOINT)\s+(.*)$/gm)||[]).map(l=>l.trim()).slice(-2); runtime.dockerfiles.push({path,from,cmd}); }
+    if(/compose[^/]*\.ya?ml$/.test(base)){ const svcs=text.match(/^services:\s*\n((?:\s{2}[\w.-]+:.*\n(?:\s{4,}.*\n?|\s*\n)*)+)/m); const names=svcs?[...svcs[1].matchAll(/^\s{2}([\w.-]+):/gm)].map(m=>m[1]):[]; runtime.compose.push({path,services:names}); }
+    if(/^(GNUmakefile|Makefile|.*\.mk)$/.test(base)){ runtime.makeTargets.push(...[...text.matchAll(/^([a-zA-Z0-9][\w.-]*)\s*:(?!=)/gm)].map(m=>m[1]).filter(t=>!/^\.|PHONY/i.test(t))); }
+    if(/^[Jj]ustfile$/.test(base)){ runtime.justfile.push(...[...text.matchAll(/^([a-zA-Z][\w-]*)(?:\s+[\w\s-]*)?:\s*$/gm)].map(m=>m[1])); }
+    if(base==='Procfile') runtime.procfile.push(...text.split('\n').filter(Boolean));
+    if(/\.github\/workflows\//.test(path)) runtime.workflows.push(path);
+    if(/devcontainer\.json$/.test(path)) runtime.devcontainer=true;
+    if(/(^|\/)Chart\.yaml$/.test(path)) runtime.helm=true;
+    if(/\.tf$/.test(path)) runtime.terraform=true;
+  }
+  env.delete('__prefix__');
+  // documentation check: name mentioned in any doc/example file
+  for(const e of env.values()){
+    if(SECRET_NAME.test(e.name)) e.secret=true;
+    for(const d of docText){ if(d.text.includes(e.name)) e.documented.add(d.path); }
+    // a var that only appears in .env.example (no code hit) is still worth listing as "declared but unused"
+  }
+  const envList=[...env.values()].filter(e=>e.hits.length||e.documented.size).sort((a,b)=>(b.hits.length-a.hits.length)||a.name.localeCompare(b.name));
+  return { env:envList, ports:[...ports.values()].sort((a,b)=>b.kinds.size-a.kinds.size||a.port-b.port), services:[...services.values()].sort((a,b)=>b.files.size-a.files.size), flags:[...flags.values()].sort((a,b)=>a.flag.localeCompare(b.flag)), configs:[...configs.values()], runtime };
+}
+
+// ---------- .env.example ----------
+function groupName(e){
+  const p=e.hits[0]?.path||[...e.documented][0]||''; const top=p.split('/'); return top.length>1?top.slice(0,Math.min(2,top.length-1)).join('/'):'(root)';
+}
+function buildEnvExample(r){
+  const groups=new Map();
+  for(const e of r.env){ if(!e.hits.length) continue; const g=groupName(e); if(!groups.has(g)) groups.set(g,[]); groups.get(g).push(e); }
+  const lines=[`# .env.example — generated by gitenv for ${state.repo.owner}/${state.repo.name}@${state.sha.slice(0,7)}`,`# ${r.env.filter(e=>e.hits.length).length} variables read by the code. Secrets are intentionally blank.`,`# Review before use: static scan, no execution.`,''];
+  for(const [g,list] of [...groups.entries()].sort((a,b)=>b[1].length-a[1].length)){
+    lines.push(`# ── ${g} ──`);
+    for(const e of list.sort((a,b)=>a.name.localeCompare(b.name))){
+      const def=e.secret?'':([...e.defaults][0]??'');
+      const where=e.hits[0]; const more=e.hits.length>1?` (+${e.hits.length-1} more)`:'';
+      lines.push(`# ${where.path}:${where.line}${more}${e.secret?'  [secret]':''}${e.documented.size?'':'  [undocumented]'}`);
+      lines.push(`${e.name}=${quoteIfNeeded(def)}`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+function quoteIfNeeded(v){ v=String(v??''); if(v==='') return ''; if(/^[\w.:/@,+\-]*$/.test(v)) return v; return JSON.stringify(v); }
+
+function buildMarkdown(r){
+  const L=[];
+  L.push(`# ${state.repo.owner}/${state.repo.name} — what it needs to run`,'',`Generated by gitenv at commit \`${state.sha.slice(0,7)}\`. Static scan of ${r.filesScanned} files.`,'');
+  const used=r.env.filter(e=>e.hits.length), undoc=used.filter(e=>!e.documented.size);
+  L.push('## Environment variables','',`${used.length} read by the code, ${undoc.length} undocumented, ${used.filter(e=>e.secret).length} look like secrets.`,'','| Variable | Default | Documented | Read in |','|---|---|---|---|');
+  for(const e of used) L.push(`| \`${e.name}\`${e.secret?' 🔒':''} | ${[...e.defaults][0]?`\`${[...e.defaults][0]}\``:''} | ${e.documented.size?'yes':'**no**'} | ${e.hits[0].path}:${e.hits[0].line}${e.hits.length>1?` (+${e.hits.length-1})`:''} |`);
+  L.push('','## How to run','');
+  for(const s of runtimeLines(r.runtime)) L.push(`- ${s}`);
+  if(r.ports.length){ L.push('','## Ports',''); for(const p of r.ports) L.push(`- \`${p.port}\` — ${[...p.kinds].join(', ')} (${p.where[0].path}:${p.where[0].line})`); }
+  if(r.services.length){ L.push('','## External services',''); for(const s of r.services) L.push(`- ${s.name} — ${s.files.size} file(s), e.g. ${s.where[0].path}`); }
+  if(r.flags.length){ L.push('','## CLI flags',''); L.push(r.flags.map(f=>`\`${f.flag}\``).join(', ')); }
+  if(r.configs.length){ L.push('','## Files read at runtime',''); for(const c of r.configs) L.push(`- \`${c.file}\` (${c.where[0].path}:${c.where[0].line})`); }
+  return L.join('\n');
+}
+function runtimeLines(rt){
+  const out=[];
+  if(rt.python) out.push(`Python ${rt.python}`);
+  if(rt.node) out.push(`Node.js ${rt.node}`);
+  if(rt.go) out.push(`Go ${rt.go}`);
+  if(rt.rust) out.push(`Rust ${rt.rust}`);
+  if(rt.java) out.push(`Java ${rt.java}`);
+  if(rt.ruby) out.push(`Ruby ${rt.ruby}`);
+  rt.entry.forEach(e=>out.push(e));
+  rt.packageScripts.forEach(s=>out.push(s));
+  rt.dockerfiles.forEach(d=>out.push(`${d.path}: FROM ${d.from.join(', ')||'?'}${d.cmd.length?` · ${d.cmd.join(' · ')}`:''}`));
+  rt.compose.forEach(c=>out.push(`${c.path}: services ${c.services.join(', ')||'?'}`));
+  if(rt.makeTargets.length) out.push(`make targets: ${[...new Set(rt.makeTargets)].slice(0,25).join(', ')}`);
+  if(rt.justfile.length) out.push(`just recipes: ${[...new Set(rt.justfile)].slice(0,25).join(', ')}`);
+  rt.procfile.forEach(p=>out.push(`Procfile: ${p}`));
+  if(rt.workflows.length) out.push(`${rt.workflows.length} GitHub Actions workflow(s)`);
+  if(rt.devcontainer) out.push('Dev container available (.devcontainer)');
+  if(rt.helm) out.push('Helm chart present');
+  if(rt.terraform) out.push('Terraform present');
+  if(!out.length) out.push('No manifest, Dockerfile or task runner detected.');
+  return out;
+}
+
+// ---------- render ----------
+function status(msg,{err=false,pct=null}={}){ const s=$('status'); s.className='status show'+(err?' err':''); s.innerHTML=''; s.append(el('div',{text:msg})); if(pct!==null){ const p=el('div',{class:'progress'},el('i',{style:`width:${pct}%`})); s.append(p);} }
+function where(w){ return el('span',{class:'where'}, el('a',{href:ghLink(w.path,w.line),target:'_blank',rel:'noopener',text:`${w.path}:${w.line}`})); }
+function render(r){
+  const used=r.env.filter(e=>e.hits.length), undoc=used.filter(e=>!e.documented.size), secrets=used.filter(e=>e.secret), declaredOnly=r.env.filter(e=>!e.hits.length);
+  const S=$('summary'); S.innerHTML='';
+  S.append(el('span',{html:`<b>${used.length}</b> environment variables read by the code`}));
+  S.append(el('span',{class:undoc.length?'miss':'',html:`<b>${undoc.length}</b> not documented anywhere`}));
+  S.append(el('span',{html:`<b>${secrets.length}</b> look like secrets`}));
+  S.append(el('span',{html:`<b>${r.ports.length}</b> ports`}));
+  S.append(el('span',{html:`<b>${r.services.length}</b> external services`}));
+  S.append(el('span',{html:`<b>${r.filesScanned}</b> of ${r.filesCandidate} candidate files scanned (${r.filesTotal.toLocaleString()} in repo)`}));
+  const envText=buildEnvExample(r); state.envText=envText;
+  $('envOut').innerHTML=envText.split('\n').map(l=>l.startsWith('#')?`<span class="c">${esc(l)}</span>`:(l.includes('=')?`<span class="k">${esc(l.slice(0,l.indexOf('=')))}</span>=${esc(l.slice(l.indexOf('=')+1))}`:esc(l))).join('\n');
+  $('envMeta').textContent=`${used.length} keys · ${envText.length.toLocaleString()} bytes`;
+  renderEnvTable(); 
+  const RT=$('runtime'); RT.innerHTML=''; const ul=el('ul',{class:'plain'}); runtimeLines(r.runtime).forEach(l=>ul.append(el('li',{},el('code',{text:l})))); RT.append(ul);
+  const P=$('ports'); P.innerHTML=''; if(!r.ports.length) P.append(el('div',{class:'empty',text:'No listening ports or EXPOSE directives found.'})); else { const t=el('table',{class:'t'}); t.append(el('tr',{},el('th',{text:'Port'}),el('th',{text:'Seen as'}),el('th',{text:'Where'}))); r.ports.forEach(p=>{ const tr=el('tr'); tr.append(el('td',{class:'mono',text:p.port})); tr.append(el('td',{text:[...p.kinds].join(', ')})); const td=el('td'); p.where.forEach((w,i)=>{ if(i) td.append(' '); td.append(where(w)); }); tr.append(td); t.append(tr); }); P.append(t); }
+  const SV=$('services'); SV.innerHTML=''; if(!r.services.length) SV.append(el('div',{class:'empty',text:'No SDKs, drivers or connection strings recognised.'})); else { const t=el('table',{class:'t'}); t.append(el('tr',{},el('th',{text:'Service'}),el('th',{text:'Files'}),el('th',{text:'Example'}))); r.services.forEach(s=>{ const tr=el('tr'); tr.append(el('td',{text:s.name}),el('td',{class:'mono',text:s.files.size})); const td=el('td'); s.where.slice(0,2).forEach((w,i)=>{ if(i) td.append(' '); td.append(where(w)); }); tr.append(td); t.append(tr); }); SV.append(t); }
+  const F=$('flags'); F.innerHTML=''; if(!r.flags.length) F.append(el('div',{class:'empty',text:'No argparse / click / commander / cobra / clap definitions found.'})); else { const ul=el('ul',{class:'plain'}); r.flags.forEach(f=>{ const li=el('li',{},el('code',{text:f.flag}),el('span',{class:'tag',text:f.via})); li.append(where(f.where[0])); ul.append(li); }); F.append(ul); }
+  const C=$('configs'); C.innerHTML=''; if(!r.configs.length) C.append(el('div',{class:'empty',text:'No config files opened by path were found.'})); else { const ul=el('ul',{class:'plain'}); r.configs.forEach(c=>{ const li=el('li',{},el('code',{text:c.file})); li.append(where(c.where[0])); ul.append(li); }); C.append(ul); }
+  if(declaredOnly.length){ const li=el('div',{class:'empty',text:`Also declared in .env.example / docs but never read by the code: ${declaredOnly.map(e=>e.name).slice(0,40).join(', ')}${declaredOnly.length>40?'…':''}`}); $('envTable').append(li); }
+  $('report').classList.add('show');
+}
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function renderEnvTable(){
+  const r=state.result; if(!r) return;
+  const q=$('q').value.trim().toLowerCase(), onlyU=$('onlyUndoc').checked, onlyS=$('onlySecret').checked;
+  const host=$('envTable'); host.innerHTML='';
+  const rows=r.env.filter(e=>e.hits.length).filter(e=>(!onlyU||!e.documented.size)&&(!onlyS||e.secret)&&(!q||e.name.toLowerCase().includes(q)||[...e.files].some(f=>f.toLowerCase().includes(q))));
+  if(!rows.length){ host.append(el('div',{class:'empty',text:'Nothing matches.'})); return; }
+  const t=el('table',{class:'t'}); t.append(el('tr',{},el('th',{text:'Variable'}),el('th',{text:'Default in code'}),el('th',{text:'Status'}),el('th',{text:'Read in'})));
+  for(const e of rows){
+    const tr=el('tr'); tr.append(el('td',{class:'mono',text:e.name}));
+    tr.append(el('td',{class:'mono',text:[...e.defaults].slice(0,3).join(' | ')}));
+    const st=el('td'); if(e.secret) st.append(el('span',{class:'tag secret',text:'secret'})); st.append(el('span',{class:'tag '+(e.documented.size?'doc':'undoc'),text:e.documented.size?`documented in ${[...e.documented][0].split('/').pop()}`:'undocumented'})); tr.append(st);
+    const td=el('td'); e.hits.slice(0,3).forEach((w,i)=>{ if(i) td.append(' '); td.append(where(w)); }); if(e.hits.length>3) td.append(el('span',{class:'where',text:` +${e.hits.length-3} more`})); tr.append(td);
+    t.append(tr);
+  }
+  host.append(t);
+}
+
+// ---------- main flow ----------
+async function scanRepo(repo){
+  if(state.busy) return; state.busy=true; $('load').disabled=true; $('report').classList.remove('show');
+  try{
+    const tok=$('optToken').value.trim(); if(tok) localStorage.setItem('gitenv:token',tok);
+    status(`Reading ${repo.owner}/${repo.name}…`,{pct:2});
+    const R=await gh(`/repos/${repo.owner}/${repo.name}`);
+    const ref=repo.ref||$('optRef').value.trim()||R.default_branch;
+    const tree=await gh(`/repos/${repo.owner}/${repo.name}/git/trees/${encodeURIComponent(ref)}`,{recursive:1});
+    state.repo={...repo,ref}; state.sha=tree.sha; writeHash();
+    const maxFiles=Math.max(20,Math.min(3000,+$('optMax').value||600)), maxBytes=1024*Math.max(8,Math.min(2048,+$('optSize').value||200));
+    const all=(tree.tree||[]).filter(t=>t.type==='blob');
+    const cands=all.filter(f=>isCandidate(f)&&(f.size??0)<=maxBytes).sort((a,b)=>priority(a)-priority(b)).slice(0,maxFiles);
+    status(`Fetching ${cands.length} files of ${all.length.toLocaleString()} from GitHub's CDN…`,{pct:5});
+    const texts=new Array(cands.length).fill(null); let done=0, i=0; const CONC=16;
+    async function worker(){ while(i<cands.length){ const k=i++; texts[k]=await fetchFile(state.repo,state.sha,cands[k].path); done++; if(done%8===0||done===cands.length) status(`Fetched ${done}/${cands.length} files…`,{pct:5+90*done/cands.length}); } }
+    await Promise.all(Array.from({length:CONC},worker));
+    status('Scanning…',{pct:97});
+    await new Promise(r=>setTimeout(r,10));
+    const files=cands.map((f,k)=>({path:f.path,text:texts[k]})).filter(f=>f.text!==null);
+    const result=scan(files); result.filesScanned=files.length; result.filesCandidate=cands.length; result.filesTotal=all.length;
+    state.result=result; render(result);
+    document.title=`gitenv — ${R.full_name}`;
+    status(`Done. ${result.env.filter(e=>e.hits.length).length} variables found in ${files.length} files at ${ref}@${state.sha.slice(0,7)}${tree.truncated?' — GitHub truncated the tree, huge repo':''}.`,{pct:100});
+    setTimeout(()=>$('status').classList.remove('show'),4000);
+  }catch(e){ console.error(e); status(e.message||String(e),{err:true}); }
+  finally{ state.busy=false; $('load').disabled=false; }
+}
+function download(name,text,type='text/plain'){ const a=el('a',{href:URL.createObjectURL(new Blob([text],{type})),download:name}); document.body.append(a); a.click(); a.remove(); }
+async function copy(text,btn,label){ await navigator.clipboard.writeText(text); const old=btn.textContent; btn.textContent=label||'Copied'; setTimeout(()=>btn.textContent=old,1500); }
+
+$('form').onsubmit=e=>{ e.preventDefault(); const r=parseRepo($('repo').value); if(!r) return status('Enter owner/repo or a GitHub URL.',{err:true}); $('repo').value=`${r.owner}/${r.name}`; scanRepo(r); };
+document.querySelectorAll('.examples button').forEach(b=>b.onclick=()=>{ $('repo').value=b.dataset.repo; $('form').requestSubmit(); });
+$('copyEnv').onclick=()=>copy(state.envText||'',$('copyEnv'));
+$('dlEnv').onclick=()=>state.envText&&download('.env.example',state.envText);
+$('dlMd').onclick=()=>state.result&&download(`${state.repo.name}-gitenv.md`,buildMarkdown(state.result),'text/markdown');
+$('share').onclick=()=>copy(location.href,$('share'));
+['q','onlyUndoc','onlySecret'].forEach(id=>$(id).addEventListener('input',renderEnvTable));
+$('optToken').value=localStorage.getItem('gitenv:token')||'';
+$('bm').href=`javascript:location.href='${location.origin}${location.pathname}#'+location.pathname.split('/').slice(1,3).join('/')`;
+requestAnimationFrame(()=>setTimeout(()=>$('swap').classList.add('swapped'),400));
+const init=readHash(); if(init){ $('repo').value=`${init.owner}/${init.name}`; scanRepo(init); }
+window.addEventListener('hashchange',()=>{ const h=readHash(); if(h&&(!state.repo||h.owner!==state.repo.owner||h.name!==state.repo.name)){ $('repo').value=`${h.owner}/${h.name}`; scanRepo(h); } });
+</script>
+</body>
+</html>
