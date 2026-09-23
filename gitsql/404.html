@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>gitsql</title>
+<script>
+// AIDEV-NOTE: GitHub Pages serves this for /gitsql/owner/repo. Turn the path into a hash deep link.
+(function(){
+  var parts = location.pathname.split('/').filter(Boolean); // ["gitsql","owner","repo",...]
+  var base = '/' + (parts[0] || '') + '/';
+  var rest = parts.slice(1).join('/');
+  location.replace(base + (rest ? '#' + rest : '') + location.search);
+})();
+</script>

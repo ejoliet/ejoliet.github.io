@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>gitsql — query any GitHub repo with SQL</title>
+<meta name="description" content="Replace hub with sql in any GitHub URL. The repo becomes a database in your browser: commits, files, issues, releases. Zero backend.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231F4FD8'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='16' fill='white' text-anchor='middle'%3ESQL%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --page:#EEF1F5; --panel:#FFFFFF; --ink:#14213D; --muted:#5B6B82; --line:#D5DCE6;
+  --accent:#1F4FD8; --accent-ink:#FFFFFF; --accent-soft:#E4EBFB; --warn:#9A3B00; --warn-soft:#FBEBDD;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  box-sizing:border-box;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--page:#1B2333;--panel:#232D40;--ink:#E7ECF4;--muted:#9AA8BD;--line:#34405A;--accent:#7AA2FF;--accent-ink:#0D1730;--accent-soft:#2A3A63;--warn:#FFB77A;--warn-soft:#4A2E17}
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--page);color:var(--ink);font:15px/1.5 var(--sans);padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+a{color:var(--accent)}
+button{font:inherit;color:inherit;cursor:pointer}
+code,pre,textarea.sql,.mono{font-family:var(--mono)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+
+/* hero */
+header.hero{padding:44px 0 28px}
+.brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.brand h1{margin:0;font-size:28px;font-weight:600;letter-spacing:-.01em}
+.brand h1 span{color:var(--accent)}
+.brand p{margin:0;color:var(--muted)}
+.tagline{margin:22px 0 0;font-size:clamp(22px,3.4vw,38px);line-height:1.15;font-weight:500;max-width:22ch;letter-spacing:-.015em}
+.urlbar{margin-top:26px;display:flex;align-items:stretch;gap:0;background:var(--panel);border:1.5px solid var(--line);border-radius:12px;overflow:hidden;max-width:820px}
+.urlbar:focus-within{border-color:var(--accent)}
+.urlbar .prefix{display:flex;align-items:center;padding:0 0 0 16px;font-family:var(--mono);font-size:17px;color:var(--muted);white-space:nowrap;user-select:none}
+.urlbar .prefix b{font-weight:500;color:var(--ink);display:inline-block;position:relative}
+.urlbar .prefix b .hub,.urlbar .prefix b .sql{display:inline-block;transition:transform .5s cubic-bezier(.2,.8,.2,1),opacity .5s}
+.urlbar .prefix b .sql{position:absolute;left:0;top:0;color:var(--accent);opacity:0;transform:translateY(110%)}
+.urlbar .prefix b.swapped .hub{opacity:0;transform:translateY(-110%)}
+.urlbar .prefix b.swapped .sql{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.urlbar .prefix b .hub,.urlbar .prefix b .sql{transition:none}}
+.urlbar input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--ink);font-family:var(--mono);font-size:17px;padding:14px 8px}
+.urlbar button{border:0;background:var(--accent);color:var(--accent-ink);padding:0 22px;font-weight:600}
+.urlbar button:disabled{opacity:.5;cursor:progress}
+.hero .sub{margin:12px 0 0;color:var(--muted);font-size:14px}
+.hero .sub button.link{border:0;background:none;color:var(--accent);padding:0;text-decoration:underline}
+.examples{margin:10px 0 0;display:flex;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.examples button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:3px 10px;font-family:var(--mono);font-size:12.5px}
+.examples button:hover{border-color:var(--accent)}
+
+/* settings */
+details.settings{margin-top:14px;max-width:820px;font-size:14px}
+details.settings summary{cursor:pointer;color:var(--muted)}
+.settings .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:10px}
+.settings label{display:flex;flex-direction:column;gap:4px;color:var(--muted)}
+.settings input{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
+
+/* status */
+.status{margin:18px 0 0;padding:12px 14px;border-radius:10px;background:var(--panel);border:1px solid var(--line);font-size:14px;display:none;max-width:820px}
+.status.show{display:block}
+.status.err{border-color:var(--warn);background:var(--warn-soft);color:var(--warn)}
+.status ol{margin:6px 0 0;padding-left:20px}
+.status li{color:var(--muted)}
+.status li.done{color:var(--ink)}
+.status li.done::marker{color:var(--accent)}
+
+/* workspace */
+.work{display:none;grid-template-columns:260px 1fr;gap:20px;margin:30px 0 60px}
+.work.show{display:grid}
+@media (max-width:860px){.work{grid-template-columns:1fr}}
+.rail h2,.main h2{font-size:13px;font-weight:600;color:var(--muted);margin:0 0 8px;letter-spacing:.01em}
+.table{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.table summary{cursor:pointer;padding:8px 12px;display:flex;justify-content:space-between;font-family:var(--mono);font-size:13.5px;font-weight:500}
+.table summary small{color:var(--muted);font-weight:400}
+.table ul{list-style:none;margin:0;padding:0 8px 8px 8px;display:flex;flex-wrap:wrap;gap:4px}
+.table li button{border:1px solid var(--line);background:transparent;border-radius:6px;padding:1px 7px;font-family:var(--mono);font-size:12px;color:var(--ink)}
+.table li button:hover{border-color:var(--accent);color:var(--accent)}
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.presets button{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:5px 10px;font-size:13px}
+.presets button:hover{border-color:var(--accent)}
+.editor{background:var(--panel);border:1.5px solid var(--line);border-radius:10px;overflow:hidden}
+.editor:focus-within{border-color:var(--accent)}
+textarea.sql{display:block;width:100%;min-height:150px;border:0;outline:0;resize:vertical;padding:12px 14px;background:transparent;color:var(--ink);font-size:14px;line-height:1.5;tab-size:2}
+.toolbar{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--line);flex-wrap:wrap}
+.toolbar .run{background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;padding:7px 16px;font-weight:600}
+.toolbar .ghost{background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px 12px}
+.toolbar .ghost:hover{border-color:var(--accent)}
+.toolbar .meta{margin-left:auto;color:var(--muted);font-size:13px}
+.results{margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:auto;max-height:70vh}
+.results table{border-collapse:collapse;width:100%;font-size:13.5px}
+.results th{position:sticky;top:0;background:var(--panel);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line);font-family:var(--mono);font-weight:500;white-space:nowrap}
+.results td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top;max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.results td.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.results .empty{padding:24px;color:var(--muted)}
+.results .sqlerr{padding:14px;color:var(--warn);font-family:var(--mono);white-space:pre-wrap;font-size:13px}
+.bar{display:inline-block;height:10px;background:var(--accent);border-radius:2px;vertical-align:middle;margin-right:6px;opacity:.85}
+
+footer{padding:20px 0 40px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+footer p{margin:6px 0}
+.sr{position:absolute;left:-9999px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="hero">
+  <div class="brand">
+    <h1>git<span>sql</span></h1>
+    <p>Any GitHub repo is a database. Query it.</p>
+  </div>
+  <p class="tagline">Replace <code>hub</code> with <code>sql</code>. Then type <code>SELECT</code>.</p>
+
+  <form class="urlbar" id="form" autocomplete="off">
+    <span class="prefix">https://git<b id="swap"><span class="hub">hub</span><span class="sql">sql</span></b>.com/</span>
+    <input id="repo" type="text" placeholder="owner/repo" aria-label="GitHub owner/repo or full URL" spellcheck="false">
+    <button id="load" type="submit">Load</button>
+  </form>
+  <p class="sub">Runs entirely in your browser with DuckDB‑WASM. Nothing is sent anywhere except to GitHub's API. Public repos only unless you add a token.</p>
+  <div class="examples" aria-label="Examples">
+    <span>Try:</span>
+    <button type="button" data-repo="duckdb/duckdb">duckdb/duckdb</button>
+    <button type="button" data-repo="astropy/astropy">astropy/astropy</button>
+    <button type="button" data-repo="apache/airflow">apache/airflow</button>
+    <button type="button" data-repo="cyclotruc/gitingest">cyclotruc/gitingest</button>
+  </div>
+
+  <details class="settings">
+    <summary>Load options and GitHub token</summary>
+    <div class="grid">
+      <label>Commit pages (100 each)<input id="optCommits" type="number" min="1" max="50" value="5"></label>
+      <label>Issue/PR pages (100 each)<input id="optIssues" type="number" min="0" max="30" value="3"></label>
+      <label>Branch or tag (blank = default)<input id="optRef" type="text" placeholder="main"></label>
+      <label>GitHub token (optional, stays in this browser)<input id="optToken" type="password" placeholder="ghp_… raises limit 60 → 5000/hr"></label>
+    </div>
+  </details>
+
+  <div class="status" id="status" role="status"></div>
+</header>
+
+<section class="work" id="work">
+  <aside class="rail">
+    <h2>Tables — click a column to insert it</h2>
+    <div id="schema"></div>
+    <h2 style="margin-top:16px">Rate limit</h2>
+    <p id="rate" style="margin:0;font-size:13px;color:var(--muted)">—</p>
+  </aside>
+  <div class="main">
+    <h2>Questions people usually ask</h2>
+    <div class="presets" id="presets"></div>
+    <div class="editor">
+      <textarea class="sql" id="sql" spellcheck="false" aria-label="SQL query"></textarea>
+      <div class="toolbar">
+        <button class="run" id="run">Run (⌘/Ctrl + Enter)</button>
+        <button class="ghost" id="share">Copy share link</button>
+        <button class="ghost" id="csv">Download CSV</button>
+        <button class="ghost" id="dumpjson">Download raw JSON</button>
+        <span class="meta" id="meta"></span>
+      </div>
+    </div>
+    <div class="results" id="results"><div class="empty">Results appear here.</div></div>
+  </div>
+</section>
+
+<footer>
+  <p><strong>What is loaded:</strong> repo metadata, full file tree at one commit, the latest N×100 commits, contributors, issues and pull requests, releases, languages. Per‑file churn is not loaded (GitHub's commit list has no file paths), so <code>commits</code> has no <code>path</code> column.</p>
+  <p><strong>Bookmarklet</strong> — drag to your bar, click on any GitHub page: <a id="bm" href="#">gitsql this repo</a></p>
+  <p>Open source, single HTML file, no server. Source and issues: <a href="https://github.com/ejoliet/gitsql">github.com/ejoliet/gitsql</a>.</p>
+</footer>
+</div>
+
+<script type="module">
+// AIDEV-NOTE: one-file app. Sections: URL/state, GitHub fetch, DuckDB load, schema UI, query UI, presets.
+import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
+
+const $ = id => document.getElementById(id);
+const el = (t, a={}, ...kids) => { const n=document.createElement(t); for (const [k,v] of Object.entries(a)) k==='text'?n.textContent=v:k==='html'?n.innerHTML=v:n.setAttribute(k,v); kids.forEach(k=>n.append(k)); return n; };
+
+// ---------- state / URL ----------
+const state = { db:null, conn:null, repo:null, raw:{}, columns:{}, loaded:false, busy:false };
+const b64e = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const b64d = s => decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/'))));
+
+function parseRepo(input){
+  let s = (input||'').trim();
+  if (!s) return null;
+  s = s.replace(/^https?:\/\/(www\.)?(github|gitsql)\.com\//i,'').replace(/\.git$/,'');
+  const m = s.match(/^([\w.-]+)\/([\w.-]+)(?:\/tree\/([^/]+))?/);
+  if (!m) return null;
+  return { owner:m[1], name:m[2], ref:m[3]||null };
+}
+function readHash(){
+  // #owner/repo  |  #owner/repo?q=<b64>  |  ?repo=owner/repo  |  path after /gitsql/ via 404 redirect
+  const h = location.hash.replace(/^#\/?/,'');
+  const qs = new URLSearchParams(location.search);
+  let repo = null, q = null;
+  if (h){ const [p, query] = h.split('?'); repo = parseRepo(p); if (query) q = new URLSearchParams(query).get('q'); }
+  if (!repo && qs.get('repo')) repo = parseRepo(qs.get('repo'));
+  if (!q && qs.get('q')) q = qs.get('q');
+  return { repo, sql: q ? safe(()=>b64d(q)) : null };
+}
+const safe = f => { try { return f(); } catch { return null; } };
+function writeHash(){
+  if (!state.repo) return;
+  const q = $('sql').value.trim();
+  const base = `${state.repo.owner}/${state.repo.name}${state.repo.ref?`/tree/${state.repo.ref}`:''}`;
+  history.replaceState(null,'',`#${base}${q?`?q=${b64e(q)}`:''}`);
+}
+
+// ---------- GitHub ----------
+const API = 'https://api.github.com';
+function headers(){
+  const h = { 'Accept':'application/vnd.github+json', 'X-GitHub-Api-Version':'2022-11-28' };
+  const t = $('optToken').value.trim() || localStorage.getItem('gitsql:token') || '';
+  if (t) h.Authorization = `Bearer ${t}`;
+  return h;
+}
+async function gh(path, {params={}, paginate=0}={}){
+  const out = [];
+  let url = new URL(API + path);
+  Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,v));
+  let page = 0;
+  while (url){
+    const r = await fetch(url, { headers: headers() });
+    const rem = r.headers.get('x-ratelimit-remaining'), lim = r.headers.get('x-ratelimit-limit');
+    if (rem) $('rate').textContent = `${rem} of ${lim} requests left this hour${lim==='60'?' (add a token for 5000)':''}`;
+    if (r.status === 404) throw new Error(`Not found: ${path}. Private repo? Add a token.`);
+    if (r.status === 403 || r.status === 429){
+      const reset = r.headers.get('x-ratelimit-reset');
+      const when = reset ? new Date(reset*1000).toLocaleTimeString() : 'later';
+      throw new Error(`GitHub rate limit hit. Resets at ${when}. Add a token in "Load options" to get 5000 requests/hour.`);
+    }
+    if (!r.ok) throw new Error(`GitHub ${r.status} on ${path}`);
+    const data = await r.json();
+    if (!paginate) return data;
+    out.push(...data);
+    page++;
+    const link = r.headers.get('link') || '';
+    const next = link.match(/<([^>]+)>;\s*rel="next"/);
+    url = (next && page < paginate) ? new URL(next[1]) : null;
+  }
+  return out;
+}
+
+// ---------- loading ----------
+const steps = ['Repository metadata','File tree','Commits','Contributors','Issues and pull requests','Releases','Languages','Starting DuckDB','Building tables'];
+function status(msg, {err=false, done=[]}={}){
+  const s = $('status'); s.className = 'status show' + (err?' err':'');
+  s.innerHTML = '';
+  s.append(el('div',{text:msg}));
+  if (!err){ const ol = el('ol'); steps.forEach((t,i)=> ol.append(el('li',{text:t, class: done.includes(i)?'done':''}))); s.append(ol); }
+}
+function firstLine(s){ return (s||'').split('\n')[0].slice(0,300); }
+
+async function loadRepo(repo){
+  if (state.busy) return;
+  state.busy = true; $('load').disabled = true; $('work').classList.remove('show');
+  const done = [];
+  const tick = (i, msg) => { done.push(i); status(msg, {done}); };
+  try {
+    const tok = $('optToken').value.trim(); if (tok) localStorage.setItem('gitsql:token', tok);
+    status(`Loading ${repo.owner}/${repo.name}…`, {done});
+    const R = await gh(`/repos/${repo.owner}/${repo.name}`);
+    const ref = repo.ref || $('optRef').value.trim() || R.default_branch;
+    repo.ref = ref;
+    state.repo = repo;
+    tick(0, `Loaded metadata for ${R.full_name} (${R.stargazers_count.toLocaleString()} stars)`);
+
+    const tree = await gh(`/repos/${repo.owner}/${repo.name}/git/trees/${encodeURIComponent(ref)}`, {params:{recursive:1}});
+    const files = (tree.tree||[]).filter(t=>t.type==='blob').map(t=>{
+      const parts = t.path.split('/'); const name = parts[parts.length-1];
+      const dot = name.lastIndexOf('.');
+      return { path:t.path, name, dir: parts.length>1?parts.slice(0,-1).join('/'):'', top: parts.length>1?parts[0]:'', ext: dot>0?name.slice(dot+1).toLowerCase():'', size:t.size??null, depth:parts.length-1, sha:t.sha };
+    });
+    tick(1, `File tree: ${files.length.toLocaleString()} files${tree.truncated?' (GitHub truncated the tree; very large repo)':''}`);
+
+    const nC = Math.max(1, Math.min(50, +$('optCommits').value||5));
+    const commitsRaw = await gh(`/repos/${repo.owner}/${repo.name}/commits`, {params:{sha:ref, per_page:100}, paginate:nC});
+    const commits = commitsRaw.map(c=>({
+      sha:c.sha, short:c.sha.slice(0,7),
+      author_name:c.commit.author?.name??null, author_email:c.commit.author?.email??null, author_login:c.author?.login??null,
+      date:c.commit.author?.date??null, committer_login:c.committer?.login??null, commit_date:c.commit.committer?.date??null,
+      message:firstLine(c.commit.message), body:(c.commit.message||'').split('\n').slice(1).join('\n').trim()||null,
+      parents:c.parents?.length??0, is_merge:(c.parents?.length??0)>1, verified:c.commit.verification?.verified??false
+    }));
+    tick(2, `Commits: ${commits.length.toLocaleString()} (latest ${nC}×100 on ${ref})`);
+
+    const contribRaw = await gh(`/repos/${repo.owner}/${repo.name}/contributors`, {params:{per_page:100, anon:1}, paginate:1});
+    const contributors = contribRaw.map(c=>({ login:c.login??c.name??null, type:c.type, contributions:c.contributions }));
+    tick(3, `Contributors: ${contributors.length}`);
+
+    const nI = Math.max(0, Math.min(30, +$('optIssues').value||0));
+    const issuesRaw = nI ? await gh(`/repos/${repo.owner}/${repo.name}/issues`, {params:{state:'all', per_page:100, sort:'created', direction:'desc'}, paginate:nI}) : [];
+    const issues = issuesRaw.map(i=>({
+      number:i.number, title:(i.title||'').slice(0,300), state:i.state, is_pr:!!i.pull_request, author:i.user?.login??null, author_type:i.user?.type??null,
+      created_at:i.created_at, updated_at:i.updated_at, closed_at:i.closed_at, comments:i.comments,
+      labels:(i.labels||[]).map(l=>typeof l==='string'?l:l.name), assignees:(i.assignees||[]).map(a=>a.login), milestone:i.milestone?.title??null,
+      hours_to_close: i.closed_at ? Math.round((new Date(i.closed_at)-new Date(i.created_at))/36e5) : null
+    }));
+    tick(4, `Issues and PRs: ${issues.length.toLocaleString()}`);
+
+    const relRaw = await gh(`/repos/${repo.owner}/${repo.name}/releases`, {params:{per_page:100}, paginate:1});
+    const releases = relRaw.map(r=>({ tag:r.tag_name, name:r.name, published_at:r.published_at, prerelease:r.prerelease, draft:r.draft, author:r.author?.login??null, assets:r.assets?.length??0, downloads:(r.assets||[]).reduce((s,a)=>s+(a.download_count||0),0) }));
+    tick(5, `Releases: ${releases.length}`);
+
+    const langRaw = await gh(`/repos/${repo.owner}/${repo.name}/languages`);
+    const languages = Object.entries(langRaw).map(([language,bytes])=>({language,bytes}));
+    tick(6, `Languages: ${languages.length}`);
+
+    const repoRow = [{ full_name:R.full_name, description:R.description, homepage:R.homepage||null, stars:R.stargazers_count, forks:R.forks_count, watchers:R.subscribers_count??null, open_issues:R.open_issues_count,
+      default_branch:R.default_branch, loaded_ref:ref, created_at:R.created_at, updated_at:R.updated_at, pushed_at:R.pushed_at, license:R.license?.spdx_id??null, language:R.language, size_kb:R.size, archived:R.archived, fork:R.fork, topics:R.topics||[] }];
+
+    state.raw = { repo:repoRow, files, commits, contributors, issues, releases, languages };
+
+    if (!state.db){ await startDuck(); }
+    tick(7, 'DuckDB ready');
+    await buildTables(state.raw);
+    tick(8, `Ready. ${R.full_name} is now a database with ${Object.keys(state.raw).length} tables.`);
+    renderSchema();
+    $('work').classList.add('show');
+    document.title = `gitsql — ${R.full_name}`;
+    const shared = readHash().sql;
+    if (shared) $('sql').value = shared; else if (!$('sql').value.trim()) $('sql').value = PRESETS[0].sql;
+    writeHash();
+    await runQuery();
+    setTimeout(()=>$('status').classList.remove('show'), 4000);
+  } catch (e){
+    console.error(e);
+    status(e.message || String(e), {err:true});
+  } finally { state.busy=false; $('load').disabled=false; }
+}
+
+async function startDuck(){
+  const bundles = duckdb.getJsDelivrBundles();
+  const bundle = await duckdb.selectBundle(bundles);
+  const workerUrl = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], {type:'text/javascript'}));
+  const worker = new Worker(workerUrl);
+  const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING);
+  const db = new duckdb.AsyncDuckDB(logger, worker);
+  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  URL.revokeObjectURL(workerUrl);
+  state.db = db; state.conn = await db.connect();
+}
+const EMPTY_SCHEMAS = {
+  issues: 'number BIGINT, title VARCHAR, state VARCHAR, is_pr BOOLEAN, author VARCHAR, author_type VARCHAR, created_at TIMESTAMP, updated_at TIMESTAMP, closed_at TIMESTAMP, comments BIGINT, labels VARCHAR[], assignees VARCHAR[], milestone VARCHAR, hours_to_close BIGINT',
+  releases: 'tag VARCHAR, name VARCHAR, published_at TIMESTAMP, prerelease BOOLEAN, draft BOOLEAN, author VARCHAR, assets BIGINT, downloads BIGINT',
+  contributors: 'login VARCHAR, type VARCHAR, contributions BIGINT',
+  languages: 'language VARCHAR, bytes BIGINT',
+};
+async function buildTables(raw){
+  state.columns = {};
+  for (const [name, rows] of Object.entries(raw)){
+    const fname = `${name}.json`;
+    if (rows.length){
+      await state.db.registerFileText(fname, JSON.stringify(rows));
+      await state.conn.query(`CREATE OR REPLACE TABLE ${name} AS SELECT * FROM read_json_auto('${fname}', maximum_object_size=67108864)`);
+    } else {
+      // AIDEV-NOTE: keep column names stable so presets still parse on repos with no issues/releases
+      await state.conn.query(`CREATE OR REPLACE TABLE ${name} (${EMPTY_SCHEMAS[name] || '_empty VARCHAR'})`);
+    }
+    const desc = await state.conn.query(`DESCRIBE ${name}`);
+    state.columns[name] = desc.toArray().map(r=>{ const o=r.toJSON(); return {name:o.column_name, type:o.column_type}; });
+  }
+}
+
+// ---------- schema UI ----------
+function renderSchema(){
+  const host = $('schema'); host.innerHTML = '';
+  for (const [name, cols] of Object.entries(state.columns)){
+    const d = el('details',{class:'table'});
+    if (['commits','files','issues'].includes(name)) d.open = true;
+    const rows = state.raw[name]?.length ?? 0;
+    const sum = el('summary',{}, el('span',{text:name}), el('small',{text:`${rows.toLocaleString()} rows`}));
+    const ul = el('ul');
+    cols.forEach(c=>{ const b = el('button',{type:'button', title:c.type, text:c.name}); b.onclick=()=>insertAtCursor(c.name); ul.append(el('li',{},b)); });
+    d.append(sum, ul); host.append(d);
+  }
+}
+function insertAtCursor(text){
+  const t = $('sql'); const s=t.selectionStart, e=t.selectionEnd;
+  t.value = t.value.slice(0,s) + text + t.value.slice(e);
+  t.selectionStart = t.selectionEnd = s + text.length; t.focus();
+}
+
+// ---------- presets ----------
+const PRESETS = [
+ { label:'Who does the work', sql:`SELECT author_name, count(*) AS commits,
+       min(date)::DATE AS first_seen, max(date)::DATE AS last_seen,
+       round(100.0*count(*)/sum(count(*)) OVER (), 1) AS pct
+FROM commits
+GROUP BY 1 ORDER BY commits DESC LIMIT 25;` },
+ { label:'Bus factor', sql:`-- how many people until 50% of recent commits are covered
+WITH per AS (SELECT author_name, count(*) n FROM commits GROUP BY 1),
+     cum AS (SELECT author_name, n,
+                    sum(n) OVER (ORDER BY n DESC, author_name) AS running,
+                    sum(n) OVER () AS total
+             FROM per)
+SELECT author_name, n, round(100.0*running/total,1) AS cumulative_pct
+FROM cum
+WHERE running - n < total*0.5
+ORDER BY n DESC;` },
+ { label:'Commits per month', sql:`SELECT strftime(date, '%Y-%m') AS month, count(*) AS commits,
+       count(DISTINCT author_name) AS authors
+FROM commits GROUP BY 1 ORDER BY 1 DESC;` },
+ { label:'When do they commit', sql:`SELECT dayname(date) AS day, hour(date) AS hour_utc, count(*) AS commits
+FROM commits GROUP BY 1,2 ORDER BY commits DESC LIMIT 20;` },
+ { label:'Merge vs direct', sql:`SELECT is_merge, verified, count(*) AS commits,
+       round(100.0*count(*)/sum(count(*)) OVER (),1) AS pct
+FROM commits GROUP BY 1,2 ORDER BY commits DESC;` },
+ { label:'Largest files', sql:`SELECT path, size, round(size/1024.0,1) AS kb FROM files
+ORDER BY size DESC NULLS LAST LIMIT 30;` },
+ { label:'Bytes by extension', sql:`SELECT ext, count(*) AS files, sum(size) AS bytes,
+       round(100.0*sum(size)/sum(sum(size)) OVER (),1) AS pct
+FROM files GROUP BY 1 ORDER BY bytes DESC LIMIT 25;` },
+ { label:'Biggest top-level dirs', sql:`SELECT coalesce(nullif(top,''),'(root)') AS dir, count(*) AS files, sum(size) AS bytes, max(depth) AS max_depth
+FROM files GROUP BY 1 ORDER BY bytes DESC;` },
+ { label:'Tests vs code', sql:`SELECT CASE WHEN regexp_matches(path, '(^|/)(tests?|spec|__tests__)(/|$)|_test\\.|\\.test\\.|test_') THEN 'test' ELSE 'code' END AS kind,
+       count(*) AS files, sum(size) AS bytes
+FROM files WHERE ext IN ('py','js','ts','tsx','go','rs','java','c','cpp','h','rb','cs','kt','swift')
+GROUP BY 1;` },
+ { label:'Time to close issues', sql:`SELECT year(created_at) AS year, is_pr,
+       count(*) AS opened, count(closed_at) AS closed,
+       round(median(hours_to_close)/24.0,1) AS median_days_to_close,
+       round(quantile_cont(hours_to_close, 0.9)/24.0,1) AS p90_days
+FROM issues GROUP BY 1,2 ORDER BY 1 DESC, 2;` },
+ { label:'Top labels', sql:`SELECT label, count(*) AS issues, sum(CASE WHEN state='open' THEN 1 ELSE 0 END) AS open
+FROM (SELECT unnest(labels) AS label, state FROM issues)
+GROUP BY 1 ORDER BY issues DESC LIMIT 20;` },
+ { label:'Who files issues', sql:`SELECT author, author_type, count(*) AS n,
+       sum(CASE WHEN is_pr THEN 1 ELSE 0 END) AS prs,
+       sum(CASE WHEN NOT is_pr THEN 1 ELSE 0 END) AS issues
+FROM issues GROUP BY 1,2 ORDER BY n DESC LIMIT 20;` },
+ { label:'Release cadence', sql:`SELECT tag, published_at::DATE AS published, prerelease,
+       datediff('day', lag(published_at) OVER (ORDER BY published_at), published_at) AS days_since_previous,
+       assets, downloads
+FROM releases ORDER BY published_at DESC;` },
+ { label:'Everything about the repo', sql:`SELECT * FROM repo;` },
+];
+function renderPresets(){
+  const host = $('presets');
+  PRESETS.forEach(p=>{ const b = el('button',{type:'button', text:p.label}); b.onclick=()=>{ $('sql').value=p.sql; runQuery(); }; host.append(b); });
+}
+
+// ---------- query ----------
+let lastRows = [], lastCols = [];
+function fmt(v){
+  if (v===null || v===undefined) return '';
+  if (typeof v === 'bigint') return v.toString();
+  if (v instanceof Date) return isNaN(v) ? '' : v.toISOString().replace('T',' ').replace(/\.\d+Z$/,'');
+  if (Array.isArray(v)) return v.map(fmt).join(', ');
+  if (typeof v === 'object') { if (typeof v.toArray==='function') return v.toArray().map(fmt).join(', '); return JSON.stringify(v); }
+  return String(v);
+}
+async function runQuery(){
+  if (!state.conn) return;
+  const sql = $('sql').value.trim(); if (!sql) return;
+  const host = $('results'); host.innerHTML = '';
+  const t0 = performance.now();
+  try {
+    const res = await state.conn.query(sql);
+    const cols = res.schema.fields.map(f=>f.name);
+    const rows = res.toArray().map(r=>r.toJSON());
+    lastRows = rows; lastCols = cols;
+    const ms = (performance.now()-t0).toFixed(0);
+    $('meta').textContent = `${rows.length.toLocaleString()} rows · ${ms} ms`;
+    if (!rows.length){ host.append(el('div',{class:'empty',text:'No rows.'})); writeHash(); return; }
+    const numeric = cols.map(c => rows.slice(0,50).every(r => r[c]===null || typeof r[c]==='number' || typeof r[c]==='bigint'));
+    // inline bars for the first numeric column when there is a label column before it
+    const barCol = cols.findIndex((c,i)=>numeric[i] && i>0);
+    let max = 0; if (barCol>=0) max = Math.max(...rows.slice(0,1000).map(r=>Number(r[cols[barCol]])||0));
+    const table = el('table'), thead = el('thead'), tr = el('tr');
+    cols.forEach(c=>tr.append(el('th',{text:c}))); thead.append(tr); table.append(thead);
+    const tb = el('tbody');
+    rows.slice(0,1000).forEach(r=>{
+      const row = el('tr');
+      cols.forEach((c,i)=>{
+        const td = el('td',{class: numeric[i]?'num':''});
+        const v = r[c];
+        if (i===barCol && max>0 && Number(v)>0){ const w = Math.max(2, Math.round(80*Number(v)/max)); td.append(el('span',{class:'bar', style:`width:${w}px`})); }
+        td.append(document.createTextNode(fmt(v))); td.title = fmt(v);
+        row.append(td);
+      });
+      tb.append(row);
+    });
+    table.append(tb); host.append(table);
+    if (rows.length>1000) host.append(el('div',{class:'empty',text:`Showing first 1,000 of ${rows.length.toLocaleString()} rows. Download CSV for all.`}));
+    writeHash();
+  } catch(e){
+    $('meta').textContent = '';
+    host.append(el('div',{class:'sqlerr', text: String(e.message||e).replace(/^Error:\s*/,'')}));
+  }
+}
+function download(name, text, type='text/plain'){
+  const a = el('a',{href:URL.createObjectURL(new Blob([text],{type})), download:name}); document.body.append(a); a.click(); a.remove();
+}
+function toCSV(cols, rows){
+  const esc = v => { const s = fmt(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
+  return [cols.join(','), ...rows.map(r=>cols.map(c=>esc(r[c])).join(','))].join('\n');
+}
+
+// ---------- wire up ----------
+renderPresets();
+$('form').onsubmit = e => { e.preventDefault(); const r = parseRepo($('repo').value); if (!r) return status('Enter owner/repo or a GitHub URL.', {err:true}); $('repo').value = `${r.owner}/${r.name}`; loadRepo(r); };
+document.querySelectorAll('.examples button').forEach(b=>b.onclick=()=>{ $('repo').value=b.dataset.repo; $('form').requestSubmit(); });
+$('run').onclick = runQuery;
+$('sql').addEventListener('keydown', e => { if ((e.metaKey||e.ctrlKey) && e.key==='Enter'){ e.preventDefault(); runQuery(); } });
+$('share').onclick = async () => { writeHash(); await navigator.clipboard.writeText(location.href); $('share').textContent='Copied'; setTimeout(()=>$('share').textContent='Copy share link',1500); };
+$('csv').onclick = () => lastRows.length && download(`${state.repo.owner}-${state.repo.name}.csv`, toCSV(lastCols,lastRows), 'text/csv');
+$('dumpjson').onclick = () => state.raw.repo && download(`${state.repo.owner}-${state.repo.name}.gitsql.json`, JSON.stringify(state.raw), 'application/json');
+$('optToken').value = localStorage.getItem('gitsql:token') || '';
+
+// bookmarklet points at wherever this page is hosted
+$('bm').href = `javascript:location.href='${location.origin}${location.pathname}#'+location.pathname.split('/').slice(1,3).join('/')`;
+
+// the one animated moment: hub -> sql
+requestAnimationFrame(()=>setTimeout(()=>$('swap').classList.add('swapped'), 400));
+
+// deep link
+const init = readHash();
+if (init.repo){ $('repo').value = `${init.repo.owner}/${init.repo.name}`; if (init.sql) $('sql').value = init.sql; loadRepo(init.repo); }
+window.addEventListener('hashchange', ()=>{ const h = readHash(); if (h.repo && (!state.repo || h.repo.owner!==state.repo.owner || h.repo.name!==state.repo.name)){ $('repo').value=`${h.repo.owner}/${h.repo.name}`; loadRepo(h.repo); } });
+</script>
+</body>
+</html>
