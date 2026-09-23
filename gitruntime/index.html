@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Turn any public GitHub repository into an evidence-backed runtime contract: prerequisites, services, ports, configuration, commands, and deployment surface." />
+  <title>GitRuntime — what does this repo need to run?</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --panel: #11151a;
+      --panel-2: #171c22;
+      --line: #27303a;
+      --text: #eef2f5;
+      --muted: #9ba7b3;
+      --accent: #8ce99a;
+      --accent-2: #74c0fc;
+      --warn: #ffd43b;
+      --bad: #ff8787;
+      --radius: 16px;
+      --shadow: 0 20px 60px rgba(0,0,0,.28);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(900px 500px at 70% -10%, rgba(116,192,252,.10), transparent 60%),
+        radial-gradient(800px 520px at 15% 0%, rgba(140,233,154,.08), transparent 65%),
+        var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+    button, input { font: inherit; }
+    a { color: inherit; }
+    .shell { max-width: 1180px; margin: 0 auto; padding: 28px 20px 64px; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:58px; }
+    .brand { display:flex; align-items:center; gap:11px; font-weight:750; letter-spacing:-.02em; text-decoration:none; }
+    .mark { width:30px; height:30px; border-radius:9px; border:1px solid #385044; background:linear-gradient(145deg,#18241c,#0e1511); display:grid; place-items:center; color:var(--accent); font-family:ui-monospace,monospace; font-size:14px; }
+    .tiny { color:var(--muted); font-size:13px; }
+    .hero { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr); gap:44px; align-items:center; margin-bottom:42px; }
+    h1 { font-size:clamp(42px,7vw,78px); line-height:.98; margin:0 0 22px; letter-spacing:-.055em; max-width:860px; }
+    .hero p { margin:0 0 25px; max-width:740px; font-size:18px; color:#bac4ce; }
+    .swap { display:inline-flex; flex-wrap:wrap; gap:8px; align-items:center; padding:9px 12px; border:1px solid var(--line); border-radius:11px; background:#0d1116; color:#c9d2da; font:13px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .swap b { color:var(--accent); font-weight:650; }
+    .terminal { background:#090b0e; border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow); overflow:hidden; transform:rotate(1deg); }
+    .terminal-head { display:flex; gap:7px; padding:12px 14px; border-bottom:1px solid #1d242c; }
+    .dot { width:8px; height:8px; border-radius:50%; background:#3a4652; }
+    .terminal pre { margin:0; padding:20px; min-height:270px; white-space:pre-wrap; color:#bac6d1; font:13px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .terminal .hi { color:var(--accent); }
+    .terminal .blue { color:var(--accent-2); }
+    .search { display:flex; gap:10px; padding:10px; background:rgba(17,21,26,.8); border:1px solid var(--line); border-radius:15px; box-shadow:0 10px 30px rgba(0,0,0,.14); margin:0 0 18px; }
+    .search input { flex:1; min-width:0; color:var(--text); border:0; outline:0; background:transparent; padding:9px 10px; }
+    .search button, .btn { cursor:pointer; border:1px solid #365542; color:#06110a; background:var(--accent); font-weight:750; border-radius:10px; padding:10px 16px; }
+    .btn.secondary { background:#151b22; color:var(--text); border-color:var(--line); }
+    .examples { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 54px; }
+    .chip { cursor:pointer; border:1px solid var(--line); color:#aeb9c3; background:#0e1217; border-radius:999px; padding:6px 10px; font-size:12px; }
+    .status { display:none; margin:20px 0; padding:14px 16px; border:1px solid var(--line); background:#10151a; border-radius:12px; color:#c1ccd5; }
+    .status.show { display:block; }
+    .status.error { border-color:#663c3c; color:#ffc9c9; }
+    #results { display:none; }
+    #results.show { display:block; }
+    .repo-head { display:flex; justify-content:space-between; align-items:flex-end; gap:20px; padding:20px 0 18px; border-bottom:1px solid var(--line); margin-bottom:18px; }
+    .repo-head h2 { margin:0; font-size:30px; letter-spacing:-.035em; }
+    .repo-head p { margin:5px 0 0; color:var(--muted); }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .actions .btn { padding:8px 11px; font-size:13px; }
+    .summary-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:18px 0 20px; }
+    .metric { border:1px solid var(--line); background:linear-gradient(180deg,#12171d,#0f1318); border-radius:14px; padding:15px; min-height:100px; }
+    .metric strong { display:block; font-size:27px; letter-spacing:-.04em; margin-top:8px; }
+    .metric span { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+    .card { border:1px solid var(--line); background:rgba(17,21,26,.88); border-radius:var(--radius); overflow:hidden; min-height:180px; }
+    .card.wide { grid-column:1/-1; }
+    .card-head { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:15px 17px; border-bottom:1px solid #202832; }
+    .card-head h3 { margin:0; font-size:14px; letter-spacing:.01em; }
+    .card-head span { color:var(--muted); font-size:12px; }
+    .items { padding:8px 10px 12px; }
+    .item { display:grid; grid-template-columns:minmax(140px,.34fr) minmax(0,.66fr); gap:12px; align-items:start; border-radius:10px; padding:9px 8px; }
+    .item:hover { background:#151a20; }
+    .item .name { font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; color:#e8edf2; word-break:break-word; }
+    .item .evidence { color:var(--muted); font-size:12px; min-width:0; }
+    .item .evidence a { color:#a9cfee; text-decoration:none; }
+    .item .evidence a:hover { text-decoration:underline; }
+    .badge { display:inline-block; border:1px solid #33404c; border-radius:999px; padding:2px 7px; font-size:10px; color:#b5c0ca; margin-left:5px; vertical-align:1px; }
+    .badge.direct { border-color:#385643; color:#a9e7b1; }
+    .empty { padding:18px; color:#7f8b96; font-size:13px; }
+    .commands { padding:12px; display:grid; gap:8px; }
+    .cmd { display:flex; justify-content:space-between; gap:12px; align-items:center; background:#0b0f13; border:1px solid #202831; border-radius:10px; padding:9px 11px; }
+    .cmd code { min-width:0; overflow:auto; color:#d7e1e8; font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .cmd button { cursor:pointer; border:0; background:transparent; color:#8ca0af; padding:4px 5px; }
+    .footnote { margin-top:22px; color:#7f8b96; font-size:12px; }
+    .why { margin-top:65px; display:grid; grid-template-columns:.7fr 1.3fr; gap:32px; padding-top:32px; border-top:1px solid var(--line); }
+    .why h2 { margin:0; font-size:26px; letter-spacing:-.03em; }
+    .why p { margin:0; color:#aab5bf; }
+    @media (max-width:850px){ .hero{grid-template-columns:1fr}.terminal{transform:none}.summary-grid{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.card.wide{grid-column:auto}.why{grid-template-columns:1fr}.topbar{margin-bottom:36px} }
+    @media (max-width:560px){ .shell{padding-inline:14px}.search{display:grid}.summary-grid{grid-template-columns:1fr 1fr}.item{grid-template-columns:1fr}.repo-head{align-items:flex-start;flex-direction:column} }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="./"><span class="mark">RC</span> GitRuntime</a>
+      <span class="tiny">public repos · browser only · no token</span>
+    </header>
+
+    <section class="hero">
+      <div>
+        <h1>What does this repo need to run?</h1>
+        <p>Turn a GitHub repository into an evidence-backed runtime contract: prerequisites, external services, ports, configuration, commands, and deployment surface.</p>
+        <div class="swap">github.com/apache/airflow <span>→</span> <b>gitruntime.dev/apache/airflow</b></div>
+      </div>
+      <aside class="terminal" aria-label="Example output">
+        <div class="terminal-head"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>
+        <pre><span class="hi">apache/airflow</span>
+
+runtime     Python · Node.js · Docker
+services    PostgreSQL · Redis · Kubernetes
+packaging   pyproject.toml · uv.lock
+infra       Helm · Docker Compose · Kubernetes
+config      AIRFLOW__* · DATABASE_* · REDIS_*
+ports       8080 · 5432 · 6379
+
+<span class="blue">Every claim links back to repo evidence.</span></pre>
+      </aside>
+    </section>
+
+    <form class="search" id="repoForm">
+      <input id="repoInput" autocomplete="off" spellcheck="false" aria-label="GitHub repository" placeholder="github.com/apache/airflow or apache/airflow" />
+      <button type="submit">Inspect repo</button>
+    </form>
+    <div class="examples">
+      <button class="chip" data-repo="apache/airflow">apache/airflow</button>
+      <button class="chip" data-repo="vercel/next.js">vercel/next.js</button>
+      <button class="chip" data-repo="fastapi/fastapi">fastapi/fastapi</button>
+      <button class="chip" data-repo="grafana/grafana">grafana/grafana</button>
+    </div>
+
+    <div class="status" id="status" role="status"></div>
+
+    <section id="results">
+      <div class="repo-head">
+        <div>
+          <h2 id="repoName"></h2>
+          <p id="repoMeta"></p>
+        </div>
+        <div class="actions">
+          <button class="btn secondary" id="copySummary" type="button">Copy contract</button>
+          <a class="btn secondary" id="openGitHub" target="_blank" rel="noreferrer">Open GitHub</a>
+        </div>
+      </div>
+
+      <div class="summary-grid">
+        <div class="metric"><span>Evidence files</span><strong id="mFiles">0</strong></div>
+        <div class="metric"><span>Services</span><strong id="mServices">0</strong></div>
+        <div class="metric"><span>Config knobs</span><strong id="mEnv">0</strong></div>
+        <div class="metric"><span>Ports</span><strong id="mPorts">0</strong></div>
+      </div>
+
+      <div class="grid">
+        <article class="card"><div class="card-head"><h3>Runtime & toolchain</h3><span id="runtimeCount"></span></div><div class="items" id="runtimeItems"></div></article>
+        <article class="card"><div class="card-head"><h3>External services</h3><span id="serviceCount"></span></div><div class="items" id="serviceItems"></div></article>
+        <article class="card"><div class="card-head"><h3>Deployment surface</h3><span id="deployCount"></span></div><div class="items" id="deployItems"></div></article>
+        <article class="card"><div class="card-head"><h3>Ports</h3><span id="portCount"></span></div><div class="items" id="portItems"></div></article>
+        <article class="card wide"><div class="card-head"><h3>Configuration surface</h3><span id="envCount"></span></div><div class="items" id="envItems"></div></article>
+        <article class="card wide"><div class="card-head"><h3>Likely commands</h3><span id="commandCount"></span></div><div class="commands" id="commandItems"></div></article>
+      </div>
+      <p class="footnote">Heuristic, not generated by an LLM. GitRuntime only analyzes public repository metadata and a bounded set of text configuration files. Treat inferred items as leads; follow the evidence links for the source of truth.</p>
+    </section>
+
+    <section class="why">
+      <h2>Different from another “explain my repo” tool.</h2>
+      <p>GitRuntime focuses on the operational boundary of a codebase: what must exist around it before it can build, test, run, and deploy. The output is deterministic and source-linked, making it useful before cloning a repository, reviewing an unfamiliar project, or handing context to an agent.</p>
+    </section>
+  </main>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const state = { repo: null, branch: null, files: [], analysis: null };
+
+  const runtimeRules = [
+    ['Python', /(^|\/)(pyproject\.toml|requirements[^/]*\.txt|setup\.py|Pipfile|uv\.lock|poetry\.lock)$/i],
+    ['Node.js', /(^|\/)(package\.json|pnpm-lock\.yaml|yarn\.lock|package-lock\.json|bun\.lockb?|\.nvmrc)$/i],
+    ['Go', /(^|\/)go\.(mod|sum)$/i],
+    ['Rust', /(^|\/)Cargo\.(toml|lock)$/i],
+    ['Java / JVM', /(^|\/)(pom\.xml|build\.gradle(?:\.kts)?|settings\.gradle(?:\.kts)?)$/i],
+    ['Ruby', /(^|\/)(Gemfile|Gemfile\.lock|\.ruby-version)$/i],
+    ['PHP', /(^|\/)composer\.(json|lock)$/i],
+    ['Docker', /(^|\/)(Dockerfile[^/]*|compose\.ya?ml|docker-compose[^/]*\.ya?ml)$/i]
+  ];
+
+  const deployRules = [
+    ['Docker', /(^|\/)Dockerfile[^/]*$/i],
+    ['Docker Compose', /(^|\/)(compose\.ya?ml|docker-compose[^/]*\.ya?ml)$/i],
+    ['Kubernetes', /(^|\/)(k8s|kubernetes|manifests?)\//i],
+    ['Helm', /(^|\/)(Chart\.yaml|values\.ya?ml)$/i],
+    ['Terraform', /\.tf$/i],
+    ['GitHub Actions', /^\.github\/workflows\/.*\.ya?ml$/i],
+    ['Dev Container', /(^|\/)\.devcontainer\/(devcontainer\.json|Dockerfile)$/i],
+    ['Nix', /(^|\/)(flake\.nix|shell\.nix|default\.nix)$/i],
+    ['Ansible', /(^|\/)(ansible|playbooks?)\//i]
+  ];
+
+  const serviceRules = [
+    ['PostgreSQL', /\b(postgres(?:ql)?|psycopg|pgbouncer)\b/i],
+    ['MySQL', /\b(mysql|mariadb)\b/i],
+    ['Redis', /\bredis\b/i],
+    ['Kafka', /\bkafka\b/i],
+    ['RabbitMQ', /\brabbitmq\b/i],
+    ['Celery', /\bcelery\b/i],
+    ['Kubernetes', /\bkubernetes\b|\bk8s\b/i],
+    ['Amazon S3', /\b(s3|aws_s3|amazon s3)\b/i],
+    ['AWS', /\b(aws|amazon web services)\b/i],
+    ['Google Cloud', /\b(gcp|google cloud|bigquery|gcs)\b/i],
+    ['Azure', /\bazure\b/i],
+    ['Elasticsearch', /\b(elasticsearch|opensearch)\b/i],
+    ['Prometheus', /\bprometheus\b/i],
+    ['Grafana', /\bgrafana\b/i],
+    ['MongoDB', /\bmongodb\b/i],
+    ['NATS', /\bnats\b/i],
+    ['MinIO', /\bminio\b/i],
+    ['Snowflake', /\bsnowflake\b/i]
+  ];
+
+  const preferred = [
+    /^README(?:\.[^/]+)?$/i,
+    /^CONTRIBUTING(?:\.[^/]+)?$/i,
+    /(^|\/)pyproject\.toml$/i,
+    /(^|\/)package\.json$/i,
+    /(^|\/)go\.mod$/i,
+    /(^|\/)Cargo\.toml$/i,
+    /(^|\/)pom\.xml$/i,
+    /(^|\/)build\.gradle(?:\.kts)?$/i,
+    /(^|\/)Makefile$/i,
+    /(^|\/)justfile$/i,
+    /(^|\/)Taskfile\.ya?ml$/i,
+    /(^|\/)Dockerfile[^/]*$/i,
+    /(^|\/)(?:docker-)?compose[^/]*\.ya?ml$/i,
+    /(^|\/)\.env(?:\.example|\.sample|\.template)?$/i,
+    /(^|\/)Chart\.yaml$/i,
+    /(^|\/)values\.ya?ml$/i,
+    /^\.github\/workflows\/.*\.ya?ml$/i,
+    /(^|\/)\.devcontainer\/devcontainer\.json$/i,
+    /\.tf$/i,
+    /(^|\/)requirements[^/]*\.txt$/i,
+    /(^|\/)\.tool-versions$/i,
+    /(^|\/)\.python-version$/i,
+    /(^|\/)\.nvmrc$/i
+  ];
+
+  function parseRepo(value) {
+    let s = (value || '').trim().replace(/^https?:\/\//, '').replace(/^www\./, '');
+    s = s.replace(/^github\.com\//, '').replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
+    const p = s.split('/').filter(Boolean);
+    if (p.length < 2) return null;
+    return { owner: p[0], repo: p[1], full: `${p[0]}/${p[1]}` };
+  }
+
+  function repoFromLocation() {
+    const params = new URLSearchParams(location.search);
+    if (params.get('repo')) return parseRepo(params.get('repo'));
+    const parts = location.pathname.split('/').filter(Boolean);
+    if (!parts.length) return null;
+    // GitHub Pages project site: /PROJECT/owner/repo
+    if (location.hostname.endsWith('.github.io')) {
+      // User site: /owner/repo. Project site: /PROJECT/owner/repo.
+      if (parts.length === 2) return parseRepo(`${parts[0]}/${parts[1]}`);
+      if (parts.length >= 3) return parseRepo(`${parts[1]}/${parts[2]}`);
+    }
+    // Custom domain: /owner/repo
+    if (!location.hostname.endsWith('.github.io') && parts.length >= 2) {
+      return parseRepo(`${parts[0]}/${parts[1]}`);
+    }
+    return null;
+  }
+
+  function setStatus(message, error = false) {
+    const el = $('status');
+    el.textContent = message || '';
+    el.className = `status ${message ? 'show' : ''} ${error ? 'error' : ''}`;
+  }
+
+  async function getJson(url) {
+    const r = await fetch(url, { headers: { Accept: 'application/vnd.github+json' } });
+    if (!r.ok) {
+      const text = await r.text().catch(() => '');
+      throw new Error(`${r.status} ${r.statusText}${text ? ` — ${text.slice(0,180)}` : ''}`);
+    }
+    return r.json();
+  }
+
+  function scorePath(path) {
+    let score = 0;
+    for (let i = 0; i < preferred.length; i++) if (preferred[i].test(path)) score += 100 - i;
+    score -= path.split('/').length * 4;
+    return score;
+  }
+
+  function chooseCandidateFiles(tree) {
+    const blobs = tree.filter(x => x.type === 'blob' && (x.size == null || x.size <= 600000));
+    const picks = blobs.filter(x => preferred.some(r => r.test(x.path)));
+    picks.sort((a,b) => scorePath(b.path) - scorePath(a.path) || a.path.localeCompare(b.path));
+    const unique = [];
+    const seen = new Set();
+    for (const x of picks) {
+      if (seen.has(x.path)) continue;
+      seen.add(x.path);
+      unique.push(x);
+      if (unique.length >= 34) break;
+    }
+    return unique;
+  }
+
+  async function fetchText(owner, repo, branch, path) {
+    const raw = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${branch.split('/').map(encodeURIComponent).join('/')}/${path.split('/').map(encodeURIComponent).join('/')}`;
+    const r = await fetch(raw);
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.text();
+  }
+
+  function addFinding(map, name, evidence, confidence='inferred') {
+    if (!map.has(name)) map.set(name, { name, evidence: [], confidence });
+    const item = map.get(name);
+    if (confidence === 'direct') item.confidence = 'direct';
+    if (!item.evidence.some(e => e.path === evidence.path && e.line === evidence.line)) item.evidence.push(evidence);
+  }
+
+  function firstMatchLine(text, regex) {
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) if (regex.test(lines[i])) return { line: i + 1, snippet: lines[i].trim().slice(0,160) };
+    return { line: 1, snippet: '' };
+  }
+
+  function evidenceLink(path, line=1) {
+    const { owner, repo } = state.repo;
+    const branch = state.branch;
+    return `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/blob/${branch.split('/').map(encodeURIComponent).join('/')}/${path.split('/').map(encodeURIComponent).join('/')}#L${line}`;
+  }
+
+  function analyze(tree, docs) {
+    const runtime = new Map(), deploy = new Map(), services = new Map(), env = new Map(), ports = new Map();
+    const commands = new Map();
+
+    for (const file of tree.filter(x => x.type === 'blob')) {
+      for (const [name, rule] of runtimeRules) if (rule.test(file.path)) addFinding(runtime, name, { path:file.path, line:1, snippet:file.path }, 'direct');
+      for (const [name, rule] of deployRules) if (rule.test(file.path)) addFinding(deploy, name, { path:file.path, line:1, snippet:file.path }, 'direct');
+    }
+
+    for (const doc of docs) {
+      const path = doc.path, text = doc.text;
+      const lines = text.split(/\r?\n/);
+
+      for (const [name, rule] of serviceRules) {
+        const m = firstMatchLine(text, rule);
+        if (m.snippet) addFinding(services, name, { path, line:m.line, snippet:m.snippet }, 'inferred');
+      }
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const envPatterns = [
+          /\$\{([A-Z][A-Z0-9_]{2,})[^}]*\}/g,
+          /process\.env\.([A-Z][A-Z0-9_]{2,})/g,
+          /(?:os\.)?(?:getenv|environ\.get)\(["']([A-Z][A-Z0-9_]{2,})["']/g,
+          /^\s*([A-Z][A-Z0-9_]{2,})\s*=/g
+        ];
+        for (const re of envPatterns) {
+          for (const m of line.matchAll(re)) {
+            const key = m[1];
+            if (/^(TRUE|FALSE|DEBUG|PATH|HOME|PWD|SHELL|USER|TERM|LANG)$/i.test(key)) continue;
+            addFinding(env, key, { path, line:i+1, snippet:line.trim().slice(0,160) }, 'direct');
+          }
+        }
+
+        const portPatterns = [
+          /\bEXPOSE\s+(\d{2,5})\b/ig,
+          /(?:^|\s|["'])((?:[1-9]\d{1,4})):(\d{2,5})(?:\s|$|["'])/g,
+          /\b(?:port|listen)[\s:=]+["']?(\d{2,5})\b/ig
+        ];
+        for (const re of portPatterns) {
+          for (const m of line.matchAll(re)) {
+            const nums = m.slice(1).filter(Boolean);
+            for (const n of nums) {
+              const p = Number(n);
+              if (p >= 1 && p <= 65535) addFinding(ports, String(p), { path, line:i+1, snippet:line.trim().slice(0,160) }, 'direct');
+            }
+          }
+        }
+      }
+
+      if (/(^|\/)package\.json$/i.test(path)) {
+        try {
+          const pkg = JSON.parse(text);
+          for (const [name, cmd] of Object.entries(pkg.scripts || {})) {
+            if (/^(dev|start|build|test|lint|check|serve)$/i.test(name) || /test|lint|build|dev|start/i.test(name)) commands.set(`npm run ${name}`, { path, line:1, why:`package.json script: ${cmd}` });
+          }
+        } catch (_) {}
+      }
+
+      if (/(^|\/)Makefile$/i.test(path)) {
+        for (let i=0;i<lines.length;i++) {
+          const m = lines[i].match(/^([A-Za-z0-9_.-]+):\s*(?:#.*)?$/);
+          if (m && /^(dev|run|start|build|test|lint|check|install|setup|docs|docker|clean)$/i.test(m[1])) commands.set(`make ${m[1]}`, { path, line:i+1, why:'Make target' });
+        }
+      }
+
+      if (/README|CONTRIBUTING/i.test(path)) {
+        for (let i=0;i<lines.length;i++) {
+          const s = lines[i].trim().replace(/^\$\s*/, '');
+          if (/^(uv sync|uv run|pip install|python -m|pytest\b|npm (?:install|ci|run)|pnpm (?:install|run)|yarn (?:install|run)|docker compose|docker build|docker run|go (?:run|test|build)|cargo (?:run|test|build)|make\b)/.test(s) && s.length < 150) {
+            commands.set(s, { path, line:i+1, why:'Documented command' });
+          }
+        }
+      }
+    }
+
+    // Common port labels make the result easier to scan without asserting exclusivity.
+    const knownPorts = { '80':'HTTP', '443':'HTTPS', '3000':'web/dev', '5432':'PostgreSQL', '6379':'Redis', '8000':'web/API', '8080':'web/API', '9090':'Prometheus' };
+    for (const [p, item] of ports) if (knownPorts[p]) item.label = knownPorts[p];
+
+    return {
+      runtime: [...runtime.values()].slice(0,20),
+      deploy: [...deploy.values()].slice(0,20),
+      services: [...services.values()].slice(0,24),
+      env: [...env.values()].sort((a,b)=>a.name.localeCompare(b.name)).slice(0,80),
+      ports: [...ports.values()].sort((a,b)=>Number(a.name)-Number(b.name)).slice(0,30),
+      commands: [...commands.entries()].map(([command, meta]) => ({ command, ...meta })).slice(0,24)
+    };
+  }
+
+  function renderItems(id, countId, items, formatter=(x)=>x.name) {
+    const root = $(id), count = $(countId);
+    count.textContent = `${items.length} found`;
+    if (!items.length) { root.innerHTML = '<div class="empty">Nothing detected in the files sampled.</div>'; return; }
+    root.innerHTML = items.map(item => {
+      const ev = item.evidence[0];
+      const badge = item.confidence === 'direct' ? '<span class="badge direct">direct</span>' : '<span class="badge">reference</span>';
+      const extra = item.evidence.length > 1 ? ` · +${item.evidence.length-1} more` : '';
+      return `<div class="item"><div class="name">${escapeHtml(formatter(item))}${badge}</div><div class="evidence"><a target="_blank" rel="noreferrer" href="${evidenceLink(ev.path,ev.line)}">${escapeHtml(ev.path)}:${ev.line}</a>${extra}<br>${escapeHtml(ev.snippet || '')}</div></div>`;
+    }).join('');
+  }
+
+  function renderCommands(items) {
+    $('commandCount').textContent = `${items.length} found`;
+    $('commandItems').innerHTML = items.length ? items.map((x, i) => `<div class="cmd"><code>${escapeHtml(x.command)}</code><button type="button" data-copy-cmd="${i}" title="Copy command">copy</button></div>`).join('') : '<div class="empty">No obvious run/build/test commands found in the sampled files.</div>';
+    document.querySelectorAll('[data-copy-cmd]').forEach(btn => btn.addEventListener('click', () => {
+      const x = items[Number(btn.dataset.copyCmd)]; navigator.clipboard.writeText(x.command); btn.textContent='copied'; setTimeout(()=>btn.textContent='copy',900);
+    }));
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  function render(repoMeta, docs, analysis, treeMeta) {
+    state.analysis = analysis;
+    $('results').classList.add('show');
+    $('repoName').textContent = repoMeta.full_name;
+    $('repoMeta').textContent = `${repoMeta.description || 'Public GitHub repository'} · default branch ${repoMeta.default_branch}${treeMeta.truncated ? ' · tree truncated by GitHub' : ''}`;
+    $('openGitHub').href = repoMeta.html_url;
+    $('mFiles').textContent = docs.length;
+    $('mServices').textContent = analysis.services.length;
+    $('mEnv').textContent = analysis.env.length;
+    $('mPorts').textContent = analysis.ports.length;
+    renderItems('runtimeItems','runtimeCount',analysis.runtime);
+    renderItems('serviceItems','serviceCount',analysis.services);
+    renderItems('deployItems','deployCount',analysis.deploy);
+    renderItems('portItems','portCount',analysis.ports, x => x.label ? `${x.name} · ${x.label}` : x.name);
+    renderItems('envItems','envCount',analysis.env);
+    renderCommands(analysis.commands);
+    $('results').scrollIntoView({behavior:'smooth', block:'start'});
+  }
+
+  function buildTextContract() {
+    const a = state.analysis, r = state.repo;
+    const fmt = (xs, f=x=>x.name) => xs.length ? xs.map(f).join(', ') : 'none detected';
+    return `# GitRuntime: ${r.full}\n\nRuntime/toolchain: ${fmt(a.runtime)}\nExternal services: ${fmt(a.services)}\nDeployment: ${fmt(a.deploy)}\nPorts: ${fmt(a.ports, x=>x.label ? `${x.name} (${x.label})` : x.name)}\nConfiguration: ${fmt(a.env)}\n\nLikely commands:\n${a.commands.length ? a.commands.map(x=>`- ${x.command}`).join('\n') : '- none detected'}\n\nGenerated heuristically from public repository evidence; verify against linked source files.`;
+  }
+
+  async function inspect(repo) {
+    try {
+      setStatus(`Inspecting ${repo.full}…`);
+      $('results').classList.remove('show');
+      const meta = await getJson(`https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`);
+      state.repo = repo; state.branch = meta.default_branch;
+      setStatus(`Reading repository tree for ${repo.full}…`);
+      const treeMeta = await getJson(`https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/git/trees/${encodeURIComponent(meta.default_branch)}?recursive=1`);
+      const candidates = chooseCandidateFiles(treeMeta.tree || []);
+      setStatus(`Reading ${candidates.length} high-signal configuration/docs files…`);
+      const docs = [];
+      // Small batches avoid hammering raw.githubusercontent.com.
+      for (let i = 0; i < candidates.length; i += 6) {
+        const batch = candidates.slice(i, i+6);
+        const settled = await Promise.allSettled(batch.map(async f => ({ path:f.path, text:await fetchText(repo.owner,repo.repo,meta.default_branch,f.path) })));
+        for (const x of settled) if (x.status === 'fulfilled') docs.push(x.value);
+      }
+      state.files = docs;
+      const analysis = analyze(treeMeta.tree || [], docs);
+      render(meta, docs, analysis, treeMeta);
+      setStatus('');
+    } catch (err) {
+      console.error(err);
+      const msg = /403|429/.test(String(err)) ? 'GitHub rate limit reached for this IP. Try again after the reset window.' : `Could not inspect repository: ${err.message || err}`;
+      setStatus(msg, true);
+    }
+  }
+
+  function navigateToRepo(repo) {
+    const url = new URL(location.href);
+    url.search = '';
+    if (location.hostname.endsWith('.github.io')) {
+      const parts = location.pathname.split('/').filter(Boolean);
+      const base = (parts.length === 1 || parts.length >= 3) ? `/${parts[0]}` : '';
+      url.pathname = `${base}/${repo.owner}/${repo.repo}`;
+    } else if (location.protocol.startsWith('http')) {
+      url.pathname = `/${repo.owner}/${repo.repo}`;
+    } else {
+      url.searchParams.set('repo', repo.full);
+    }
+    history.pushState({}, '', url);
+    $('repoInput').value = repo.full;
+    inspect(repo);
+  }
+
+  $('repoForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const repo = parseRepo($('repoInput').value);
+    if (!repo) return setStatus('Enter a GitHub repository as owner/repo or a github.com URL.', true);
+    navigateToRepo(repo);
+  });
+
+  document.querySelectorAll('[data-repo]').forEach(btn => btn.addEventListener('click', () => navigateToRepo(parseRepo(btn.dataset.repo))));
+  $('copySummary').addEventListener('click', async () => {
+    if (!state.analysis) return;
+    await navigator.clipboard.writeText(buildTextContract());
+    $('copySummary').textContent = 'Copied'; setTimeout(() => $('copySummary').textContent = 'Copy contract', 1100);
+  });
+  window.addEventListener('popstate', () => { const repo = repoFromLocation(); if (repo) { $('repoInput').value = repo.full; inspect(repo); } });
+
+  const initial = repoFromLocation();
+  if (initial) { $('repoInput').value = initial.full; inspect(initial); }
+})();
+</script>
+</body>
+</html>
