@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Explore SQLite databases entirely in your browser with WebAssembly." />
+  <title>SQLite Atlas — browser database explorer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="SQLite Atlas home">
+        <span class="brand-mark">S</span>
+        <span>
+          <strong>SQLite Atlas</strong>
+          <small>local-first WASM explorer</small>
+        </span>
+      </a>
+      <div class="top-actions">
+        <span class="privacy-pill">Runs locally in your browser</span>
+        <button id="demoBtn" class="btn secondary">Load demo</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section id="welcome" class="welcome-panel">
+        <div class="hero-copy">
+          <span class="eyebrow">SQLite + WebAssembly</span>
+          <h1>Open a database.<br />Understand it immediately.</h1>
+          <p>Drag in a SQLite file, choose one from a folder, or fetch one by URL. Inspect tables, columns, row counts and run SQL without uploading your data.</p>
+        </div>
+
+        <div id="dropZone" class="drop-zone" tabindex="0" role="button" aria-label="Drop or choose SQLite file">
+          <div class="drop-icon">↓</div>
+          <h2>Drop a SQLite database here</h2>
+          <p>.sqlite · .sqlite3 · .db · any valid SQLite file</p>
+          <div class="drop-actions">
+            <button id="fileBtn" class="btn primary">Choose file</button>
+            <button id="folderBtn" class="btn secondary">Import folder</button>
+          </div>
+          <input id="fileInput" type="file" accept=".sqlite,.sqlite3,.db,.db3,application/vnd.sqlite3" hidden />
+          <input id="folderInput" type="file" webkitdirectory multiple hidden />
+        </div>
+
+        <div class="url-loader">
+          <div>
+            <strong>Open from URL</strong>
+            <span>Remote host must allow CORS.</span>
+          </div>
+          <form id="urlForm">
+            <input id="urlInput" type="url" placeholder="https://example.com/data.sqlite" aria-label="SQLite database URL" />
+            <button class="btn primary" type="submit">Open URL</button>
+          </form>
+        </div>
+
+        <div class="feature-strip">
+          <div><strong>Private</strong><span>No backend. No upload.</span></div>
+          <div><strong>Fast</strong><span>SQLite runs in WASM.</span></div>
+          <div><strong>Useful</strong><span>Schema + query workspace.</span></div>
+        </div>
+      </section>
+
+      <section id="explorer" class="explorer hidden" aria-live="polite">
+        <aside class="sidebar">
+          <div class="db-heading">
+            <div class="db-icon">DB</div>
+            <div>
+              <strong id="dbName">database.sqlite</strong>
+              <span id="dbMeta">0 tables</span>
+            </div>
+          </div>
+
+          <div class="sidebar-toolbar">
+            <input id="tableSearch" type="search" placeholder="Filter tables…" aria-label="Filter tables" />
+            <button id="openAnotherBtn" class="icon-btn" title="Open another database" aria-label="Open another database">＋</button>
+          </div>
+
+          <nav id="tableList" class="table-list" aria-label="Database tables"></nav>
+        </aside>
+
+        <div class="main-pane">
+          <div class="summary-row">
+            <div class="metric"><span>Tables</span><strong id="metricTables">0</strong></div>
+            <div class="metric"><span>Columns</span><strong id="metricColumns">0</strong></div>
+            <div class="metric"><span>Rows</span><strong id="metricRows">—</strong></div>
+            <div class="metric"><span>File size</span><strong id="metricSize">—</strong></div>
+          </div>
+
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="browse" role="tab">Browse</button>
+            <button class="tab" data-tab="schema" role="tab">Schema</button>
+            <button class="tab" data-tab="query" role="tab">SQL query</button>
+          </div>
+
+          <section id="browseTab" class="tab-panel active">
+            <div class="panel-head">
+              <div>
+                <span class="section-label">Table preview</span>
+                <h2 id="browseTitle">Select a table</h2>
+              </div>
+              <div class="panel-actions">
+                <span id="browseCount" class="muted"></span>
+                <button id="exportCsvBtn" class="btn secondary small" disabled>Export CSV</button>
+              </div>
+            </div>
+            <div id="dataGrid" class="data-grid empty-state">
+              <div>
+                <strong>No table selected</strong>
+                <span>Choose a table in the sidebar to preview its rows.</span>
+              </div>
+            </div>
+          </section>
+
+          <section id="schemaTab" class="tab-panel">
+            <div class="panel-head">
+              <div>
+                <span class="section-label">Structure</span>
+                <h2>Database schema</h2>
+              </div>
+            </div>
+            <div id="schemaCards" class="schema-cards"></div>
+          </section>
+
+          <section id="queryTab" class="tab-panel">
+            <div class="query-layout">
+              <div class="editor-card">
+                <div class="editor-toolbar">
+                  <span class="section-label">SQL editor</span>
+                  <span class="shortcut">⌘/Ctrl + Enter to run</span>
+                </div>
+                <textarea id="sqlEditor" spellcheck="false" aria-label="SQL query editor">SELECT *
+FROM customers
+LIMIT 20;</textarea>
+                <div class="editor-footer">
+                  <div id="queryStatus" class="muted">Ready</div>
+                  <button id="runQueryBtn" class="btn primary">Run query</button>
+                </div>
+              </div>
+              <div class="results-card">
+                <div class="panel-head compact">
+                  <div>
+                    <span class="section-label">Results</span>
+                    <h2 id="resultsTitle">Query output</h2>
+                  </div>
+                </div>
+                <div id="queryResults" class="data-grid empty-state">
+                  <div><strong>Run a query</strong><span>Results appear here.</span></div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="loading" class="loading-overlay hidden" aria-live="assertive">
+      <div class="loader"></div>
+      <strong id="loadingText">Loading SQLite engine…</strong>
+    </div>
+  </div>
+
+  <script src="https://sql.js.org/dist/sql-wasm.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
