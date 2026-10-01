@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Repo twins: find GitHub repos that solve the same problem</title>
+<!--
+  AIDEV-NOTE: Single file, no build step. Serve over http(s), not file://
+  (WebLLM needs the Cache API, which requires a secure context):
+    python3 -m http.server 8000   ->  http://localhost:8000/repo-twins.html
+  Or push to GitHub Pages. Nothing here is sent anywhere except api.github.com
+  and the model CDNs (jsdelivr, huggingface). The token lives in page memory only.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F2F4F7; --surface:#FFFFFF; --ink:#17212B; --muted:#5B6875;
+  --line:#D5DBE3; --accent:#2B59C3; --match:#1F8A70; --warn:#A6461F;
+  --track:#E3E8EE;
+  color-scheme:light dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#121820; --surface:#1A222C; --ink:#E6EBF0; --muted:#93A0AD;
+    --line:#2C3743; --accent:#7FA2F0; --match:#4CC3A0; --warn:#E58A62; --track:#26303B;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121820; --surface:#1A222C; --ink:#E6EBF0; --muted:#93A0AD;
+  --line:#2C3743; --accent:#7FA2F0; --match:#4CC3A0; --warn:#E58A62; --track:#26303B;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font:400 16px/1.55 "Hanken Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+main{max-width:760px; margin:0 auto; padding:40px 20px 80px}
+h1{font-size:clamp(28px,5vw,40px); line-height:1.1; font-weight:700; letter-spacing:-.02em; margin:0 0 10px; max-width:18ch}
+.lede{color:var(--muted); margin:0 0 28px; max-width:60ch}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+/* Search row */
+.search{display:flex; gap:8px; flex-wrap:wrap}
+.search input{
+  flex:1 1 280px; min-width:0; font:inherit; font-size:17px; padding:12px 14px;
+  border:1.5px solid var(--line); border-radius:10px; background:var(--surface); color:var(--ink);
+}
+.search input:focus{border-color:var(--accent); outline:none}
+button{
+  font:inherit; font-weight:600; cursor:pointer; border-radius:10px;
+  padding:12px 18px; border:1.5px solid var(--accent); background:var(--accent); color:#fff;
+}
+button:disabled{opacity:.55; cursor:progress}
+button.quiet{background:transparent; color:var(--accent); padding:8px 12px; font-size:14px}
+
+/* Settings */
+details.settings{margin-top:14px; border-top:1px solid var(--line); padding-top:10px}
+details.settings summary{cursor:pointer; color:var(--muted); font-weight:500}
+.field{margin:14px 0}
+.field label{display:block; font-weight:600; margin-bottom:4px}
+.field .hint{color:var(--muted); font-size:14px; margin:4px 0 0}
+.field input[type=password],.field select,.field input[type=number]{
+  font:inherit; padding:9px 11px; border:1.5px solid var(--line); border-radius:8px;
+  background:var(--surface); color:var(--ink); width:100%; max-width:420px;
+}
+.check{display:flex; gap:10px; align-items:flex-start}
+.check input{margin-top:5px; width:18px; height:18px; accent-color:var(--accent)}
+.check label{font-weight:600; margin:0}
+
+/* Status */
+.status{margin:22px 0 0; min-height:24px; color:var(--muted); font-size:15px}
+.status.error{color:var(--warn)}
+.bar{height:4px; background:var(--track); border-radius:2px; overflow:hidden; margin-top:6px; display:none}
+.bar.on{display:block}
+.bar i{display:block; height:100%; width:0; background:var(--accent); transition:width .2s}
+.rate{color:var(--muted); font-size:13px; margin-top:6px}
+
+/* Profile */
+.profile{margin-top:28px; padding:16px 18px; background:var(--surface); border:1px solid var(--line); border-radius:12px}
+.profile h2,.results h2{font-size:18px; margin:0 0 8px}
+.profile p{margin:6px 0}
+.chips{display:flex; flex-wrap:wrap; gap:6px; margin:8px 0}
+.chip{
+  display:inline-flex; align-items:center; gap:4px; font-size:14px;
+  padding:3px 4px 3px 10px; border-radius:999px; border:1px solid var(--line); background:var(--bg);
+}
+.chip button{border:0; background:transparent; color:var(--muted); padding:0 6px; font-size:16px; line-height:1}
+.addkw{display:flex; gap:6px; margin-top:6px; flex-wrap:wrap}
+.addkw input{font:inherit; font-size:14px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); flex:1 1 180px; min-width:0}
+.queries{font-size:13px; color:var(--muted)}
+.queries code{font-family:"Spline Sans Mono",ui-monospace,monospace; font-size:12px}
+
+/* Results */
+.results{margin-top:32px}
+.results header{display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap}
+ol.hits{list-style:none; margin:10px 0 0; padding:0}
+.hit{display:grid; grid-template-columns:64px 1fr; gap:14px; padding:16px 0; border-bottom:1px solid var(--line)}
+.meter{position:relative; width:64px; height:64px}
+.meter svg{width:64px; height:64px; transform:rotate(-90deg)}
+.meter .t{stroke:var(--track)}
+.meter .f{stroke:var(--match); stroke-linecap:round}
+.meter span{position:absolute; inset:0; display:grid; place-items:center; font-weight:700; font-size:18px}
+.name{font-family:"Spline Sans Mono",ui-monospace,monospace; font-size:15px; text-decoration:none; word-break:break-word}
+.name b{font-weight:500; color:var(--ink)}
+.name:hover b{text-decoration:underline}
+.desc{margin:4px 0}
+.meta{display:flex; flex-wrap:wrap; gap:4px 14px; color:var(--muted); font-size:14px; margin:4px 0}
+.why{font-size:14px; margin:6px 0 0}
+.why em{font-style:normal; color:var(--muted)}
+.llm{font-size:14px; margin:8px 0 0; padding:8px 10px; border-left:3px solid var(--line); background:var(--bg)}
+.llm.same{border-left-color:var(--match)}
+.llm.partial{border-left-color:var(--accent)}
+.llm.different,.llm.unsure{border-left-color:var(--warn)}
+.llm strong{display:block}
+.empty{color:var(--muted)}
+
+@media (max-width:480px){
+  main{padding-top:24px}
+  .hit{grid-template-columns:48px 1fr; gap:10px}
+  .meter,.meter svg{width:48px; height:48px}
+  .meter span{font-size:15px}
+}
+@media (prefers-reduced-motion:reduce){ .bar i{transition:none} }
+</style>
+</head>
+<body>
+<main>
+  <h1>Find repos that solve the same problem</h1>
+  <p class="lede">Paste a GitHub repo or describe a tool. Matching runs in your browser and ignores programming language, so a Rust rewrite of a Python tool still counts.</p>
+
+  <form class="search" id="form" autocomplete="off">
+    <input id="q" type="text" aria-label="Repo URL, owner/name, or a description" placeholder="AsWali/CallBoard or “shared board for posting calls to a team”" required>
+    <button id="run" type="submit">Find similar repos</button>
+  </form>
+
+  <details class="settings" id="settings">
+    <summary>Settings</summary>
+
+    <div class="field">
+      <label for="token">GitHub token (optional)</label>
+      <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…">
+      <p class="hint">Raises search limits from 10 to 30 per minute and core limits from 60 to 5,000 per hour. A fine-grained token with no extra permissions works for public repos. Kept in this tab’s memory only; reloading clears it.</p>
+    </div>
+
+    <div class="field check">
+      <input id="deep" type="checkbox" checked>
+      <div>
+        <label for="deep">Read READMEs of the top matches</label>
+        <p class="hint">Better ranking. Uses 8 extra API calls without a token, 20 with one.</p>
+      </div>
+    </div>
+
+    <div class="field check">
+      <input id="useLlm" type="checkbox">
+      <div>
+        <label for="useLlm">Check top matches with a local LLM</label>
+        <p class="hint">Off by default. Downloads a model once (about 1–2.5 GB) and needs WebGPU (recent Chrome or Edge). Each match is asked three times with the answer options in a different order; disagreement is shown as “unsure”.</p>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="model">LLM model</label>
+      <select id="model">
+        <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen2.5 0.5B (about 0.9 GB VRAM, fastest, weakest)</option>
+        <option value="Qwen2.5-1.5B-Instruct-q4f16_1-MLC" selected>Qwen2.5 1.5B (about 1.6 GB VRAM)</option>
+        <option value="Qwen2.5-3B-Instruct-q4f16_1-MLC">Qwen2.5 3B (about 2.5 GB VRAM, best)</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="llmTopK">Matches to check with the LLM</label>
+      <input id="llmTopK" type="number" min="1" max="15" value="6">
+    </div>
+  </details>
+
+  <div aria-live="polite">
+    <p class="status" id="status"></p>
+    <div class="bar" id="bar"><i></i></div>
+    <p class="rate" id="rate"></p>
+  </div>
+
+  <section class="profile" id="profile" hidden>
+    <h2>What the search looked for</h2>
+    <p id="srcLine"></p>
+    <div class="chips" id="chips"></div>
+    <div class="addkw">
+      <input id="newKw" type="text" placeholder="Add a feature or keyword">
+      <button class="quiet" id="addKw" type="button">Add</button>
+      <button class="quiet" id="rerun" type="button">Search again with these</button>
+    </div>
+    <details class="queries"><summary>GitHub queries used</summary><div id="queries"></div></details>
+  </section>
+
+  <section class="results" id="results" hidden>
+    <header>
+      <h2 id="resTitle">Similar repos</h2>
+      <button class="quiet" id="copyMd" type="button">Copy as Markdown</button>
+    </header>
+    <ol class="hits" id="hits"></ol>
+  </section>
+</main>
+
+<script type="module">
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0';
+env.allowLocalModels = false;
+
+const WEBLLM_URL = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm';
+const EMBED_MODEL = 'Xenova/all-MiniLM-L6-v2';
+const $ = s => document.querySelector(s);
+
+// ---------- state ----------
+const state = { source: null, keyphrases: [], results: [], running: false };
+const rate = {};
+
+// ---------- UI helpers ----------
+function setStatus(msg, { error = false, progress = null } = {}) {
+  const el = $('#status');
+  el.textContent = msg;
+  el.classList.toggle('error', error);
+  const bar = $('#bar');
+  bar.classList.toggle('on', progress !== null);
+  if (progress !== null) bar.firstElementChild.style.width = `${Math.round(progress * 100)}%`;
+}
+function updateRate() {
+  const parts = [];
+  if (rate.search) parts.push(`Search API: ${rate.search.remaining}/${rate.search.limit} left this minute`);
+  if (rate.core) parts.push(`Core API: ${rate.core.remaining}/${rate.core.limit} left this hour`);
+  $('#rate').textContent = parts.join('. ');
+}
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtStars = n => n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
+const fmtDate = s => s ? new Date(s).toLocaleDateString(undefined, { year: 'numeric', month: 'short' }) : '';
+const tick = () => new Promise(r => setTimeout(r));
+
+// ---------- GitHub API ----------
+class GhError extends Error { constructor(msg, kind = 'other') { super(msg); this.kind = kind; } }
+
+async function gh(path, { raw = false } = {}) {
+  const headers = {
+    Accept: raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  const tok = $('#token').value.trim();
+  if (tok) headers.Authorization = `Bearer ${tok}`;
+  let res;
+  try { res = await fetch(`https://api.github.com${path}`, { headers }); }
+  catch { throw new GhError('Could not reach api.github.com. Check your connection or network filter.'); }
+
+  const resource = res.headers.get('x-ratelimit-resource');
+  const remaining = res.headers.get('x-ratelimit-remaining');
+  if (resource) {
+    rate[resource] = { remaining, limit: res.headers.get('x-ratelimit-limit'), reset: res.headers.get('x-ratelimit-reset') };
+    updateRate();
+  }
+  if (res.status === 404) return null;
+  if (res.status === 401) throw new GhError('GitHub rejected the token. Fix it or clear the field.', 'auth');
+  if (res.status === 403 || res.status === 429) {
+    if (remaining === '0') {
+      const reset = new Date(Number(res.headers.get('x-ratelimit-reset')) * 1000).toLocaleTimeString();
+      throw new GhError(`GitHub ${resource || ''} rate limit reached. It resets at ${reset}. Adding a token raises the limit.`, 'rate');
+    }
+    throw new GhError('GitHub refused the request (secondary rate limit). Wait a minute and try again.', 'rate');
+  }
+  if (res.status === 422) return raw ? '' : { items: [] }; // invalid query: skip it
+  if (!res.ok) throw new GhError(`GitHub returned ${res.status}.`);
+  return raw ? res.text() : res.json();
+}
+
+async function mapLimit(arr, n, fn) {
+  const out = new Array(arr.length); let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, arr.length) }, async () => {
+    while (i < arr.length) { const j = i++; out[j] = await fn(arr[j], j); }
+  }));
+  return out;
+}
+
+// ---------- text processing ----------
+function parseRepo(s) {
+  s = s.trim();
+  let m = s.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:[\/#?].*)?$/i);
+  if (m) return { owner: m[1], repo: m[2] };
+  m = s.match(/^([\w.-]+)\/([\w.-]+)$/);
+  return m ? { owner: m[1], repo: m[2] } : null;
+}
+const splitName = n => n.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[-_.]+/g, ' ');
+
+function cleanMd(md) {
+  return (md || '')
+    .replace(/```[\s\S]*?```/g, ' ').replace(/~~~[\s\S]*?~~~/g, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ').replace(/<[^>]+>/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/`[^`]*`/g, ' ').replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[*_|#>~=]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// AIDEV-NOTE: README boilerplate words are stopwords too; they dominate term counts otherwise.
+const STOP = new Set(`a about above after again all also am an and any are as at be because been before being below between both but by can could did do does doing down during each few for from further had has have having he her here hers him his how i if in into is it its itself just me more most my no nor not now of off on once only or other our ours out over own same she should so some such than that the their them then there these they this those through to too under until up very was we were what when where which while who whom why will with would you your yours yourself
+install installation installing usage use used using uses license licensed mit apache contributing contribute contributors clone npm pip yarn pnpm cargo brew run running build building start started getting example examples docs documentation readme project projects repo repository github code source open free simple easy fast lightweight based make makes made need needs want file files folder etc new via way see just like get set one two first also allows provides support supports supported app application tool tools library lib package version release releases please note click screenshot screenshots demo todo feature features built work works working available thanks thank star copyright rights reserved`.split(/\s+/));
+
+const GENERIC_TOPICS = new Set('javascript typescript python java go golang rust cpp c csharp php ruby kotlin swift dart html css react vue angular svelte nextjs nodejs node django flask fastapi spring docker kubernetes hacktoberfest open-source opensource awesome tutorial beginner project'.split(' '));
+
+const tokenize = t => (t.toLowerCase().match(/[a-z][a-z0-9+#-]*[a-z0-9+#]|[a-z]/g) || []);
+const okTok = t => t.length >= 3 && !STOP.has(t) && !/^\d/.test(t);
+
+function candidatePhrases(fields) {
+  const uni = new Map(), bi = new Map();
+  const add = (m, k, w) => m.set(k, (m.get(k) || 0) + w);
+  for (const { text, weight } of fields) {
+    const toks = tokenize(text);
+    toks.forEach((t, i) => {
+      if (okTok(t)) add(uni, t, weight);
+      if (i > 0 && okTok(t) && okTok(toks[i - 1]) && t !== toks[i - 1]) add(bi, `${toks[i - 1]} ${t}`, weight);
+    });
+  }
+  const top = (m, n, min) => [...m].filter(([, v]) => v >= min).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k]) => k);
+  return [...new Set([...top(bi, 20, 2), ...top(uni, 30, 1)])];
+}
+
+// ---------- embeddings (WASM) ----------
+let extractorP = null;
+function getExtractor() {
+  if (!extractorP) {
+    setStatus('Loading the embedding model (about 25 MB, cached after the first run)…', { progress: 0 });
+    extractorP = pipeline('feature-extraction', EMBED_MODEL, {
+      dtype: 'q8',
+      progress_callback: p => {
+        if (p.status === 'progress' && typeof p.progress === 'number') {
+          setStatus(`Loading the embedding model: ${p.file} ${Math.round(p.progress)}%`, { progress: p.progress / 100 });
+        }
+      },
+    }).catch(e => { extractorP = null; throw e; });
+  }
+  return extractorP;
+}
+async function embed(texts) {
+  const ex = await getExtractor();
+  const out = [];
+  for (let i = 0; i < texts.length; i += 16) {
+    const t = await ex(texts.slice(i, i + 16), { pooling: 'mean', normalize: true });
+    out.push(...t.tolist());
+    await tick();
+  }
+  return out;
+}
+const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+const normalize = v => { const n = Math.hypot(...v) || 1; return v.map(x => x / n); };
+
+function mmr(docVec, cands, vecs, k, lambda = 0.7) {
+  const rel = vecs.map(v => dot(v, docVec));
+  const picked = [];
+  const used = new Set();
+  while (picked.length < k && used.size < cands.length) {
+    let best = -1, bestScore = -Infinity;
+    cands.forEach((c, i) => {
+      if (used.has(i)) return;
+      if (picked.some(p => cands[p].includes(c) || c.includes(cands[p]))) { used.add(i); return; }
+      const red = picked.length ? Math.max(...picked.map(p => dot(vecs[i], vecs[p]))) : 0;
+      const s = lambda * rel[i] - (1 - lambda) * red;
+      if (s > bestScore) { bestScore = s; best = i; }
+    });
+    if (best < 0) break;
+    used.add(best); picked.push(best);
+  }
+  return picked.map(i => cands[i]);
+}
+
+// ---------- source profile ----------
+async function buildSource(input) {
+  const ref = parseRepo(input);
+  if (!ref) {
+    return { kind: 'text', label: 'your description', fullName: null, name: '', description: input, topics: [], readme: '', language: null };
+  }
+  setStatus(`Reading ${ref.owner}/${ref.repo} from GitHub…`);
+  const repo = await gh(`/repos/${ref.owner}/${ref.repo}`);
+  if (!repo) {
+    throw new GhError(`No public repo named ${ref.owner}/${ref.repo}. Check the spelling, add a token with read access if it is private, or describe the tool in words instead.`);
+  }
+  const readme = cleanMd(await gh(`/repos/${ref.owner}/${ref.repo}/readme`, { raw: true }) || '');
+  return {
+    kind: 'repo', label: repo.full_name, fullName: repo.full_name, url: repo.html_url,
+    name: repo.name, description: repo.description || '', topics: repo.topics || [],
+    readme, language: repo.language,
+  };
+}
+
+function sourceText(src) {
+  return [splitName(src.name), src.description, src.topics.join(', '), src.readme.slice(0, 1200)].filter(Boolean).join('. ');
+}
+
+async function extractKeyphrases(src, docVec) {
+  const fields = [
+    { text: splitName(src.name), weight: 3 },
+    { text: src.description, weight: 3 },
+    { text: src.topics.map(t => t.replace(/-/g, ' ')).join(' . '), weight: 2 },
+    { text: src.readme.slice(0, 4000), weight: 1 },
+  ];
+  const cands = candidatePhrases(fields);
+  if (!cands.length) return [];
+  const vecs = await embed(cands);
+  return mmr(docVec, cands, vecs, 6);
+}
+
+function buildQueries(keys, topics, budget) {
+  const q = s => (s.includes(' ') ? `"${s}"` : s);
+  const specific = topics.filter(t => !GENERIC_TOPICS.has(t)).slice(0, 2);
+  const pair = (i, j) => (keys[i] && keys[j] ? `${q(keys[i])} ${q(keys[j])}` : null);
+  const list = [
+    specific[0] && `topic:${specific[0]}`,
+    pair(0, 1), pair(0, 2),
+    keys[0] && keys[1] && `${q(keys[0])} ${q(keys[1])} in:readme`,
+    specific[1] && `topic:${specific[1]}`,
+    pair(1, 2), pair(0, 3), pair(1, 3), pair(2, 3), pair(0, 4),
+    keys.length === 1 && q(keys[0]),
+  ].filter(Boolean);
+  // AIDEV-NOTE: language:... is never added on purpose; the user wants cross-language matches.
+  return [...new Set(list)].slice(0, budget);
+}
+
+// ---------- search + rank ----------
+async function searchAndRank() {
+  const src = state.source;
+  const hasToken = !!$('#token').value.trim();
+  const queries = buildQueries(state.keyphrases, src.topics, hasToken ? 10 : 6);
+  $('#queries').innerHTML = queries.map(x => `<div><code>${esc(x)}</code></div>`).join('') || '<div>No queries. Add keywords above.</div>';
+  if (!queries.length) throw new GhError('Nothing to search for. Add a keyword or two above, then search again.');
+
+  const perPage = hasToken ? 50 : 30;
+  const byName = new Map();
+  let done = 0, stopped = null;
+  for (const query of queries) {
+    setStatus(`Searching GitHub (${done + 1} of ${queries.length})…`, { progress: done / queries.length });
+    try {
+      const r = await gh(`/search/repositories?q=${encodeURIComponent(query)}&per_page=${perPage}`);
+      for (const it of r?.items || []) {
+        if (it.fork) continue;
+        if (src.fullName && it.full_name.toLowerCase() === src.fullName.toLowerCase()) continue;
+        const e = byName.get(it.full_name) || { repo: it, queries: 0 };
+        e.queries++; byName.set(it.full_name, e);
+      }
+    } catch (e) {
+      if (e.kind === 'rate' && byName.size) { stopped = e.message; break; }
+      throw e;
+    }
+    done++;
+  }
+  const cands = [...byName.values()];
+  if (!cands.length) throw new GhError('GitHub returned no repos for these keywords. Remove a narrow keyword or add a broader one, then search again.');
+
+  setStatus(`Comparing ${cands.length} repos…`, { progress: null });
+  const metaText = r => [splitName(r.name), r.description, (r.topics || []).join(', ')].filter(Boolean).join('. ');
+  const srcVec = await sourceVector(src);
+  const metaVecs = await embed(cands.map(c => metaText(c.repo)));
+  cands.forEach((c, i) => { c.meta = metaText(c.repo); c.score = dot(srcVec, metaVecs[i]); });
+  cands.sort((a, b) => b.score - a.score);
+
+  if ($('#deep').checked) {
+    const n = Math.min(hasToken ? 20 : 8, cands.length);
+    const top = cands.slice(0, n);
+    setStatus(`Reading READMEs of the top ${n}…`);
+    try {
+      await mapLimit(top, 4, async c => {
+        const [o, r] = c.repo.full_name.split('/');
+        c.readme = cleanMd(await gh(`/repos/${o}/${r}/readme`, { raw: true }) || '').slice(0, 1500);
+      });
+    } catch (e) {
+      if (e.kind !== 'rate') throw e;
+      stopped = e.message;
+    }
+    const withReadme = top.filter(c => c.readme);
+    if (withReadme.length) {
+      const fullVecs = await embed(withReadme.map(c => `${c.meta}. ${c.readme}`));
+      withReadme.forEach((c, i) => { c.score = (c.score + dot(srcVec, fullVecs[i])) / 2; });
+      cands.sort((a, b) => b.score - a.score);
+    }
+  }
+
+  // Explainability: which extracted features each match mentions.
+  const srcTopics = new Set(src.topics);
+  for (const c of cands) {
+    const hay = `${c.meta} ${c.readme || ''}`.toLowerCase();
+    c.sharedTopics = (c.repo.topics || []).filter(t => srcTopics.has(t));
+    c.mentions = state.keyphrases.filter(k => hay.includes(k));
+  }
+  state.results = cands.slice(0, 30);
+  renderResults();
+  setStatus(stopped ? `Done with partial data. ${stopped}` : `Done. Ranked ${cands.length} repos; showing the top ${state.results.length}.`, { error: !!stopped });
+}
+
+let srcVecCache = null;
+async function sourceVector(src) {
+  if (srcVecCache?.src === src) return srcVecCache.vec;
+  // Blend a metadata-only view with the README view so short candidate descriptions still compare fairly.
+  const metaOnly = [splitName(src.name), src.description, src.topics.join(', ')].filter(Boolean).join('. ') || sourceText(src);
+  const [a, b] = await embed([metaOnly, sourceText(src)]);
+  const vec = normalize(a.map((x, i) => x + b[i]));
+  srcVecCache = { src, vec };
+  return vec;
+}
+
+// ---------- rendering ----------
+function renderProfile() {
+  const s = state.source;
+  $('#profile').hidden = false;
+  $('#srcLine').innerHTML = s.kind === 'repo'
+    ? `Reference: <a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.fullName)}</a>${s.description ? ` — ${esc(s.description)}` : ''}`
+    : 'Reference: your description.';
+  $('#chips').innerHTML = state.keyphrases.map((k, i) =>
+    `<span class="chip">${esc(k)}<button type="button" data-i="${i}" aria-label="Remove ${esc(k)}">×</button></span>`).join('')
+    || '<span class="empty">No keywords found. Add some below.</span>';
+}
+
+function meterSvg(score) {
+  const pct = Math.max(0, Math.min(1, score));
+  const r = 26, c = 2 * Math.PI * r;
+  return `<div class="meter" title="Similarity ${Math.round(pct * 100)} of 100">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><circle class="t" cx="32" cy="32" r="${r}" fill="none" stroke-width="6"/>
+    <circle class="f" cx="32" cy="32" r="${r}" fill="none" stroke-width="6" stroke-dasharray="${c * pct} ${c}"/></svg>
+    <span>${Math.round(pct * 100)}</span></div>`;
+}
+
+function renderResults() {
+  $('#results').hidden = false;
+  $('#resTitle').textContent = `Similar repos (${state.results.length})`;
+  $('#hits').innerHTML = state.results.map((c, i) => {
+    const r = c.repo;
+    const [owner, name] = r.full_name.split('/');
+    const why = [];
+    if (c.sharedTopics.length) why.push(`<em>Shared topics:</em> ${esc(c.sharedTopics.join(', '))}`);
+    if (c.mentions.length) why.push(`<em>Mentions:</em> ${esc(c.mentions.join(', '))}`);
+    return `<li class="hit" id="hit-${i}">
+      ${meterSvg(c.score)}
+      <div>
+        <a class="name" href="${esc(r.html_url)}" target="_blank" rel="noopener">${esc(owner)}/<b>${esc(name)}</b></a>
+        ${r.description ? `<p class="desc">${esc(r.description)}</p>` : ''}
+        <p class="meta"><span>★ ${fmtStars(r.stargazers_count)}</span>${r.language ? `<span>${esc(r.language)}</span>` : ''}<span>Updated ${fmtDate(r.pushed_at)}</span>${r.archived ? '<span>Archived</span>' : ''}</p>
+        ${why.length ? `<p class="why">${why.join('. ')}</p>` : ''}
+        <div class="llmslot"></div>
+      </div></li>`;
+  }).join('');
+}
+
+// ---------- optional local LLM (WebGPU) ----------
+let engine = null, engineModel = null;
+async function getEngine(model) {
+  if (!navigator.gpu || !(await navigator.gpu.requestAdapter().catch(() => null))) {
+    throw new Error('This browser has no WebGPU, so the LLM check was skipped. Try recent Chrome or Edge on desktop.');
+  }
+  const webllm = await import(WEBLLM_URL);
+  const cb = r => setStatus(`Loading ${model}: ${r.text}`, { progress: r.progress ?? 0 });
+  if (!engine) engine = await webllm.CreateMLCEngine(model, { initProgressCallback: cb });
+  else if (engineModel !== model) { engine.setInitProgressCallback?.(cb); await engine.reload(model); }
+  engineModel = model;
+  return engine;
+}
+
+const LABELS = [
+  { key: 'same', text: 'It solves the same problem' },
+  { key: 'partial', text: 'It partly overlaps' },
+  { key: 'different', text: 'It solves a different problem' },
+];
+const VERDICT_TEXT = { same: 'Same problem', partial: 'Partial overlap', different: 'Different problem' };
+const SYSTEM = 'You compare software projects by the problem they solve and the features they offer. Programming language and framework do not matter.';
+
+function summary(title, name, desc, topics, readme, len) {
+  return `${title}: ${name}\nDescription: ${desc || '(none)'}\nTopics: ${topics.join(', ') || '(none)'}\nREADME excerpt: ${(readme || '').slice(0, len) || '(none)'}`;
+}
+
+async function ask(eng, user, maxTokens) {
+  const r = await eng.chat.completions.create({
+    messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }],
+    temperature: 0, max_tokens: maxTokens,
+  });
+  return (r.choices[0]?.message?.content || '').trim();
+}
+
+// AIDEV-NOTE: AnyJev-style debiasing without logits. Small models favor an option position;
+// asking under all 3 cyclic orders and voting exposes that as disagreement instead of false confidence.
+async function judge(eng, src, c) {
+  const ref = summary('Reference project', src.fullName || 'described tool', src.description, src.topics, src.readme, 700);
+  const cand = summary('Candidate project', c.repo.full_name, c.repo.description, c.repo.topics || [], c.readme, 500);
+  const votes = { same: 0, partial: 0, different: 0 };
+  for (let rot = 0; rot < 3; rot++) {
+    const order = [...LABELS.slice(rot), ...LABELS.slice(0, rot)];
+    const opts = order.map((l, i) => `${'ABC'[i]}) ${l.text}`).join('\n');
+    const ans = await ask(eng, `${ref}\n\n${cand}\n\nCompared with the reference project, which is true of the candidate, regardless of programming language?\n${opts}\nAnswer with one letter only.`, 4);
+    const m = ans.toUpperCase().match(/\b([ABC])\b/) || ans.toUpperCase().match(/^([ABC])/);
+    if (m) votes[order['ABC'.indexOf(m[1])].key]++;
+  }
+  const [best, count] = Object.entries(votes).sort((a, b) => b[1] - a[1])[0];
+  const reason = await ask(eng, `${ref}\n\n${cand}\n\nIn one sentence under 25 words, say what the candidate shares with the reference, or how it differs.`, 60);
+  return { key: count >= 2 ? best : 'unsure', count, reason };
+}
+
+async function runLlm() {
+  const k = Math.max(1, Math.min(15, Number($('#llmTopK').value) || 6));
+  const eng = await getEngine($('#model').value);
+  const top = state.results.slice(0, k);
+  for (let i = 0; i < top.length; i++) {
+    setStatus(`LLM check ${i + 1} of ${top.length}: ${top[i].repo.full_name}`, { progress: i / top.length });
+    const slot = document.querySelector(`#hit-${i} .llmslot`);
+    slot.innerHTML = '<p class="llm">Checking…</p>';
+    const v = await judge(eng, state.source, top[i]);
+    top[i].llm = v;
+    const head = v.key === 'unsure'
+      ? 'Unsure: the answer changed with option order'
+      : `${VERDICT_TEXT[v.key]} (${v.count} of 3 option orders agree)`;
+    slot.innerHTML = `<p class="llm ${v.key}"><strong>${esc(head)}</strong>${esc(v.reason)}</p>`;
+    await tick();
+  }
+  setStatus(`Done. The LLM checked the top ${top.length}.`);
+}
+
+// ---------- flow ----------
+async function guarded(fn) {
+  if (state.running) return;
+  state.running = true;
+  $('#run').disabled = true; $('#rerun').disabled = true;
+  try { await fn(); }
+  catch (e) { console.error(e); setStatus(e.message || String(e), { error: true }); }
+  finally { state.running = false; $('#run').disabled = false; $('#rerun').disabled = false; }
+}
+
+async function withOptionalLlm() {
+  await searchAndRank();
+  if ($('#useLlm').checked && state.results.length) {
+    try { await runLlm(); }
+    catch (e) { console.error(e); setStatus(e.message || String(e), { error: true }); }
+  }
+}
+
+$('#form').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const input = $('#q').value.trim();
+  if (!input) return;
+  guarded(async () => {
+    $('#results').hidden = true;
+    state.source = await buildSource(input);
+    if (!sourceText(state.source)) throw new GhError('The repo has no description, topics, or README to compare. Describe the tool in words instead.');
+    setStatus('Finding the main features…');
+    const vec = await sourceVector(state.source);
+    state.keyphrases = await extractKeyphrases(state.source, vec);
+    renderProfile();
+    await withOptionalLlm();
+  });
+});
+
+$('#chips').addEventListener('click', ev => {
+  const b = ev.target.closest('button[data-i]');
+  if (!b) return;
+  state.keyphrases.splice(Number(b.dataset.i), 1);
+  renderProfile();
+});
+function addKeyword() {
+  const v = $('#newKw').value.trim().toLowerCase();
+  if (v && !state.keyphrases.includes(v)) state.keyphrases.unshift(v);
+  $('#newKw').value = '';
+  renderProfile();
+}
+$('#addKw').addEventListener('click', addKeyword);
+$('#newKw').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } });
+$('#rerun').addEventListener('click', () => { if (state.source) guarded(withOptionalLlm); });
+
+$('#copyMd').addEventListener('click', async () => {
+  const rows = state.results.map((c, i) =>
+    `| ${i + 1} | [${c.repo.full_name}](${c.repo.html_url}) | ${Math.round(c.score * 100)} | ${c.repo.language || ''} | ${c.repo.stargazers_count} | ${c.llm ? (VERDICT_TEXT[c.llm.key] || 'Unsure') : ''} | ${(c.repo.description || '').replace(/\|/g, '\\|')} |`);
+  const md = [`Similar to ${state.source.label}`, '', '| # | Repo | Similarity | Language | Stars | LLM | Description |', '|---|---|---|---|---|---|---|', ...rows].join('\n');
+  try { await navigator.clipboard.writeText(md); setStatus('Copied the results as a Markdown table.'); }
+  catch { setStatus('The browser blocked clipboard access. Serve the page over https or localhost.', { error: true }); }
+});
+</script>
+</body>
+</html>
