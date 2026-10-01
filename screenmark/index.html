@@ -71,5 +71,13 @@ function download(){if(!state.blob)return;const u=URL.createObjectURL(state.blob
 canvas.addEventListener('pointerdown',e=>{if(!state.running)return;const r=canvas.getBoundingClientRect();state.zoom.x=(e.clientX-r.left)/r.width;state.zoom.y=(e.clientY-r.top)/r.height;state.zoom.start=performance.now()/1000;state.zoom.scale=+$('#zoom').value;state.zoom.hold=+$('#hold').value});
 $('#quality').oninput=()=>$('#qualityOut').textContent=$('#quality').value+' Mbps';$('#start').onclick=startRecording;$('#pause').onclick=togglePause;$('#stop').onclick=stopRecording;$('#download').onclick=download;
 </script>
+  <script>
+  kofiWidgetOverlay.draw('kreepto', {
+    'type': 'floating-chat',
+    'floating-chat.donateButton.text': 'Donate',
+    'floating-chat.donateButton.background-color': '#323842',
+    'floating-chat.donateButton.text-color': '#fff'
+  });
+</script>
 </body>
 </html>
