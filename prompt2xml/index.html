@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Prompt to XML</title>
+<!-- AIDEV-NOTE: Single-file, local-first. Inference runs in-browser via WebLLM (WebGPU).
+     Library load order: ./vendor/web-llm.js (offline) then pinned jsDelivr fallback.
+     Model weights are cached by the browser (Cache Storage) after first download. -->
+<style>
+:root {
+  --bg: #E9EDF2; --panel: #FFFFFF; --ink: #16202E; --muted: #5B6778;
+  --line: #CBD3DD; --accent: #0F6E6E; --accent-ink: #FFFFFF;
+  --tag: #0F6E6E; --bracket: #8C98A8; --warn: #A5501A; --ok: #2F7D32;
+  --code-bg: #F6F8FA;
+  color-scheme: light dark;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12171E; --panel: #1A212B; --ink: #E3E8EF; --muted: #98A3B3;
+    --line: #2C3644; --accent: #3BB3A9; --accent-ink: #0B1A1A;
+    --tag: #5CC8BE; --bracket: #6B7686; --warn: #E09257; --ok: #6CC070;
+    --code-bg: #151B23;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12171E; --panel: #1A212B; --ink: #E3E8EF; --muted: #98A3B3;
+  --line: #2C3644; --accent: #3BB3A9; --accent-ink: #0B1A1A;
+  --tag: #5CC8BE; --bracket: #6B7686; --warn: #E09257; --ok: #6CC070;
+  --code-bg: #151B23;
+}
+*, *::before, *::after { box-sizing: inherit; }
+html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+body {
+  margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+.mono, textarea, pre, code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+header {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between;
+  padding: 18px 20px 10px; max-width: 1400px; margin: 0 auto;
+}
+h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+h1 .lt { color: var(--bracket); font-weight: 400; }
+h1 .nm { color: var(--tag); }
+.sub { color: var(--muted); font-size: 14px; margin: 0; }
+main {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px;
+  padding: 0 20px 24px; max-width: 1400px; margin: 0 auto;
+}
+@media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+section.pane {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  display: flex; flex-direction: column; min-width: 0;
+}
+.pane-head {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--line);
+}
+.pane-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.pane-body { padding: 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+textarea {
+  width: 100%; min-height: 340px; resize: vertical; padding: 12px; font-size: 13.5px; line-height: 1.55;
+  background: var(--code-bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+}
+label { font-size: 14px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button {
+  border: 0; background: transparent; color: var(--ink); padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer;
+  border-right: 1px solid var(--line);
+}
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+button.btn {
+  font: inherit; font-size: 14px; padding: 7px 14px; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+}
+button.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.btn:disabled { opacity: .5; cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select {
+  font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 6px; max-width: 100%;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+}
+details.model { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+details.model summary { cursor: pointer; font-size: 14px; }
+details.model .pane-body { padding: 10px 0 2px; }
+.status { font-size: 13.5px; color: var(--muted); }
+.status.err { color: var(--warn); }
+.status.ok { color: var(--ok); }
+progress { width: 100%; height: 6px; accent-color: var(--accent); }
+.out-wrap { overflow-x: auto; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; min-height: 340px; }
+pre#out { margin: 0; padding: 12px; font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+pre#out .t { color: var(--tag); font-weight: 600; }
+pre#out .b { color: var(--bracket); }
+pre#out .raw { color: var(--muted); }
+.empty { color: var(--muted); }
+.checks { font-size: 14px; display: grid; gap: 6px; }
+.checks .ok { color: var(--ok); }
+.checks .warn { color: var(--warn); }
+.words { color: var(--muted); font-size: 13px; }
+.hint { font-size: 13px; color: var(--muted); }
+code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12.5px; }
+.banner {
+  max-width: 1400px; margin: 0 auto 12px; padding: 0 20px;
+}
+.banner > div { border: 1px solid var(--warn); color: var(--ink); background: var(--panel); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1><span class="lt">&lt;</span><span class="nm">prompt</span><span class="lt">&gt;</span> to XML</h1>
+    <p class="sub">Restructure a plain prompt into tagged sections. Runs on your GPU; your text never leaves the browser.</p>
+  </div>
+  <div class="status" id="libStatus">Loading engine…</div>
+</header>
+
+<div class="banner" id="banner" hidden><div id="bannerText"></div></div>
+
+<main>
+  <section class="pane" aria-labelledby="inHead">
+    <div class="pane-head">
+      <h2 id="inHead">Your prompt</h2>
+      <div class="seg" role="group" aria-label="Target model" id="targets">
+        <button type="button" data-target="claude">Claude</button>
+        <button type="button" data-target="claude-code">Claude Code</button>
+        <button type="button" data-target="chatgpt">ChatGPT</button>
+        <button type="button" data-target="codex">Codex</button>
+      </div>
+    </div>
+    <div class="pane-body">
+      <textarea id="src" spellcheck="false" placeholder="Paste a prompt. Example: You are a senior Python reviewer. Review the function below for bugs and edge cases. Keep it under 200 words and return a numbered list..."></textarea>
+      <div class="row">
+        <label><input type="checkbox" id="optTighten"> Tighten wording</label>
+        <label><input type="checkbox" id="optRoot"> Wrap in &lt;prompt&gt;</label>
+        <label><input type="checkbox" id="optEscape"> Escape &amp; &lt; &gt; in content</label>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="convert" disabled>Convert</button>
+        <button class="btn" id="stop" hidden>Stop</button>
+        <span class="status" id="genStatus"></span>
+      </div>
+
+      <details class="model" id="modelBox">
+        <summary>Model: <span id="modelLabel">none loaded</span></summary>
+        <div class="pane-body">
+          <div class="row">
+            <select id="model" aria-label="Model"></select>
+            <select id="ctx" aria-label="Context window">
+              <option value="4096">4k context</option>
+              <option value="8192">8k context</option>
+              <option value="16384">16k context</option>
+            </select>
+          </div>
+          <div class="row">
+            <button class="btn" id="load" disabled>Load model</button>
+            <button class="btn" id="clearCache" disabled>Delete cached model</button>
+          </div>
+          <progress id="prog" max="1" value="0" hidden></progress>
+          <div class="status" id="modelStatus"></div>
+          <p class="hint">First load downloads the weights once (about 1–5 GB). After that the model loads from the browser cache, offline.</p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section class="pane" aria-labelledby="outHead">
+    <div class="pane-head">
+      <h2 id="outHead">XML prompt</h2>
+      <div class="row">
+        <button class="btn" id="copyXml" disabled>Copy XML</button>
+        <button class="btn" id="copyMd" disabled>Copy Markdown</button>
+        <button class="btn" id="download" disabled>Download</button>
+      </div>
+    </div>
+    <div class="pane-body">
+      <div class="out-wrap"><pre id="out"><span class="empty">The converted prompt appears here.</span></pre></div>
+      <div class="checks" id="checks" hidden></div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+// ---------- Config ----------
+const WEBLLM_VERSION = "0.2.85";
+const LIB_SOURCES = [
+  new URL("./vendor/web-llm.js", location.href).href,
+  `https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@${WEBLLM_VERSION}/lib/index.js`,
+];
+const DEFAULT_MODELS = ["Qwen2.5-3B-Instruct-q4f16_1-MLC", "Qwen2.5-3B-Instruct-q4f32_1-MLC"];
+
+const TARGETS = {
+  "claude":      { label: "Claude",      agent: false },
+  "claude-code": { label: "Claude Code", agent: true  },
+  "chatgpt":     { label: "ChatGPT",     agent: false },
+  "codex":       { label: "Codex",       agent: true  },
+};
+
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("p2x:" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("p2x:" + k, JSON.stringify(v)); } catch { /* storage unavailable */ } },
+};
+
+let webllm = null, libUrl = null, engine = null, loadedModel = null, busy = false;
+let lastResult = null; // { xml, md, data }
+let target = store.get("target", "claude");
+
+// ---------- Environment checks ----------
+function showBanner(html) { $("bannerText").innerHTML = html; $("banner").hidden = false; }
+
+if (location.protocol === "file:") {
+  showBanner(`Open this page from a local server, not as a file. Browsers block WebGPU caching and module loading on <code>file://</code>.<br>
+  Run <code>python3 -m http.server 8000</code> in this folder, then open <code>http://localhost:8000/</code>.`);
+}
+
+async function gpuInfo() {
+  if (!("gpu" in navigator)) return { ok: false };
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return { ok: false };
+    return { ok: true, f16: adapter.features.has("shader-f16") };
+  } catch { return { ok: false }; }
+}
+
+async function loadLib() {
+  for (const url of LIB_SOURCES) {
+    try {
+      const mod = await import(url);
+      if (mod && mod.CreateMLCEngine) return { mod, url };
+    } catch { /* try next source */ }
+  }
+  throw new Error("Could not load WebLLM from ./vendor/web-llm.js or the CDN.");
+}
+
+// ---------- Model list ----------
+function usableModels(f16) {
+  // AIDEV-NOTE: Exclude models without system-role support (gemma), vision/embedding, 1k-context, and unquantized variants.
+  return webllm.prebuiltAppConfig.model_list
+    .filter((m) => /^(Qwen2\.5-.*Instruct|Qwen3|Llama-3\.[12]-.*Instruct|Phi-3\.5-mini-instruct)/.test(m.model_id))
+    .filter((m) => !/vision|-1k$|q0f|Coder|Math/i.test(m.model_id))
+    .filter((m) => f16 || !/q4f16/.test(m.model_id))
+    .sort((a, b) => (a.vram_required_MB || 0) - (b.vram_required_MB || 0));
+}
+
+function fillModels(list) {
+  const sel = $("model");
+  sel.innerHTML = "";
+  for (const m of list) {
+    const o = document.createElement("option");
+    const gb = m.vram_required_MB ? ` (${(m.vram_required_MB / 1024).toFixed(1)} GB)` : "";
+    o.value = m.model_id;
+    o.textContent = m.model_id.replace(/-MLC$/, "") + gb + (DEFAULT_MODELS.includes(m.model_id) ? ", recommended" : "");
+    sel.appendChild(o);
+  }
+  const saved = store.get("model", null);
+  const pick = [saved, ...DEFAULT_MODELS].find((id) => id && list.some((m) => m.model_id === id));
+  if (pick) sel.value = pick;
+}
+
+// ---------- Engine ----------
+function makeWorker(url) {
+  const src = `import { WebWorkerMLCEngineHandler } from ${JSON.stringify(url)};
+const handler = new WebWorkerMLCEngineHandler();
+self.onmessage = (msg) => handler.onmessage(msg);`;
+  const blobUrl = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+  return new Worker(blobUrl, { type: "module" });
+}
+
+async function loadModel() {
+  const modelId = $("model").value;
+  const ctx = Number($("ctx").value);
+  if (!modelId) return;
+  busy = true; syncButtons();
+  $("prog").hidden = false; $("prog").value = 0;
+  setStatus("modelStatus", "Starting…");
+  const engineConfig = {
+    initProgressCallback: (r) => {
+      $("prog").value = r.progress || 0;
+      setStatus("modelStatus", r.text);
+    },
+  };
+  const chatOpts = { context_window_size: ctx };
+  try {
+    if (engine) { try { await engine.unload(); } catch { /* ignore */ } }
+    try {
+      engine = await webllm.CreateWebWorkerMLCEngine(makeWorker(libUrl), modelId, engineConfig, chatOpts);
+    } catch (workerErr) {
+      // AIDEV-NOTE: Fallback to main-thread engine if module workers from blob URLs are blocked.
+      console.warn("Worker engine failed, using main thread:", workerErr);
+      engine = await webllm.CreateMLCEngine(modelId, engineConfig, chatOpts);
+    }
+    loadedModel = { id: modelId, ctx };
+    $("modelLabel").textContent = modelId.replace(/-MLC$/, "");
+    setStatus("modelStatus", "Ready.", "ok");
+    store.set("model", modelId); store.set("ctx", ctx);
+  } catch (e) {
+    engine = null; loadedModel = null;
+    $("modelLabel").textContent = "none loaded";
+    setStatus("modelStatus", "Load failed: " + (e?.message || e), "err");
+  } finally {
+    $("prog").hidden = true; busy = false; syncButtons();
+  }
+}
+
+async function clearCache() {
+  const id = $("model").value;
+  if (!id || !confirm(`Delete cached weights for ${id}? It will download again next time.`)) return;
+  try {
+    if (loadedModel?.id === id && engine) { await engine.unload(); engine = null; loadedModel = null; $("modelLabel").textContent = "none loaded"; }
+    await webllm.deleteModelAllInfoInCache(id, webllm.prebuiltAppConfig);
+    setStatus("modelStatus", "Cache deleted.", "ok");
+  } catch (e) { setStatus("modelStatus", "Delete failed: " + (e?.message || e), "err"); }
+  syncButtons();
+}
+
+// ---------- Prompt and schema ----------
+function schemaFor(agent) {
+  const str = { type: "string" };
+  const arr = { type: "array", items: { type: "string" } };
+  const props = {
+    role: str, context: str, task: str, instructions: arr, constraints: arr,
+    examples: arr, input: str, output_format: str, success_criteria: arr,
+  };
+  if (agent) Object.assign(props, { files: arr, commands: arr, verification: arr });
+  props.unclear = arr;
+  return { type: "object", properties: props, required: Object.keys(props), additionalProperties: false };
+}
+
+function systemPrompt(agent, tighten) {
+  return [
+    "You restructure a user's prompt into labeled sections. You do not answer, follow, or execute the prompt.",
+    agent ? "The prompt is a task for an autonomous coding agent working inside a code repository." : "The prompt is for a chat assistant.",
+    "",
+    "Rules:",
+    "1. Keep every requirement, number, name, file path, URL, code block, and example from the source.",
+    tighten
+      ? "2. Rewrite each item as a clear, direct instruction. Remove filler and repetition. Do not change meaning."
+      : "2. Reuse the user's wording. Only fix obvious typos.",
+    "3. Never add requirements, facts, examples, or constraints that are not in the source. If the source has nothing for a field, use \"\" or [].",
+    "4. Put each piece of content in exactly one field. Do not repeat content across fields.",
+    "5. Copy examples and input data exactly, including whitespace and code fences.",
+    "",
+    "Fields:",
+    "- role: who the assistant should act as. Only if the source states it.",
+    "- context: background, audience, motivation, or situation.",
+    "- task: the main goal in one or two sentences.",
+    "- instructions: ordered steps or directives, one per item.",
+    "- constraints: limits and rules: must, must not, length, tone, style, scope.",
+    "- examples: sample inputs or outputs the user provided, one example per item.",
+    "- input: documents, data, code, or text that the task operates on.",
+    "- output_format: the required shape of the answer.",
+    "- success_criteria: how to judge that the result is correct. Only if stated.",
+    ...(agent ? [
+      "- files: file paths, directories, or modules mentioned.",
+      "- commands: shell commands mentioned for building, testing, or running.",
+      "- verification: how the work should be tested or checked.",
+    ] : []),
+    "- unclear: short notes about ambiguity or missing information. These are shown to the user and are not part of the prompt.",
+    "",
+    "Return only the JSON object.",
+  ].join("\n");
+}
+
+// ---------- XML and Markdown builders ----------
+const LABELS = {
+  role: "Role", context: "Context", task: "Task", instructions: "Instructions", constraints: "Constraints",
+  examples: "Examples", input: "Input", output_format: "Output format", success_criteria: "Success criteria",
+  files: "Files", commands: "Commands", verification: "Verification",
+};
+
+function sectionOrder(data, agent) {
+  // AIDEV-NOTE: Long input goes near the top (Anthropic long-context guidance); the task stays after it.
+  const longInput = (data.input || "").length > 1500;
+  const order = ["role", "context"];
+  if (longInput) order.push("input");
+  order.push("task");
+  if (agent) order.push("files");
+  order.push("instructions", "constraints");
+  if (agent) order.push("commands", "verification");
+  order.push("examples");
+  if (!longInput) order.push("input");
+  order.push("output_format", "success_criteria");
+  return order;
+}
+
+const clean = (s) => (typeof s === "string" ? s.replace(/\s+$/g, "").replace(/^\n+/, "") : "");
+const isEmpty = (v) => Array.isArray(v) ? v.every((x) => !clean(x)) : !clean(v);
+
+function bodyText(key, value) {
+  if (!Array.isArray(value)) return clean(value);
+  const items = value.map(clean).filter(Boolean);
+  if (key === "instructions") return items.map((x, i) => `${i + 1}. ${x}`).join("\n");
+  if (key === "commands") return items.join("\n");
+  return items.map((x) => `- ${x}`).join("\n");
+}
+
+// Builds a list of { kind: "tag"|"text", text } lines for both rendering and export.
+function buildLines(data, agent, opts) {
+  const esc = opts.escape ? (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : (s) => s;
+  const lines = [];
+  const pad = opts.root ? "  " : "";
+  if (opts.root) lines.push({ kind: "tag", text: "<prompt>" });
+  const sections = sectionOrder(data, agent).filter((k) => k in data && !isEmpty(data[k]));
+  sections.forEach((key, i) => {
+    if (key === "examples") {
+      lines.push({ kind: "tag", text: `${pad}<examples>` });
+      data.examples.map(clean).filter(Boolean).forEach((ex) => {
+        lines.push({ kind: "tag", text: `${pad}<example>` });
+        lines.push({ kind: "text", text: esc(ex) });
+        lines.push({ kind: "tag", text: `${pad}</example>` });
+      });
+      lines.push({ kind: "tag", text: `${pad}</examples>` });
+    } else {
+      lines.push({ kind: "tag", text: `${pad}<${key}>` });
+      lines.push({ kind: "text", text: esc(bodyText(key, data[key])) });
+      lines.push({ kind: "tag", text: `${pad}</${key}>` });
+    }
+    if (i < sections.length - 1) lines.push({ kind: "text", text: "" });
+  });
+  if (opts.root) lines.push({ kind: "tag", text: "</prompt>" });
+  return lines;
+}
+
+function toMarkdown(data, agent) {
+  return sectionOrder(data, agent)
+    .filter((k) => k in data && !isEmpty(data[k]))
+    .map((k) => {
+      if (k === "examples") {
+        return "## Examples\n\n" + data.examples.map(clean).filter(Boolean)
+          .map((ex, i) => `### Example ${i + 1}\n\n${ex}`).join("\n\n");
+      }
+      return `## ${LABELS[k]}\n\n${bodyText(k, data[k])}`;
+    }).join("\n\n") + "\n";
+}
+
+function renderLines(lines) {
+  const h = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return lines.map((l) => {
+    if (l.kind !== "tag") return h(l.text);
+    const m = l.text.match(/^(\s*)<(\/?)([a-z_]+)>$/);
+    return `${m[1]}<span class="b">&lt;${m[2]}</span><span class="t">${m[3]}</span><span class="b">&gt;</span>`;
+  }).join("\n");
+}
+
+// ---------- Checks ----------
+const STOP = new Set("that this with from have will your their there about which would should could into than then them they what when where while also only just more most some such very each other these those were been being does doing make made over under".split(" "));
+function words(s) {
+  return new Set((s.toLowerCase().match(/[a-z0-9][a-z0-9_.\-/]{3,}/g) || []).map((w) => w.replace(/[.\-/]+$/, "")).filter((w) => w.length >= 4 && !STOP.has(w)));
+}
+
+function runChecks(src, data, xml, opts) {
+  const out = [];
+  // Well-formedness: parse the escaped form inside a synthetic root.
+  const strict = buildLines(data, TARGETS[target].agent, { ...opts, escape: true, root: false }).map((l) => l.text).join("\n");
+  const doc = new DOMParser().parseFromString(`<root>${strict}</root>`, "application/xml");
+  const parseErr = doc.querySelector("parsererror");
+  out.push(parseErr ? `<div class="warn">XML structure: not well-formed.</div>` : `<div class="ok">XML structure: well-formed.</div>`);
+
+  // Tag collisions: content that contains our own closing tags would confuse the target model.
+  if (!opts.escape) {
+    const tagNames = Object.keys(LABELS).concat(["example", "examples", "prompt"]);
+    const contentText = Object.entries(data).filter(([k]) => k !== "unclear").map(([, v]) => Array.isArray(v) ? v.join("\n") : v).join("\n");
+    const hit = tagNames.find((t) => new RegExp(`</?${t}>`).test(contentText));
+    if (hit) out.push(`<div class="warn">Content contains a &lt;${hit}&gt; tag. Turn on escaping or rename it in your source.</div>`);
+  }
+
+  // Coverage: words from the source missing in the output, and new words the model introduced.
+  const sw = words(src), ow = words(xml);
+  const missing = [...sw].filter((w) => !ow.has(w));
+  const added = [...ow].filter((w) => !sw.has(w) && !(w in LABELS) && !["example", "examples", "prompt"].includes(w));
+  const cov = sw.size ? Math.round(100 * (sw.size - missing.length) / sw.size) : 100;
+  const covClass = cov >= 90 ? "ok" : "warn";
+  out.push(`<div class="${covClass}">Source words kept: ${cov}%${missing.length ? "." : ", none dropped."}</div>`);
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  if (missing.length) out.push(`<div class="words">Missing: ${esc(missing.slice(0, 40).join(", "))}${missing.length > 40 ? ", …" : ""}</div>`);
+  if (added.length) out.push(`<div class="words">New words (check for invented content): ${esc(added.slice(0, 40).join(", "))}${added.length > 40 ? ", …" : ""}</div>`);
+
+  const unclear = (data.unclear || []).map(clean).filter(Boolean);
+  if (unclear.length) out.push(`<div><strong>Worth clarifying:</strong><br>${unclear.map((u) => "- " + esc(u)).join("<br>")}</div>`);
+  return out.join("");
+}
+
+// ---------- Convert ----------
+function parseJson(text) {
+  try { return JSON.parse(text); } catch { /* try trimming */ }
+  const a = text.indexOf("{"), b = text.lastIndexOf("}");
+  if (a >= 0 && b > a) { try { return JSON.parse(text.slice(a, b + 1)); } catch { /* fall through */ } }
+  return null;
+}
+
+async function convert() {
+  const src = $("src").value.trim();
+  if (!src) { setStatus("genStatus", "Paste a prompt first.", "err"); return; }
+  if (!engine) { $("modelBox").open = true; setStatus("genStatus", "Load a model first.", "err"); return; }
+
+  const agent = TARGETS[target].agent;
+  const opts = { tighten: $("optTighten").checked, root: $("optRoot").checked, escape: $("optEscape").checked };
+
+  // AIDEV-NOTE: Rough token estimate (~3.5 chars/token). Output needs about as many tokens as input.
+  const estIn = Math.ceil(src.length / 3.5) + 700;
+  const budget = loadedModel.ctx - estIn;
+  if (budget < estIn - 600) {
+    setStatus("genStatus", `Prompt is too long for ${loadedModel.ctx / 1024}k context. Pick a larger context and reload.`, "err");
+    return;
+  }
+
+  busy = true; syncButtons(); $("stop").hidden = false;
+  $("checks").hidden = true;
+  $("out").innerHTML = `<span class="raw"></span>`;
+  const rawEl = $("out").firstChild;
+  setStatus("genStatus", "Converting…");
+  const t0 = performance.now();
+  let text = "", tokens = 0;
+
+  try {
+    await engine.resetChat();
+    const req = {
+      messages: [
+        { role: "system", content: systemPrompt(agent, opts.tighten) },
+        { role: "user", content: `<source_prompt>\n${src}\n</source_prompt>` },
+      ],
+      temperature: 0,
+      max_tokens: Math.min(budget, 6000),
+      stream: true,
+      response_format: { type: "json_object", schema: JSON.stringify(schemaFor(agent)) },
+    };
+    if (/^Qwen3/.test(loadedModel.id)) req.extra_body = { enable_thinking: false };
+    const chunks = await engine.chat.completions.create(req);
+    for await (const c of chunks) {
+      const d = c.choices?.[0]?.delta?.content || "";
+      if (d) { text += d; tokens++; rawEl.textContent = text; }
+    }
+    const data = parseJson(text);
+    if (!data) throw new Error("The model returned output that is not valid JSON. Try again or pick a larger model.");
+
+    const lines = buildLines(data, agent, opts);
+    const xml = lines.map((l) => l.text).join("\n") + "\n";
+    if (!xml.trim()) throw new Error("The model returned empty sections. Try again or pick a larger model.");
+    lastResult = { xml, md: toMarkdown(data, agent), data };
+    $("out").innerHTML = renderLines(lines);
+    $("checks").innerHTML = runChecks(src, data, xml, opts);
+    $("checks").hidden = false;
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    setStatus("genStatus", `Done in ${secs}s (${tokens} chunks).`, "ok");
+  } catch (e) {
+    const msg = e?.message || String(e);
+    setStatus("genStatus", /interrupt|abort/i.test(msg) ? "Stopped." : msg, "err");
+    if (!text) $("out").innerHTML = `<span class="empty">No output.</span>`;
+    lastResult = null;
+  } finally {
+    busy = false; $("stop").hidden = true; syncButtons();
+  }
+}
+
+// ---------- UI helpers ----------
+function setStatus(id, text, cls = "") { const el = $(id); el.textContent = text; el.className = "status " + cls; }
+
+function syncButtons() {
+  $("convert").disabled = busy || !webllm;
+  $("load").disabled = busy || !webllm;
+  $("clearCache").disabled = busy || !webllm;
+  const has = !!lastResult && !busy;
+  $("copyXml").disabled = !has; $("copyMd").disabled = !has; $("download").disabled = !has;
+}
+
+function setTarget(t) {
+  target = TARGETS[t] ? t : "claude";
+  store.set("target", target);
+  document.querySelectorAll("#targets button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.target === target)));
+}
+
+async function copy(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    const old = btn.textContent; btn.textContent = "Copied"; setTimeout(() => (btn.textContent = old), 1200);
+  } catch { setStatus("genStatus", "Clipboard blocked. Select the text and copy manually.", "err"); }
+}
+
+function download() {
+  if (!lastResult) return;
+  const md = target === "codex";
+  const blob = new Blob([md ? lastResult.md : lastResult.xml], { type: md ? "text/markdown" : "application/xml" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = md ? "prompt.md" : "prompt.xml";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ---------- Wire up ----------
+setTarget(target);
+$("targets").addEventListener("click", (e) => { const b = e.target.closest("button[data-target]"); if (b) setTarget(b.dataset.target); });
+$("src").value = store.get("draft", "");
+$("src").addEventListener("input", () => store.set("draft", $("src").value));
+for (const id of ["optTighten", "optRoot", "optEscape"]) {
+  $(id).checked = store.get(id, false);
+  $(id).addEventListener("change", () => store.set(id, $(id).checked));
+}
+$("ctx").value = String(store.get("ctx", 8192));
+$("load").addEventListener("click", loadModel);
+$("clearCache").addEventListener("click", clearCache);
+$("convert").addEventListener("click", convert);
+$("stop").addEventListener("click", () => { try { engine?.interruptGenerate(); } catch { /* ignore */ } });
+$("copyXml").addEventListener("click", (e) => copy(lastResult.xml, e.currentTarget));
+$("copyMd").addEventListener("click", (e) => copy(lastResult.md, e.currentTarget));
+$("download").addEventListener("click", download);
+$("src").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") convert(); });
+
+(async () => {
+  const gpu = await gpuInfo();
+  if (!gpu.ok) {
+    setStatus("libStatus", "WebGPU unavailable", "err");
+    showBanner("This browser has no WebGPU. Use a recent Chrome, Edge, or Safari with WebGPU enabled, on a machine with a supported GPU.");
+    return;
+  }
+  try {
+    const { mod, url } = await loadLib();
+    webllm = mod; libUrl = url;
+    setStatus("libStatus", url.startsWith(location.origin) ? `WebLLM ${WEBLLM_VERSION}, local copy` : `WebLLM ${WEBLLM_VERSION}, from CDN`);
+    fillModels(usableModels(gpu.f16));
+    $("model").addEventListener("change", () => store.set("model", $("model").value));
+    // Auto-load only when the chosen model is already cached, to avoid surprise multi-GB downloads.
+    if (await webllm.hasModelInCache($("model").value, webllm.prebuiltAppConfig).catch(() => false)) loadModel();
+    else { $("modelBox").open = true; setStatus("modelStatus", "Pick a model and load it. The first load downloads it once."); }
+  } catch (e) {
+    setStatus("libStatus", "Engine failed to load", "err");
+    showBanner(e.message + " If you are offline, download <code>vendor/web-llm.js</code> while online (see README).");
+  }
+  syncButtons();
+})();
+</script>
+</body>
+</html>
