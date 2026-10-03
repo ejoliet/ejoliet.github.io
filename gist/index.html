@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Gist Browser</title>
+<style>
+  :root {
+    --bg:#0d1117; --panel:#161b22; --panel2:#0d1117; --border:#30363d;
+    --text:#e6edf3; --muted:#8b949e; --accent:#58a6ff; --hover:#21262d;
+    --selected:#1f6feb33; --danger:#f85149; --shadow:0 8px 30px #01040966;
+    --code-size:13px; --sidebar:300px;
+  }
+  :root[data-theme="light"] {
+    --bg:#ffffff; --panel:#f6f8fa; --panel2:#ffffff; --border:#d0d7de;
+    --text:#1f2328; --muted:#656d76; --accent:#0969da; --hover:#eaeef2;
+    --selected:#ddf4ff; --danger:#cf222e; --shadow:0 8px 30px #1f23281f;
+  }
+  * { box-sizing:border-box }
+  html,body { margin:0; min-height:100%; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif }
+  button,input { font:inherit }
+  button { color:inherit }
+  a { color:var(--accent); text-decoration:none }
+  a:hover { text-decoration:underline }
+  .app { min-height:100vh; display:grid; grid-template-rows:auto 1fr }
+  .topbar { position:sticky; top:0; z-index:20; display:flex; gap:8px; align-items:center; min-height:52px; padding:8px 12px; background:color-mix(in srgb,var(--panel) 94%,transparent); border-bottom:1px solid var(--border); backdrop-filter:blur(10px) }
+  .brand { font-weight:700; white-space:nowrap; letter-spacing:.1px }
+  .gist-form { flex:1; display:flex; gap:8px; min-width:0 }
+  input[type=text],input[type=password],input[type=search] { width:100%; min-width:0; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:7px 9px; outline:none }
+  input:focus { border-color:var(--accent); box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent) }
+  .token { width:min(260px,30vw)!important }
+  .token-wrap { display:flex; align-items:center; gap:6px; min-width:0 }
+  .token-note { color:var(--muted); font-size:11px; white-space:nowrap }
+  .btn { border:1px solid var(--border); background:var(--panel); padding:6px 9px; border-radius:6px; cursor:pointer; white-space:nowrap }
+  .btn:hover { background:var(--hover) }
+  .btn.primary { background:#238636; border-color:#2ea043; color:#fff }
+  .btn.primary:hover { background:#2ea043 }
+  .layout { min-height:0; display:grid; grid-template-columns:var(--sidebar) minmax(0,1fr) }
+  .sidebar { position:sticky; top:52px; height:calc(100vh - 52px); overflow:auto; border-right:1px solid var(--border); background:var(--panel) }
+  .side-head { position:sticky; top:0; z-index:3; padding:10px; background:var(--panel); border-bottom:1px solid var(--border) }
+  .side-meta { margin-top:8px; color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .files { padding:6px }
+  .file { display:flex; gap:7px; align-items:center; width:100%; text-align:left; border:0; background:transparent; color:var(--text); border-radius:6px; padding:6px 8px; cursor:pointer }
+  .file:hover { background:var(--hover) }
+  .file.active { background:var(--selected); color:var(--accent) }
+  .file .name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .file .size { margin-left:auto; color:var(--muted); font-size:11px }
+  .main { min-width:0; padding:16px; background:var(--bg) }
+  .empty { max-width:720px; margin:12vh auto; border:1px solid var(--border); border-radius:12px; padding:28px; background:var(--panel); box-shadow:var(--shadow) }
+  .empty h1 { margin:0 0 8px; font-size:24px }
+  .empty p { color:var(--muted) }
+  .tips { margin:18px 0 0; display:grid; gap:7px; color:var(--muted) }
+  kbd { border:1px solid var(--border); border-bottom-width:2px; border-radius:5px; padding:1px 5px; background:var(--bg); color:var(--text); font-size:12px }
+  .viewer { max-width:1600px; margin:0 auto }
+  .filebar { position:sticky; top:61px; z-index:10; display:flex; gap:8px; align-items:center; min-height:44px; padding:7px 9px; background:var(--panel); border:1px solid var(--border); border-bottom:0; border-radius:8px 8px 0 0 }
+  .filetitle { font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .fileinfo { margin-left:auto; color:var(--muted); font-size:12px; white-space:nowrap }
+  .codewrap { position:relative; border:1px solid var(--border); border-radius:0 0 8px 8px; overflow:auto; background:var(--panel2) }
+  pre { margin:0; tab-size:4; font:var(--code-size)/1.55 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace; white-space:pre; min-width:max-content }
+  pre.wrap { white-space:pre-wrap; min-width:0; overflow-wrap:anywhere }
+  code { display:block; padding:12px 0 }
+  .line { display:block; padding:0 16px 0 0; min-height:1.55em }
+  .line:target,.line.flash { background:color-mix(in srgb,var(--accent) 16%,transparent) }
+  .ln { display:inline-block; width:64px; padding-right:14px; text-align:right; color:var(--muted); user-select:none; cursor:pointer }
+  .ln:hover { color:var(--accent) }
+  .notice { margin-bottom:10px; padding:10px 12px; border:1px solid #9e6a03; border-radius:7px; background:#bb800926 }
+  .error { border-color:var(--danger); color:var(--danger) }
+  .floating { position:fixed; right:18px; bottom:18px; z-index:30; display:flex; gap:8px }
+  .floatbtn { width:40px; height:40px; border-radius:999px; border:1px solid var(--border); background:var(--panel); box-shadow:var(--shadow); cursor:pointer }
+  .hidden { display:none!important }
+  .mobile-files { display:none }
+  dialog { width:min(700px,90vw); color:var(--text); background:var(--panel); border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow) }
+  dialog::backdrop { background:#0008 }
+  .shortcut-grid { display:grid; grid-template-columns:auto 1fr; gap:8px 14px; align-items:center }
+  .status { color:var(--muted); font-size:12px }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite }
+  @keyframes spin { to { transform:rotate(360deg) } }
+  @media (max-width:800px) {
+    :root { --sidebar:0px }
+    .topbar { flex-wrap:wrap }
+    .brand { display:none }
+    .gist-form { order:1; flex-basis:100% }
+    .gist-form { flex-wrap:wrap }
+    .gist-form > #gistInput { flex:1 1 calc(100% - 70px) }
+    .token-wrap { flex:1 1 100%; width:100% }
+    .token { display:block; width:100%!important }
+    .token-note { display:none }
+    .layout { grid-template-columns:1fr }
+    .sidebar { display:none }
+    .main { padding:10px }
+    .mobile-files { display:inline-block }
+    .filebar { top:93px }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">Gist Browser</div>
+    <form class="gist-form" id="gistForm">
+      <input id="gistInput" type="text" autocomplete="off" spellcheck="false" placeholder="Gist URL or ID — permalink uses #url=…" aria-label="Gist URL or ID">
+      <div class="token-wrap" title="Optional GitHub Personal Access Token for secret/private Gists. Never added to the permalink.">
+        <input id="tokenInput" class="token" type="password" autocomplete="off" spellcheck="false" placeholder="GitHub PAT (optional for private Gists)" aria-label="GitHub Personal Access Token">
+        <span class="token-note">private Gist</span>
+      </div>
+      <button class="btn primary" type="submit">Open</button>
+    </form>
+    <button class="btn" id="shareBtn" title="Copy permalink">Share</button>
+    <button class="btn" id="themeBtn" title="Toggle theme">Theme</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="side-head">
+        <input id="fileSearch" type="search" placeholder="Filter files…" aria-label="Filter files">
+        <div class="side-meta" id="gistMeta">No gist loaded</div>
+      </div>
+      <div class="files" id="fileList"></div>
+    </aside>
+
+    <main class="main" id="main">
+      <section class="empty" id="emptyState">
+        <h1>A file browser for long Gists</h1>
+        <p>Open one file at a time instead of scrolling through the entire Gist page. Paste a Gist URL above, or share a permalink such as <code>#url=https%3A%2F%2Fgist.github.com%2F…</code>.</p>
+        <div class="tips">
+          <div><kbd>j</kbd> / <kbd>k</kbd> next / previous file</div>
+          <div><kbd>g</kbd> go to top</div>
+          <div><kbd>/</kbd> filter files</div>
+          <div><kbd>w</kbd> toggle line wrapping</div>
+          <div><kbd>?</kbd> keyboard shortcuts</div>
+        </div>
+      </section>
+
+      <section class="viewer hidden" id="viewer">
+        <div id="notice" class="notice hidden"></div>
+        <div class="filebar">
+          <button class="btn mobile-files" id="mobileFilesBtn">Files</button>
+          <div class="filetitle" id="fileTitle"></div>
+          <div class="fileinfo" id="fileInfo"></div>
+          <button class="btn" id="copyBtn">Copy</button>
+          <button class="btn" id="downloadBtn">Download</button>
+          <a class="btn" id="rawBtn" target="_blank" rel="noopener">Raw</a>
+          <a class="btn" id="githubBtn" target="_blank" rel="noopener">GitHub</a>
+        </div>
+        <div class="codewrap" id="codeWrap"><pre id="pre"><code id="code"></code></pre></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div class="floating">
+  <button class="floatbtn" id="topBtn" title="Go to top">↑</button>
+</div>
+
+<dialog id="shortcuts">
+  <h3>Keyboard shortcuts</h3>
+  <div class="shortcut-grid">
+    <kbd>j</kbd><span>Next file</span>
+    <kbd>k</kbd><span>Previous file</span>
+    <kbd>g</kbd><span>Go to top</span>
+    <kbd>/</kbd><span>Focus file filter</span>
+    <kbd>w</kbd><span>Toggle line wrapping</span>
+    <kbd>c</kbd><span>Copy current file</span>
+    <kbd>?</kbd><span>Open this help</span>
+    <kbd>Esc</kbd><span>Close dialogs / clear filter</span>
+  </div>
+  <p><button class="btn" onclick="this.closest('dialog').close()">Close</button></p>
+</dialog>
+
+<dialog id="mobileFilesDialog">
+  <h3>Files</h3>
+  <input id="mobileSearch" type="search" placeholder="Filter files…">
+  <div class="files" id="mobileFileList"></div>
+  <p><button class="btn" onclick="this.closest('dialog').close()">Close</button></p>
+</dialog>
+
+<script>
+(() => {
+  'use strict';
+
+  const API_VERSION = '2026-03-10';
+  const $ = id => document.getElementById(id);
+  const state = {
+    gist: null,
+    gistUrl: '',
+    gistId: '',
+    files: [],
+    current: null,
+    token: sessionStorage.getItem('gist-browser-token') || '',
+    wrap: localStorage.getItem('gist-browser-wrap') === '1',
+    theme: localStorage.getItem('gist-browser-theme') || 'dark'
+  };
+
+  document.documentElement.dataset.theme = state.theme;
+  $('tokenInput').value = state.token;
+  $('pre').classList.toggle('wrap', state.wrap);
+
+  function parseHash() {
+    const raw = location.hash.replace(/^#/, '');
+    const p = new URLSearchParams(raw);
+    return {
+      url: p.get('url') || '',
+      file: p.get('file') || '',
+      line: Number(p.get('line') || 0)
+    };
+  }
+
+  function setHash({url = state.gistUrl, file = state.current?.filename || '', line = 0} = {}) {
+    const p = new URLSearchParams();
+    if (url) p.set('url', url);
+    if (file) p.set('file', file);
+    if (line) p.set('line', String(line));
+    history.replaceState(null, '', '#' + p.toString());
+  }
+
+  function gistIdFrom(input) {
+    input = input.trim();
+    if (!input) throw new Error('Enter a Gist URL or ID.');
+    if (/^[0-9a-f]{5,}$/i.test(input)) return input;
+    let u;
+    try { u = new URL(input); } catch { throw new Error('Invalid Gist URL or ID.'); }
+    if (!/(^|\.)gist\.github\.com$/i.test(u.hostname)) throw new Error('Expected a gist.github.com URL.');
+    const parts = u.pathname.split('/').filter(Boolean);
+    const candidate = [...parts].reverse().find(x => /^[0-9a-f]{5,}$/i.test(x));
+    if (!candidate) throw new Error('Could not find a Gist ID in that URL.');
+    return candidate;
+  }
+
+  function canonicalGistUrl(input, id) {
+    try {
+      const u = new URL(input);
+      if (/(^|\.)gist\.github\.com$/i.test(u.hostname)) return `https://gist.github.com/${id}`;
+    } catch {}
+    return `https://gist.github.com/${id}`;
+  }
+
+  function apiHeaders() {
+    const h = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': API_VERSION
+    };
+    if (state.token) h.Authorization = `Bearer ${state.token}`;
+    return h;
+  }
+
+  async function fetchGist(input, preferredFile = '', preferredLine = 0) {
+    const id = gistIdFrom(input);
+    state.token = $('tokenInput').value.trim();
+    if (state.token) sessionStorage.setItem('gist-browser-token', state.token);
+    else sessionStorage.removeItem('gist-browser-token');
+
+    setBusy(true, 'Loading…');
+    try {
+      const res = await fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`, { headers: apiHeaders() });
+      if (!res.ok) {
+        let detail = '';
+        try { detail = (await res.json()).message || ''; } catch {}
+        if (res.status === 401 || res.status === 403) throw new Error(`GitHub denied access (${res.status}). Check the token and Gist access. ${detail}`.trim());
+        if (res.status === 404) throw new Error('Gist not found, or it is not visible with this token.');
+        throw new Error(`GitHub API error ${res.status}. ${detail}`.trim());
+      }
+      const gist = await res.json();
+      state.gist = gist;
+      state.gistId = id;
+      state.gistUrl = canonicalGistUrl(input, id);
+      state.files = Object.values(gist.files || {}).sort((a,b) => a.filename.localeCompare(b.filename, undefined, {numeric:true}));
+      $('gistInput').value = state.gistUrl;
+      $('gistMeta').textContent = `${gist.owner?.login || 'anonymous'} · ${state.files.length} file${state.files.length === 1 ? '' : 's'}${gist.description ? ' · ' + gist.description : ''}`;
+      renderFileList();
+      $('emptyState').classList.add('hidden');
+      $('viewer').classList.remove('hidden');
+
+      if (!state.files.length) throw new Error('This Gist has no files.');
+      const file = state.files.find(f => f.filename === preferredFile) || state.files[0];
+      await selectFile(file.filename, preferredLine);
+      setHash({file:file.filename, line:preferredLine});
+
+      if (gist.truncated) showNotice('This Gist has more than 300 files. GitHub’s REST API returned only the first 300; clone the Gist to access the complete file list.', true);
+      else hideNotice();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function setBusy(on, label='') {
+    const submit = $('gistForm').querySelector('button[type=submit]');
+    submit.disabled = on;
+    submit.innerHTML = on ? `<span class="spinner"></span> ${label}` : 'Open';
+  }
+
+  function showError(err) {
+    $('emptyState').classList.remove('hidden');
+    $('viewer').classList.add('hidden');
+    $('emptyState').innerHTML = `<h1>Could not open Gist</h1><p class="error"></p><p class="status">The GitHub PAT is optional for public Gists and useful for secret/private Gists. It is never included in the permalink and is kept only in sessionStorage for this browser tab.</p>`;
+    $('emptyState').querySelector('.error').textContent = err.message || String(err);
+  }
+
+  function showNotice(text) {
+    $('notice').textContent = text;
+    $('notice').classList.remove('hidden');
+  }
+  function hideNotice() { $('notice').classList.add('hidden'); }
+
+  function formatBytes(n) {
+    if (!Number.isFinite(n)) return '';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024*1024) return `${(n/1024).toFixed(1)} KB`;
+    return `${(n/1024/1024).toFixed(1)} MB`;
+  }
+
+  function fileIcon(name) {
+    const ext = name.split('.').pop().toLowerCase();
+    if (['md','mdown','markdown'].includes(ext)) return 'M';
+    if (['json','yaml','yml','toml','ini','xml'].includes(ext)) return '{}';
+    if (['png','jpg','jpeg','gif','svg','webp'].includes(ext)) return '◫';
+    return '·';
+  }
+
+  function renderFileList(filter='') {
+    const q = filter.trim().toLowerCase();
+    const list = state.files.filter(f => !q || f.filename.toLowerCase().includes(q));
+    for (const target of [$('fileList'), $('mobileFileList')]) {
+      target.textContent = '';
+      for (const f of list) {
+        const b = document.createElement('button');
+        b.className = 'file' + (state.current?.filename === f.filename ? ' active' : '');
+        b.title = f.filename;
+        b.innerHTML = `<span aria-hidden="true">${fileIcon(f.filename)}</span><span class="name"></span><span class="size">${formatBytes(f.size)}</span>`;
+        b.querySelector('.name').textContent = f.filename;
+        b.addEventListener('click', async () => {
+          $('mobileFilesDialog').close();
+          await selectFile(f.filename);
+        });
+        target.appendChild(b);
+      }
+      if (!list.length) {
+        const x = document.createElement('div');
+        x.className = 'status'; x.style.padding='10px'; x.textContent='No matching files.'; target.appendChild(x);
+      }
+    }
+  }
+
+  async function fullContent(file) {
+    if (!file.truncated && typeof file.content === 'string') return file.content;
+    if (!file.raw_url) return file.content || '';
+    const rawHeaders = state.token ? { Authorization: `Bearer ${state.token}` } : {};
+    const res = await fetch(file.raw_url, { headers: rawHeaders });
+    if (!res.ok) throw new Error(`Could not fetch full raw file (${res.status}).`);
+    return await res.text();
+  }
+
+  async function selectFile(filename, line=0) {
+    const file = state.files.find(f => f.filename === filename);
+    if (!file) return;
+    state.current = file;
+    renderFileList($('fileSearch').value);
+    $('fileTitle').textContent = file.filename;
+    $('fileInfo').textContent = `${file.language || file.type || 'text'} · ${formatBytes(file.size)}`;
+    $('rawBtn').href = file.raw_url || '#';
+    $('githubBtn').href = `${state.gist.html_url}#file-${slug(file.filename)}`;
+    $('code').innerHTML = '<span class="line"><span class="ln"></span>Loading…</span>';
+    hideNotice();
+
+    try {
+      const text = await fullContent(file);
+      file._fullContent = text;
+      renderCode(text);
+      if (file.truncated) showNotice('GitHub truncated this file in the Gist API response; the viewer fetched the full file from its raw URL. Files above 10 MB may require cloning the Gist instead.');
+      setHash({file:file.filename, line:line || 0});
+      document.title = `${file.filename} · Gist Browser`;
+      if (line) requestAnimationFrame(() => jumpToLine(line));
+      else window.scrollTo({top:0});
+    } catch (err) {
+      $('code').textContent = `Error loading file: ${err.message}`;
+      showNotice(err.message);
+    }
+  }
+
+  function renderCode(text) {
+    const code = $('code');
+    code.textContent = '';
+    const lines = text.split('\n');
+    const frag = document.createDocumentFragment();
+    lines.forEach((s, i) => {
+      const line = document.createElement('span');
+      line.className = 'line';
+      line.id = `L${i+1}`;
+      const ln = document.createElement('span');
+      ln.className = 'ln';
+      ln.textContent = i+1;
+      ln.title = `Copy permalink to line ${i+1}`;
+      ln.addEventListener('click', () => copyLineLink(i+1));
+      line.appendChild(ln);
+      line.appendChild(document.createTextNode(s || ' '));
+      frag.appendChild(line);
+    });
+    code.appendChild(frag);
+  }
+
+  function slug(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  }
+
+  function jumpToLine(n) {
+    const el = $(`L${n}`);
+    if (!el) return;
+    el.scrollIntoView({block:'center'});
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 900);
+  }
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch {
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand('copy'); ta.remove(); return ok;
+    }
+  }
+
+  async function copyLineLink(line) {
+    setHash({line});
+    await copyText(location.href);
+    jumpToLine(line);
+  }
+
+  function currentText() { return state.current?._fullContent ?? state.current?.content ?? ''; }
+
+  async function copyCurrent() {
+    if (!state.current) return;
+    const old = $('copyBtn').textContent;
+    await copyText(currentText());
+    $('copyBtn').textContent = 'Copied';
+    setTimeout(() => $('copyBtn').textContent = old, 900);
+  }
+
+  function downloadCurrent() {
+    if (!state.current) return;
+    const blob = new Blob([currentText()], {type: state.current.type || 'text/plain'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = state.current.filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  function moveFile(delta) {
+    if (!state.current || !state.files.length) return;
+    const i = state.files.findIndex(f => f.filename === state.current.filename);
+    const next = state.files[(i + delta + state.files.length) % state.files.length];
+    selectFile(next.filename);
+  }
+
+  function toggleWrap() {
+    state.wrap = !state.wrap;
+    $('pre').classList.toggle('wrap', state.wrap);
+    localStorage.setItem('gist-browser-wrap', state.wrap ? '1' : '0');
+  }
+
+  $('gistForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await fetchGist($('gistInput').value); }
+    catch (err) { showError(err); }
+  });
+
+  $('fileSearch').addEventListener('input', e => renderFileList(e.target.value));
+  $('mobileSearch').addEventListener('input', e => renderFileList(e.target.value));
+  $('copyBtn').addEventListener('click', copyCurrent);
+  $('downloadBtn').addEventListener('click', downloadCurrent);
+  $('topBtn').addEventListener('click', () => window.scrollTo({top:0,behavior:'smooth'}));
+  $('mobileFilesBtn').addEventListener('click', () => $('mobileFilesDialog').showModal());
+
+  $('shareBtn').addEventListener('click', async () => {
+    if (!state.gistUrl) return;
+    setHash();
+    const old = $('shareBtn').textContent;
+    await copyText(location.href);
+    $('shareBtn').textContent = 'Copied';
+    setTimeout(() => $('shareBtn').textContent = old, 900);
+  });
+
+  $('themeBtn').addEventListener('click', () => {
+    state.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = state.theme;
+    localStorage.setItem('gist-browser-theme', state.theme);
+  });
+
+  $('tokenInput').addEventListener('change', () => {
+    state.token = $('tokenInput').value.trim();
+    if (state.token) sessionStorage.setItem('gist-browser-token', state.token);
+    else sessionStorage.removeItem('gist-browser-token');
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+    if (e.key === 'Escape') {
+      if ($('shortcuts').open) $('shortcuts').close();
+      if ($('mobileFilesDialog').open) $('mobileFilesDialog').close();
+      if (typing) { document.activeElement.blur(); $('fileSearch').value=''; renderFileList(); }
+      return;
+    }
+    if (typing) return;
+    if (e.key === '/') { e.preventDefault(); $('fileSearch').focus(); }
+    else if (e.key === 'j') moveFile(1);
+    else if (e.key === 'k') moveFile(-1);
+    else if (e.key === 'g') window.scrollTo({top:0,behavior:'smooth'});
+    else if (e.key === 'w') toggleWrap();
+    else if (e.key === 'c') copyCurrent();
+    else if (e.key === '?') $('shortcuts').showModal();
+  });
+
+  window.addEventListener('hashchange', async () => {
+    const h = parseHash();
+    if (!h.url) return;
+    const id = gistIdFrom(h.url);
+    if (id !== state.gistId) {
+      try { await fetchGist(h.url, h.file, h.line); } catch (err) { showError(err); }
+    } else if (h.file && h.file !== state.current?.filename) {
+      await selectFile(h.file, h.line);
+    } else if (h.line) jumpToLine(h.line);
+  });
+
+  // Auto-open canonical permalink: viewer.html#url=<encoded gist URL>&file=<optional>&line=<optional>
+  const initial = parseHash();
+  if (initial.url) {
+    $('gistInput').value = initial.url;
+    fetchGist(initial.url, initial.file, initial.line).catch(showError);
+  }
+})();
+</script>
+</body>
+</html>
