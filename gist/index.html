@@ -57,6 +57,32 @@
   .filetitle { font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
   .fileinfo { margin-left:auto; color:var(--muted); font-size:12px; white-space:nowrap }
   .codewrap { position:relative; border:1px solid var(--border); border-radius:0 0 8px 8px; overflow:auto; background:var(--panel2) }
+  .view-toggle { display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden }
+  .view-toggle .btn { border:0; border-radius:0; padding:5px 9px }
+  .view-toggle .btn + .btn { border-left:1px solid var(--border) }
+  .view-toggle .btn.active { background:var(--selected); color:var(--accent) }
+  .preview { border:1px solid var(--border); border-radius:0 0 8px 8px; background:var(--panel2); padding:28px clamp(18px,4vw,48px); overflow:auto }
+  .markdown-body { max-width:980px; margin:0 auto; line-height:1.6; overflow-wrap:anywhere }
+  .markdown-body > :first-child { margin-top:0 }
+  .markdown-body > :last-child { margin-bottom:0 }
+  .markdown-body h1,.markdown-body h2 { border-bottom:1px solid var(--border); padding-bottom:.3em }
+  .markdown-body h1 { font-size:2em } .markdown-body h2 { font-size:1.5em }
+  .markdown-body h3 { font-size:1.25em }
+  .markdown-body h1,.markdown-body h2,.markdown-body h3,.markdown-body h4 { line-height:1.25; margin:1.5em 0 .6em }
+  .markdown-body p,.markdown-body ul,.markdown-body ol,.markdown-body blockquote,.markdown-body table { margin:0 0 16px }
+  .markdown-body blockquote { margin-left:0; padding:0 1em; color:var(--muted); border-left:.25em solid var(--border) }
+  .markdown-body code { display:inline; padding:.15em .35em; border-radius:4px; background:var(--hover); font:85% ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace }
+  .markdown-body pre { min-width:0; overflow:auto; padding:16px; margin:0 0 16px; border-radius:6px; background:var(--hover); white-space:pre }
+  .markdown-body pre code { display:block; padding:0; background:transparent; font-size:100% }
+  .markdown-body table { border-spacing:0; border-collapse:collapse; width:max-content; max-width:100%; overflow:auto }
+  .markdown-body th,.markdown-body td { padding:6px 13px; border:1px solid var(--border) }
+  .markdown-body tr:nth-child(2n) { background:var(--panel) }
+  .markdown-body img { max-width:100%; height:auto }
+  .markdown-body hr { height:.25em; padding:0; margin:24px 0; background:var(--border); border:0 }
+  .markdown-body input[type=checkbox] { margin-right:.45em }
+  .markdown-body .mermaid { display:flex; justify-content:center; margin:20px 0; overflow:auto }
+  .markdown-body .mermaid svg { max-width:100%; height:auto }
+  .preview-error { padding:12px; border:1px solid var(--danger); border-radius:6px; color:var(--danger) }
   pre { margin:0; tab-size:4; font:var(--code-size)/1.55 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace; white-space:pre; min-width:max-content }
   pre.wrap { white-space:pre-wrap; min-width:0; overflow-wrap:anywhere }
   code { display:block; padding:12px 0 }
@@ -76,21 +102,78 @@
   .status { color:var(--muted); font-size:12px }
   .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite }
   @keyframes spin { to { transform:rotate(360deg) } }
+  /* Responsive layout */
+  @media (max-width:1100px) {
+    :root { --sidebar:240px }
+    .topbar { gap:6px; padding-inline:8px }
+    .token { width:min(210px,24vw)!important }
+    .main { padding:12px }
+    .filebar { flex-wrap:wrap }
+    .filetitle { flex:1 1 240px }
+    .fileinfo { margin-left:0 }
+  }
+
   @media (max-width:800px) {
     :root { --sidebar:0px }
-    .topbar { flex-wrap:wrap }
+    .app { display:block }
+    .topbar { position:relative; top:auto; flex-wrap:wrap; padding:8px; min-height:0 }
     .brand { display:none }
-    .gist-form { order:1; flex-basis:100% }
-    .gist-form { flex-wrap:wrap }
-    .gist-form > #gistInput { flex:1 1 calc(100% - 70px) }
+    .gist-form { order:1; flex:1 1 100%; flex-wrap:wrap }
+    .gist-form > #gistInput { flex:1 1 calc(100% - 72px) }
     .token-wrap { flex:1 1 100%; width:100% }
     .token { display:block; width:100%!important }
     .token-note { display:none }
-    .layout { grid-template-columns:1fr }
+    .layout { display:block }
     .sidebar { display:none }
     .main { padding:10px }
-    .mobile-files { display:inline-block }
-    .filebar { top:93px }
+    .mobile-files { display:inline-flex }
+    .viewer { width:100% }
+    .filebar { top:0; gap:6px; padding:7px; border-radius:7px 7px 0 0 }
+    .filetitle { order:-2; flex:1 1 calc(100% - 76px); min-width:120px }
+    .fileinfo { order:-1; flex:0 0 auto; margin-left:auto }
+    .view-toggle { margin-left:0 }
+    .preview { padding:20px 16px }
+    .markdown-body { max-width:none }
+    .markdown-body table { display:block; width:100%; max-width:100%; overflow-x:auto; white-space:nowrap }
+    .markdown-body .mermaid { max-width:100%; justify-content:flex-start }
+    .markdown-body .mermaid svg { min-width:0; max-width:100%!important }
+    .line { padding-right:10px }
+    .ln { width:52px; padding-right:10px }
+    .floating { right:12px; bottom:12px }
+    dialog { max-height:85dvh; overflow:auto }
+    #mobileFilesDialog { width:min(94vw,640px) }
+  }
+
+  @media (max-width:560px) {
+    body { font-size:13px }
+    .topbar { gap:6px }
+    .gist-form > #gistInput { flex-basis:100% }
+    .gist-form .primary { flex:1 1 100% }
+    .topbar > #shareBtn,.topbar > #themeBtn { flex:1 1 calc(50% - 3px) }
+    .main { padding:6px }
+    .empty { margin:5vh auto; padding:20px 16px; border-radius:9px }
+    .empty h1 { font-size:20px }
+    .filebar { align-items:stretch }
+    .mobile-files { order:-3 }
+    .filetitle { order:-2; flex:1 1 calc(100% - 72px); align-self:center }
+    .fileinfo { display:none }
+    .view-toggle { flex:1 1 auto }
+    .view-toggle .btn { flex:1 1 50% }
+    .filebar > #copyBtn,.filebar > #downloadBtn,.filebar > #rawBtn,.filebar > #githubBtn { flex:1 1 calc(50% - 4px); text-align:center }
+    .preview { padding:16px 12px }
+    .markdown-body h1 { font-size:1.7em }
+    .markdown-body h2 { font-size:1.35em }
+    .markdown-body pre { padding:12px }
+    .markdown-body th,.markdown-body td { padding:5px 9px }
+    .ln { width:44px; padding-right:8px }
+    .floatbtn { width:38px; height:38px }
+    #mobileFilesDialog { width:100vw; max-width:none; height:min(82dvh,720px); max-height:none; margin:auto 0 0; border-radius:14px 14px 0 0; border-left:0; border-right:0; border-bottom:0 }
+    #mobileFilesDialog .files { max-height:calc(82dvh - 150px); overflow:auto }
+  }
+
+  @media (max-width:380px) {
+    .filebar > #copyBtn,.filebar > #downloadBtn,.filebar > #rawBtn,.filebar > #githubBtn { flex-basis:100% }
+    .preview { padding-inline:10px }
   }
 </style>
 </head>
@@ -138,12 +221,17 @@
           <button class="btn mobile-files" id="mobileFilesBtn">Files</button>
           <div class="filetitle" id="fileTitle"></div>
           <div class="fileinfo" id="fileInfo"></div>
+          <div class="view-toggle hidden" id="viewToggle" aria-label="Markdown view mode">
+            <button class="btn active" id="codeViewBtn" type="button">Code</button>
+            <button class="btn" id="previewViewBtn" type="button">Preview</button>
+          </div>
           <button class="btn" id="copyBtn">Copy</button>
           <button class="btn" id="downloadBtn">Download</button>
           <a class="btn" id="rawBtn" target="_blank" rel="noopener">Raw</a>
           <a class="btn" id="githubBtn" target="_blank" rel="noopener">GitHub</a>
         </div>
         <div class="codewrap" id="codeWrap"><pre id="pre"><code id="code"></code></pre></div>
+        <div class="preview hidden" id="previewWrap"><article class="markdown-body" id="markdownPreview"></article></div>
       </section>
     </main>
   </div>
@@ -189,7 +277,9 @@
     current: null,
     token: sessionStorage.getItem('gist-browser-token') || '',
     wrap: localStorage.getItem('gist-browser-wrap') === '1',
-    theme: localStorage.getItem('gist-browser-theme') || 'dark'
+    theme: localStorage.getItem('gist-browser-theme') || 'dark',
+    markdownView: 'code',
+    mermaid: null
   };
 
   document.documentElement.dataset.theme = state.theme;
@@ -350,6 +440,101 @@
     return await res.text();
   }
 
+  function isMarkdown(file = state.current) {
+    return !!file && /\.(md|mdown|markdown)$/i.test(file.filename);
+  }
+
+  function setMarkdownView(mode) {
+    state.markdownView = mode === 'preview' ? 'preview' : 'code';
+    const preview = isMarkdown() && state.markdownView === 'preview';
+    $('codeWrap').classList.toggle('hidden', preview);
+    $('previewWrap').classList.toggle('hidden', !preview);
+    $('codeViewBtn').classList.toggle('active', !preview);
+    $('previewViewBtn').classList.toggle('active', preview);
+    if (preview) renderMarkdownPreview().catch(err => {
+      $('markdownPreview').innerHTML = '';
+      const box = document.createElement('div');
+      box.className = 'preview-error';
+      box.textContent = `Preview error: ${err.message}`;
+      $('markdownPreview').appendChild(box);
+    });
+  }
+
+  async function loadScript(src, globalName) {
+    if (globalName && window[globalName]) return window[globalName];
+    await new Promise((resolve, reject) => {
+      const existing = [...document.scripts].find(s => s.src === src);
+      if (existing) {
+        if (!globalName || window[globalName]) return resolve();
+        existing.addEventListener('load', resolve, {once:true});
+        existing.addEventListener('error', reject, {once:true});
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = src;
+      script.crossOrigin = 'anonymous';
+      script.onload = resolve;
+      script.onerror = () => reject(new Error(`Could not load ${src}`));
+      document.head.appendChild(script);
+    });
+    return globalName ? window[globalName] : undefined;
+  }
+
+  async function markdownLibraries() {
+    await Promise.all([
+      loadScript('https://cdn.jsdelivr.net/npm/marked/marked.min.js', 'marked'),
+      loadScript('https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js', 'DOMPurify')
+    ]);
+    if (!state.mermaid) {
+      const mod = await import('https://cdn.jsdelivr.net/npm/mermaid@12/dist/mermaid.esm.min.mjs');
+      state.mermaid = mod.default;
+      state.mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'
+      });
+    }
+  }
+
+  async function renderMarkdownPreview() {
+    if (!isMarkdown() || !state.current) return;
+    const target = $('markdownPreview');
+    target.innerHTML = '<span class="spinner"></span> Rendering preview…';
+    await markdownLibraries();
+
+    const dirty = window.marked.parse(currentText(), { gfm: true, breaks: false });
+    target.innerHTML = window.DOMPurify.sanitize(dirty, { USE_PROFILES: { html: true } });
+
+    // Make preview links safer and less disruptive to the viewer.
+    target.querySelectorAll('a[href]').forEach(a => {
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+    });
+
+    // Marked emits fenced ```mermaid blocks as <pre><code class="language-mermaid">.
+    const nodes = [];
+    target.querySelectorAll('pre > code.language-mermaid').forEach(code => {
+      const host = document.createElement('div');
+      host.className = 'mermaid';
+      host.textContent = code.textContent;
+      code.parentElement.replaceWith(host);
+      nodes.push(host);
+    });
+
+    if (nodes.length) {
+      try {
+        await state.mermaid.run({ nodes, suppressErrors: false });
+      } catch (err) {
+        for (const node of nodes) {
+          if (node.querySelector('svg')) continue;
+          const source = node.textContent;
+          node.className = 'preview-error';
+          node.textContent = `Mermaid error: ${err.message}\n\n${source}`;
+        }
+      }
+    }
+  }
+
   async function selectFile(filename, line=0) {
     const file = state.files.find(f => f.filename === filename);
     if (!file) return;
@@ -357,6 +542,12 @@
     renderFileList($('fileSearch').value);
     $('fileTitle').textContent = file.filename;
     $('fileInfo').textContent = `${file.language || file.type || 'text'} · ${formatBytes(file.size)}`;
+    $('viewToggle').classList.toggle('hidden', !isMarkdown(file));
+    state.markdownView = 'code';
+    $('codeWrap').classList.remove('hidden');
+    $('previewWrap').classList.add('hidden');
+    $('codeViewBtn').classList.add('active');
+    $('previewViewBtn').classList.remove('active');
     $('rawBtn').href = file.raw_url || '#';
     $('githubBtn').href = `${state.gist.html_url}#file-${slug(file.filename)}`;
     $('code').innerHTML = '<span class="line"><span class="ln"></span>Loading…</span>';
@@ -465,6 +656,8 @@
   $('fileSearch').addEventListener('input', e => renderFileList(e.target.value));
   $('mobileSearch').addEventListener('input', e => renderFileList(e.target.value));
   $('copyBtn').addEventListener('click', copyCurrent);
+  $('codeViewBtn').addEventListener('click', () => setMarkdownView('code'));
+  $('previewViewBtn').addEventListener('click', () => setMarkdownView('preview'));
   $('downloadBtn').addEventListener('click', downloadCurrent);
   $('topBtn').addEventListener('click', () => window.scrollTo({top:0,behavior:'smooth'}));
   $('mobileFilesBtn').addEventListener('click', () => $('mobileFilesDialog').showModal());
@@ -482,6 +675,10 @@
     state.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = state.theme;
     localStorage.setItem('gist-browser-theme', state.theme);
+    if (state.mermaid) {
+      state.mermaid.initialize({ startOnLoad:false, securityLevel:'strict', theme: state.theme === 'dark' ? 'dark' : 'default' });
+      if (state.markdownView === 'preview' && isMarkdown()) renderMarkdownPreview().catch(() => {});
+    }
   });
 
   $('tokenInput').addEventListener('change', () => {
