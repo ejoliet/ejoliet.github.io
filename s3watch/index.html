@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>s3watch — static bucket monitor (DuckDB-WASM, zero infra)</title>
+<style>
+  :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#30363d; --txt:#e6edf3; --dim:#8b949e; --acc:#58a6ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
+  * { box-sizing: border-box; }
+  body { background:var(--bg); color:var(--txt); font:14px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif; margin:0; padding:24px; max-width:1100px; margin-inline:auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h1 .tag { font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:4px; padding:2px 6px; margin-left:8px; vertical-align:middle; }
+  p.sub { color:var(--dim); margin:0 0 20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
+  .card h2 { font-size:14px; margin:0 0 12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); }
+  label { display:block; font-size:12px; color:var(--dim); margin:10px 0 4px; }
+  input, textarea, select { width:100%; background:var(--bg); color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  select { width:auto; }
+  textarea { min-height:90px; resize:vertical; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+  button { background:#1f6feb; color:#fff; border:0; border-radius:6px; padding:9px 16px; font-size:13px; cursor:pointer; margin-right:8px; }
+  button:disabled { opacity:.45; cursor:default; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--txt); }
+  button.danger { background:transparent; border:1px solid var(--bad); color:var(--bad); }
+  .stats { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:16px; }
+  .stat { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px 12px; }
+  .stat .v { font-size:22px; font-weight:650; font-variant-numeric:tabular-nums; }
+  .stat .k { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; }
+  #stall { display:none; background:#3d2b00; border:1px solid var(--warn); color:#ffd866; border-radius:6px; padding:10px 14px; margin-bottom:16px; font-weight:600; }
+  table { width:100%; border-collapse:collapse; font:12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; word-break:break-all; }
+  th { color:var(--dim); font-weight:600; text-transform:uppercase; font-size:10px; letter-spacing:.05em; }
+  tr td:first-child { white-space:nowrap; }
+  .pill { display:inline-block; font-size:10px; font-weight:700; border-radius:4px; padding:1px 6px; }
+  .pill.c { background:#0d4429; color:var(--ok); } .pill.m { background:#3d2b00; color:var(--warn); } .pill.d { background:#4c1d1d; color:var(--bad); }
+  #log { max-height:180px; overflow:auto; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:12px ui-monospace, monospace; color:var(--dim); }
+  #log div { padding:1px 0; } #log .err { color:var(--bad); } #log .ok { color:var(--ok); }
+  details { margin-bottom:16px; } details summary { cursor:pointer; color:var(--acc); font-size:13px; }
+  pre { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px 12px; overflow:auto; font-size:12px; }
+  canvas { width:100%; height:150px; background:var(--bg); border:1px solid var(--line); border-radius:6px; }
+  .note { font-size:12px; color:var(--dim); }
+  .qbtns button { padding:5px 10px; font-size:12px; margin:0 6px 6px 0; }
+  .chip { display:inline-block; font-size:11px; border:1px solid var(--line); border-radius:20px; padding:2px 10px; margin-left:8px; vertical-align:middle; }
+  .chip.ok { border-color:var(--ok); color:var(--ok); } .chip.warn { border-color:var(--warn); color:var(--warn); }
+  .legend { display:flex; gap:16px; font-size:12px; color:var(--dim); margin:8px 0; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; }
+  .radios label { display:inline-block; margin:0 18px 0 0; font-size:13px; color:var(--txt); cursor:pointer; }
+  .radios input { width:auto; margin-right:6px; accent-color:#1f6feb; }
+</style>
+</head>
+<body>
+
+<h1>s3watch <span class="tag">static · zero AWS infra · 100% client-side</span><span id="persistChip" class="chip warn">storage: checking…</span></h1>
+<p class="sub">Live bucket monitor in a single HTML file. Polls <code>ListObjectsV2</code>, diffs snapshots, and keeps the full event history in a <b>persistent DuckDB database</b> (browser OPFS) — close the tab, come back, keep tracking. Timeline, SQL console, and Parquet/CSV export included.</p>
+
+<div class="card">
+  <h2>1 · Connect</h2>
+  <div class="radios" style="margin-bottom:6px">
+    <label><input type="radio" name="credmode" value="role" checked> EC2 instance role <span class="note">(page hosted in-VPC; no keys)</span></label>
+    <label><input type="radio" name="credmode" value="manual"> Paste temporary credentials</label>
+  </div>
+  <div id="manualCreds" hidden>
+    <div class="row">
+      <div><label>Access key ID</label><input id="akid" autocomplete="off" placeholder="AKIA…"></div>
+      <div><label>Secret access key</label><input id="secret" type="password" autocomplete="off" placeholder="••••••"></div>
+    </div>
+    <div><label>Session token</label><input id="token" autocomplete="off" placeholder="SSO / STS token"></div>
+    <p class="note">Memory-only, never stored. Use short-lived credentials — never a root key.</p>
+  </div>
+  <div id="roleHint" class="note" style="margin-top:6px">In role mode the page fetches <code>./aws-credentials.json</code> (same origin — see setup below). Nothing to paste.</div>
+  <div class="row3">
+    <div><label>AWS region</label><input id="region" value="us-east-1"></div>
+    <div><label>Bucket</label><input id="bucket" placeholder="my-bucket"></div>
+    <div><label>Prefix (optional)</label><input id="prefix" placeholder="raw/"></div>
+  </div>
+  <div class="row3">
+    <div><label>Poll interval (seconds)</label><input id="interval" type="number" value="30" min="5"></div>
+    <div><label>Stall alert after (minutes of no arrivals)</label><input id="stallmin" type="number" value="10" min="1"></div>
+    <div><label>&nbsp;</label><button id="resetBtn" class="danger">Reset history</button></div>
+  </div>
+  <div style="margin-top:14px">
+    <button id="startBtn">Start watching</button>
+    <button id="stopBtn" class="ghost" disabled>Stop</button>
+    <span id="status" class="note" style="margin-left:10px">idle</span>
+  </div>
+  <p class="note">Needs only <code>s3:ListBucket</code> — works for non-owners with read access. Settings (not secrets) are remembered in <code>localStorage</code>.</p>
+</div>
+
+<details>
+  <summary>EC2 / VPC setup: serve the page next to a credentials file (5 lines, no app server needed)</summary>
+  <div class="card" style="margin-top:10px">
+    <p class="note">Browsers <b>cannot</b> call EC2 instance metadata (<code>169.254.169.254</code>) directly — it sends no CORS headers. Instead, refresh a same-origin JSON file server-side; the page picks it up with zero keys pasted:</p>
+<pre># run on the EC2 instance (cron every 30 min — creds rotate, refresh early)
+TOKEN=$(curl -s -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 3600')
+ROLE=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/iam/security-credentials/)
+curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/iam/security-credentials/$ROLE \
+ | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({'AccessKeyId':d['AccessKeyId'],'SecretAccessKey':d['SecretAccessKey'],'Token':d['Token']}))" \
+ &gt; /var/www/html/aws-credentials.json
+
+# serve this HTML from the same directory: python3 -m http.server 8000 -d /var/www/html
+# then open http://&lt;instance-ip&gt;:8000/s3watch-static-draft.html</pre>
+    <p class="note">Same-origin fetch = no CORS involved. The instance role needs <code>s3:ListBucket</code> on the target bucket(s). The JSON file is only reachable inside your VPC.</p>
+  </div>
+</details>
+
+<details>
+  <summary>Prerequisite: one CORS rule on the watched bucket (30-second, one-time)</summary>
+  <div class="card" style="margin-top:10px">
+    <p class="note">The page calls the S3 API cross-origin from your browser, so the bucket must allow it. S3 console → bucket → Permissions → CORS:</p>
+<pre>[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedOrigins": ["http://&lt;your-ec2-ip&gt;:8000"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3000
+  }
+]</pre>
+    <p class="note">Use the exact origin serving this file (<code>*</code> works for testing but exposes LIST to every website). Without this the page cannot reach S3 — no static workaround exists.</p>
+  </div>
+</details>
+
+<details>
+  <summary>Architecture &amp; honest limits</summary>
+  <div class="card" style="margin-top:10px">
+    <ul class="note" style="margin:0; padding-left:18px">
+      <li><b>Loop:</b> <code>ListObjectsV2</code> (paginated) → JS diff vs last snapshot → new/changed/deleted rows appended to a <b>persistent</b> DuckDB table <code>events</code> in OPFS (<code>opfs://s3watch.duckdb</code>). History survives tab close and browser restart; reopening resumes tracking from the stored state.</li>
+      <li><b>OPFS needs http(s):</b> opening via <code>file://</code> or an old browser falls back to in-memory (history lost on reload) — the chip in the header shows which mode you're in. One tab at a time can hold the database file.</li>
+      <li><b>Why not S3 Metadata journal tables?</b> They live in the bucket <i>owner's</i> AWS-managed table bucket behind Lake Formation — a non-owner page can't reach them. This polling design is the read-only-observer path.</li>
+      <li><b>Cost:</b> each poll is <code>ceil(objects/1000)</code> LIST requests (Class B). The request counter keeps it visible.</li>
+      <li><b>Deletes:</b> flagged after 2 consecutive absences (S3 listings are eventually consistent).</li>
+    </ul>
+  </div>
+</details>
+
+<div id="dash" hidden>
+  <div id="stall">STALL — no new objects for <span id="stallFor"></span></div>
+  <div class="stats">
+    <div class="stat"><div class="v" id="stObjs">–</div><div class="k">objects tracked</div></div>
+    <div class="stat"><div class="v" id="stEvents">–</div><div class="k">events (all time)</div></div>
+    <div class="stat"><div class="v" id="stReqs">–</div><div class="k">LIST requests</div></div>
+    <div class="stat"><div class="v" id="stCycle">–</div><div class="k">poll cycles</div></div>
+    <div class="stat"><div class="v" id="stLast" style="font-size:14px">–</div><div class="k">last poll</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Timeline — files added / modified / deleted</h2>
+    <div style="margin-bottom:8px">
+      <label style="display:inline; margin-right:6px">Bucket size</label>
+      <select id="tbSize">
+        <option value="1 minute">1 minute</option>
+        <option value="5 minutes" selected>5 minutes</option>
+        <option value="15 minutes">15 minutes</option>
+        <option value="1 hour">1 hour</option>
+      </select>
+      <span class="note" style="margin-left:10px">last 48 buckets · from DuckDB</span>
+    </div>
+    <canvas id="timeline" width="1000" height="150"></canvas>
+    <div class="legend">
+      <span><i style="background:#3fb950"></i>added</span>
+      <span><i style="background:#d29922"></i>modified</span>
+      <span><i style="background:#f85149"></i>deleted</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Live event stream <span class="note">(latest 50, from DuckDB)</span></h2>
+    <div style="max-height:260px; overflow:auto">
+      <table><thead><tr><th>time</th><th>event</th><th>key</th><th>size</th></tr></thead><tbody id="evBody"></tbody></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>SQL console — query the event stream with DuckDB</h2>
+    <p class="note">Table <code>events(key VARCHAR, event_type VARCHAR, size BIGINT, etag VARCHAR, event_time TIMESTAMPTZ, cycle INTEGER)</code>. Event types: <code>CREATED</code>, <code>MODIFIED</code>, <code>DELETED</code>.</p>
+    <div class="qbtns">
+      <button class="ghost" data-q="SELECT date_trunc('minute', event_time) AS minute, count(*) AS new_objects FROM events WHERE event_type='CREATED' GROUP BY 1 ORDER BY 1 DESC LIMIT 30">arrivals / minute</button>
+      <button class="ghost" data-q="SELECT key, size FROM events WHERE event_type='CREATED' ORDER BY event_time DESC LIMIT 20">largest recent</button>
+      <button class="ghost" data-q="SELECT event_type, count(*) AS n FROM events GROUP BY 1">counts by type</button>
+      <button class="ghost" data-q="SELECT key, event_time FROM events WHERE event_type='DELETED' ORDER BY event_time DESC LIMIT 20">recent deletes</button>
+    </div>
+    <textarea id="sql" spellcheck="false">SELECT date_trunc('minute', event_time) AS minute, count(*) AS new_objects
+FROM events WHERE event_type = 'CREATED'
+GROUP BY 1 ORDER BY 1 DESC LIMIT 30</textarea>
+    <div style="margin-top:8px">
+      <button id="runSql">Run query</button>
+      <button id="parquetBtn" class="ghost">Export Parquet</button>
+      <button id="csvBtn" class="ghost">Export CSV</button>
+    </div>
+    <div id="sqlErr" class="note" style="color:var(--bad)"></div>
+    <div style="max-height:300px; overflow:auto; margin-top:8px"><table><thead id="qHead"></thead><tbody id="qBody"></tbody></table></div>
+  </div>
+
+  <div class="card">
+    <h2>Log</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script type="module">
+import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.32.0/+esm';
+import { S3Client, ListObjectsV2Command } from 'https://esm.sh/@aws-sdk/client-s3@3';
+
+const $ = id => document.getElementById(id);
+const log = (msg, cls='') => { const d=document.createElement('div'); if(cls)d.className=cls; d.textContent=`[${new Date().toLocaleTimeString()}] ${msg}`; $('log').prepend(d); };
+
+// ---------- settings (non-secret) persist in localStorage ----------
+const SETTINGS_KEY='s3watch.settings.v1';
+function saveSettings(){
+  const s={region:$('region').value, bucket:$('bucket').value, prefix:$('prefix').value,
+    interval:$('interval').value, stallmin:$('stallmin').value, tbsize:$('tbSize').value,
+    credmode:document.querySelector('input[name=credmode]:checked').value};
+  try{ localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }catch(e){}
+}
+function loadSettings(){
+  try{
+    const s=JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}');
+    if(s.region)$('region').value=s.region; if(s.bucket)$('bucket').value=s.bucket;
+    if(s.prefix)$('prefix').value=s.prefix; if(s.interval)$('interval').value=s.interval;
+    if(s.stallmin)$('stallmin').value=s.stallmin; if(s.tbsize)$('tbSize').value=s.tbsize;
+    if(s.credmode)document.querySelector(`input[name=credmode][value=${s.credmode}]`).checked=true;
+  }catch(e){}
+  syncCredMode();
+}
+function syncCredMode(){
+  const m=document.querySelector('input[name=credmode]:checked').value;
+  $('manualCreds').hidden = m!=='manual';
+  $('roleHint').style.display = m==='role' ? 'block':'none';
+}
+document.querySelectorAll('input[name=credmode]').forEach(r=>r.onchange=()=>{syncCredMode();saveSettings();});
+['region','bucket','prefix','interval','stallmin'].forEach(id=>$(id).addEventListener('change',saveSettings));
+
+let db=null, conn=null, s3=null, timer=null, persistent=false;
+let cycle=0, listRequests=0, totalEvents=0;
+const seen=new Map();           // key -> {size, etag, misses}
+let lastArrivalAt=null, bucket='', prefix='';
+
+const sqlStr = s => s==null ? 'NULL' : `'${String(s).replace(/'/g,"''")}'`;
+const cell = v => v==null ? '<span style="color:var(--dim)">null</span>' : String(typeof v==='bigint'?v.toString():(v instanceof Date?v.toISOString():v)).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const DDL = `CREATE TABLE IF NOT EXISTS events(key VARCHAR, event_type VARCHAR, size BIGINT, etag VARCHAR, event_time TIMESTAMPTZ, cycle INTEGER)`;
+
+// ---------- DuckDB init with OPFS persistence ----------
+async function initDuck(){
+  if (db) return;
+  log('Loading DuckDB-WASM…');
+  const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+  const workerUrl = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`],{type:'text/javascript'}));
+  const worker = new Worker(workerUrl);
+  db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
+  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  try{
+    await db.open({ path:'opfs://s3watch.duckdb', accessMode: duckdb.DuckDBAccessMode.READ_WRITE });
+    persistent=true;
+    $('persistChip').textContent='storage: OPFS persistent'; $('persistChip').className='chip ok';
+    log('Opened persistent database (OPFS). History will survive reloads.','ok');
+  }catch(e){
+    persistent=false;
+    $('persistChip').textContent='storage: in-memory (OPFS unavailable)'; $('persistChip').className='chip warn';
+    log('OPFS unavailable ('+(e.message||e)+') — falling back to in-memory. History will NOT survive reload. Serve over http(s) for persistence.','err');
+  }
+  conn = await db.connect();
+  await conn.query(DDL);
+}
+
+// Rebuild live state from stored history so tracking resumes seamlessly
+async function resumeState(){
+  try{
+    const r=await conn.query(`SELECT key, event_type, size, etag FROM (
+      SELECT *, row_number() OVER (PARTITION BY key ORDER BY event_time DESC, cycle DESC) rn FROM events)
+      WHERE rn=1 AND event_type != 'DELETED'`);
+    for(const row of r.toArray()) seen.set(row.key,{size:row.size==null?null:Number(row.size), etag:row.etag, misses:0});
+    const c=await conn.query(`SELECT count(*) n, max(event_time) last FROM events`);
+    const row=c.toArray()[0]; totalEvents=Number(row.n);
+    if(row.last) lastArrivalAt=new Date(row.last);
+    if(totalEvents>0) log(`Resumed with ${totalEvents.toLocaleString()} historical events, ${seen.size.toLocaleString()} live objects.`,'ok');
+  }catch(e){ log('Resume failed: '+e.message,'err'); }
+}
+
+// ---------- credentials ----------
+async function resolveCreds(){
+  const mode=document.querySelector('input[name=credmode]:checked').value;
+  if(mode==='manual'){
+    const akid=$('akid').value.trim(), secret=$('secret').value.trim(), token=$('token').value.trim();
+    if(!akid||!secret) throw new Error('Access key and secret are required in manual mode.');
+    return {credentials:{accessKeyId:akid, secretAccessKey:secret, ...(token?{sessionToken:token}:{})}, via:'manual entry'};
+  }
+  // role mode: same-origin credentials file refreshed server-side (browsers can't call IMDS: no CORS headers)
+  const res=await fetch('./aws-credentials.json',{cache:'no-store'});
+  if(!res.ok) throw new Error('aws-credentials.json not found next to this page (HTTP '+res.status+'). See EC2 setup, or switch to manual credentials.');
+  const j=await res.json();
+  if(!j.AccessKeyId||!j.SecretAccessKey) throw new Error('aws-credentials.json is missing AccessKeyId/SecretAccessKey.');
+  return {credentials:{accessKeyId:j.AccessKeyId, secretAccessKey:j.SecretAccessKey, ...(j.Token?{sessionToken:j.Token}:{})}, via:'EC2 instance role (aws-credentials.json)'};
+}
+
+// ---------- polling ----------
+async function listAll(){
+  const out=[]; let token=undefined;
+  do {
+    const res = await s3.send(new ListObjectsV2Command({Bucket:bucket, Prefix:prefix||undefined, ContinuationToken:token, MaxKeys:1000}));
+    listRequests++;
+    for (const o of (res.Contents||[])) out.push(o);
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while(token);
+  return out;
+}
+
+async function pollOnce(){
+  cycle++;
+  let objs;
+  try { objs = await listAll(); }
+  catch(e){ log('LIST failed: '+(e.message||e), 'err'); setStatus('error — check credentials / CORS'); return; }
+  const now=new Date(), batch=[];
+  const cur=new Set();
+  for (const o of objs){
+    cur.add(o.Key);
+    const prev=seen.get(o.Key);
+    if(!prev){ batch.push([o.Key,'CREATED',o.Size,o.ETag,now]); seen.set(o.Key,{size:o.Size,etag:o.ETag,misses:0}); }
+    else{
+      prev.misses=0;
+      if(prev.size!==o.Size||prev.etag!==o.ETag){ batch.push([o.Key,'MODIFIED',o.Size,o.ETag,now]); prev.size=o.Size; prev.etag=o.ETag; }
+    }
+  }
+  for (const [k,v] of [...seen]){
+    if(!cur.has(k)){ if(++v.misses>=2){ batch.push([k,'DELETED',null,null,now]); seen.delete(k); } }
+  }
+  if(batch.length){
+    const vals=batch.map(([k,t,sz,etag,ts])=>`(${sqlStr(k)},${sqlStr(t)},${sz??'NULL'},${sqlStr(etag)},${sqlStr(ts.toISOString())}::TIMESTAMPTZ,${cycle})`).join(',');
+    await conn.query(`INSERT INTO events VALUES ${vals}`);
+    totalEvents+=batch.length; lastArrivalAt=now;
+    log(`${batch.length} event(s): `+batch.slice(0,3).map(b=>b[1]+' '+b[0].slice(-40)).join(' · ')+(batch.length>3?' …':''));
+  }
+  if(persistent && cycle%10===0){ try{ await conn.query('CHECKPOINT'); }catch(e){} }
+  $('stObjs').textContent=seen.size.toLocaleString();
+  $('stEvents').textContent=totalEvents.toLocaleString();
+  $('stReqs').textContent=listRequests.toLocaleString();
+  $('stCycle').textContent=cycle;
+  $('stLast').textContent=now.toLocaleTimeString();
+  setStatus(`watching s3://${bucket}/${prefix} — cycle ${cycle}`);
+  checkStall(); drawTimeline(); renderEvents();
+}
+
+function checkStall(){
+  const mins=parseFloat($('stallmin').value)||10;
+  if(lastArrivalAt && (Date.now()-lastArrivalAt.getTime())>mins*60000){
+    $('stallFor').textContent=Math.round((Date.now()-lastArrivalAt.getTime())/60000)+' min';
+    $('stall').style.display='block';
+  } else $('stall').style.display='none';
+}
+
+// ---------- timeline: stacked added/modified/deleted per time bucket ----------
+const TB_MIN={ '1 minute':1, '5 minutes':5, '15 minutes':15, '1 hour':60 };
+async function drawTimeline(){
+  const c=$('timeline'), x=c.getContext('2d');
+  x.clearRect(0,0,c.width,c.height);
+  try{
+    const size=$('tbSize').value, mins=TB_MIN[size]||5, buckets=48;
+    const r=await conn.query(`SELECT time_bucket(INTERVAL '${size}', event_time) AS b, event_type, count(*) AS n
+      FROM events WHERE event_time >= now() - INTERVAL '${buckets*mins} minutes'
+      GROUP BY 1,2 ORDER BY 1`);
+    const rows=r.toArray();
+    if(!rows.length){ x.fillStyle='#8b949e'; x.font='12px sans-serif'; x.fillText('no events in window yet',12,70); return; }
+    const byB=new Map();
+    for(const row of rows){
+      const k=new Date(row.b).getTime();
+      if(!byB.has(k)) byB.set(k,{CREATED:0,MODIFIED:0,DELETED:0});
+      byB.get(k)[row.event_type]=Number(row.n);
+    }
+    const keys=[...byB.keys()].sort((a,b)=>a-b);
+    const max=Math.max(...keys.map(k=>byB.get(k).CREATED+byB.get(k).MODIFIED+byB.get(k).DELETED),1);
+    const padL=44, padB=18, W=c.width-padL-8, H=c.height-padB-8, bw=W/buckets;
+    const cols={CREATED:'#3fb950',MODIFIED:'#d29922',DELETED:'#f85149'};
+    x.fillStyle='#8b949e'; x.font='10px sans-serif';
+    x.fillText(max.toLocaleString(),6,14);
+    keys.forEach((k,i)=>{
+      const v=byB.get(k), tot=v.CREATED+v.MODIFIED+v.DELETED;
+      let y0=H+8;
+      for(const t of ['CREATED','MODIFIED','DELETED']){
+        const h=(v[t]/max)*H; y0-=h;
+        x.fillStyle=cols[t]; x.fillRect(padL+i*bw+1, y0, Math.max(1,bw-2), h);
+      }
+      if(i%12===0||i===keys.length-1){
+        const d=new Date(k);
+        x.fillStyle='#8b949e';
+        x.fillText(d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}), padL+i*bw-8, c.height-4);
+      }
+    });
+  }catch(e){ x.fillStyle='#8b949e'; x.font='12px sans-serif'; x.fillText('timeline error: '+e.message,12,70); }
+}
+
+async function renderEvents(){
+  try{
+    const r=await conn.query(`SELECT event_time, event_type, key, size FROM events ORDER BY event_time DESC LIMIT 50`);
+    $('evBody').innerHTML=r.toArray().map(row=>{
+      const t=row.event_time instanceof Date?row.event_time.toLocaleTimeString():row.event_time;
+      const p=row.event_type==='CREATED'?'c':row.event_type==='MODIFIED'?'m':'d';
+      return `<tr><td>${t}</td><td><span class="pill ${p}">${row.event_type}</span></td><td>${cell(row.key)}</td><td>${row.size==null?'–':Number(row.size).toLocaleString()}</td></tr>`;
+    }).join('')||'<tr><td colspan="4" style="color:var(--dim)">no events yet</td></tr>';
+  }catch(e){/* ignore */}
+}
+
+async function runSQL(){
+  $('sqlErr').textContent='';
+  try{
+    const res=await conn.query($('sql').value);
+    const cols=res.schema.fields.map(f=>f.name);
+    const rows=res.toArray().slice(0,500);
+    $('qHead').innerHTML='<tr>'+cols.map(c=>`<th>${cell(c)}</th>`).join('')+'</tr>';
+    $('qBody').innerHTML=rows.map(r=>'<tr>'+cols.map(c=>`<td>${cell(r[c])}</td>`).join('')+'</tr>').join('')||'<tr><td style="color:var(--dim)">0 rows</td></tr>';
+  }catch(e){ $('sqlErr').textContent='Error: '+e.message; }
+}
+
+function download(name, bytes, type){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([bytes],{type})); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+}
+async function exportParquet(){
+  try{
+    setStatus('exporting parquet…');
+    await conn.query(`COPY (SELECT event_time, event_type, key, size, etag, cycle FROM events ORDER BY event_time) TO 's3watch-events.parquet' (FORMAT PARQUET)`);
+    const buf=await db.copyFileToBuffer('s3watch-events.parquet');
+    download('s3watch-events.parquet', buf, 'application/octet-stream');
+    try{ await db.dropFile('s3watch-events.parquet'); }catch(e){}
+    log(`Exported ${totalEvents.toLocaleString()} events to Parquet (${(buf.length/1024).toFixed(1)} KB).`,'ok');
+    setStatus('watching…');
+  }catch(e){ $('sqlErr').textContent='Parquet export error: '+e.message; }
+}
+async function exportCSV(){
+  try{
+    const res=await conn.query(`SELECT event_time, event_type, key, size, etag, cycle FROM events ORDER BY event_time`);
+    const cols=res.schema.fields.map(f=>f.name);
+    const q=v=>`"${String(v??'').replace(/"/g,'""')}"`;
+    const csv=[cols.join(',')].concat(res.toArray().map(r=>cols.map(c=>{let v=r[c]; return q(typeof v==='bigint'?v.toString():(v instanceof Date?v.toISOString():v));}).join(','))).join('\n');
+    download('s3watch-events.csv', new TextEncoder().encode(csv), 'text/csv');
+    log('Exported events to CSV.','ok');
+  }catch(e){ $('sqlErr').textContent='CSV export error: '+e.message; }
+}
+
+function setStatus(t){ $('status').textContent=t; }
+
+$('startBtn').onclick=async()=>{
+  saveSettings();
+  bucket=$('bucket').value.trim(); prefix=$('prefix').value.trim();
+  const region=$('region').value.trim()||'us-east-1';
+  if(!bucket){ log('Bucket is required.','err'); return; }
+  $('startBtn').disabled=true;
+  try{
+    await initDuck();
+    await resumeState();
+    const {credentials, via}=await resolveCreds();
+    s3=new S3Client({region, credentials});
+    log('Auth: '+via+'.','ok');
+    await listAll().then(o=>log(`Connected. ${o.length} object(s) under prefix "${prefix||'(root)'}".`,'ok'));
+    $('dash').hidden=false; $('stopBtn').disabled=false;
+    setStatus('watching…');
+    await pollOnce();
+    timer=setInterval(pollOnce, Math.max(5,parseFloat($('interval').value)||30)*1000);
+  }catch(e){ log('Start failed: '+(e.message||e),'err'); setStatus('error — see log'); $('startBtn').disabled=false; }
+};
+$('stopBtn').onclick=async()=>{
+  clearInterval(timer); timer=null;
+  if(persistent&&conn){ try{ await conn.query('CHECKPOINT'); log('Checkpointed to OPFS. Safe to close the tab.','ok'); }catch(e){} }
+  $('startBtn').disabled=false; $('stopBtn').disabled=true; setStatus('stopped');
+};
+$('resetBtn').onclick=async()=>{
+  if(!confirm('Delete ALL tracked event history (OPFS database + settings)?')) return;
+  try{
+    if(conn){ await conn.query('DROP TABLE IF EXISTS events'); await conn.query(DDL); await conn.query('CHECKPOINT'); }
+    seen.clear(); totalEvents=0; lastArrivalAt=null; cycle=0; listRequests=0;
+    try{ localStorage.removeItem(SETTINGS_KEY); }catch(e){}
+    log('History and settings cleared.','ok'); drawTimeline(); renderEvents();
+    $('stObjs').textContent=$('stEvents').textContent=$('stReqs').textContent=$('stCycle').textContent='–'; $('stLast').textContent='–';
+  }catch(e){ log('Reset failed: '+e.message,'err'); }
+};
+$('runSql').onclick=runSQL;
+$('parquetBtn').onclick=exportParquet;
+$('csvBtn').onclick=exportCSV;
+$('tbSize').onchange=()=>{ saveSettings(); drawTimeline(); };
+document.querySelectorAll('.qbtns button').forEach(b=>b.onclick=()=>{ $('sql').value=b.dataset.q; runSQL(); });
+setInterval(checkStall, 30000);
+loadSettings();
+</script>
+</body>
+</html>
