@@ -1,12 +1,17 @@
 (async () => {
   // AIDEV-NOTE: runs on the FORUM origin, so same-origin fetch and no CORS.
   // Dependency-free. index.html replaces __MINIPRESS_URL__ and wraps this in void(...).
+  // AIDEV-NOTE: window.open must run synchronously during the click (Safari popup rule).
+  // We open about:blank first, then point it at minipress once the data is ready.
   const MINIPRESS = '__MINIPRESS_URL__';
   const TARGET = new URL(MINIPRESS).origin;
   const N_TOPICS = 30, N_LEADS = 12, LEAD_CHARS = 600;
   const WEEK = 7 * 864e5;
 
-  const toast = (m) => alert('minipress: ' + m);
+  const w = window.open('about:blank', '_blank');
+  if (!w) return alert('minipress: popup blocked. Allow popups for this forum, then click again.');
+
+  const fail = (msg) => { try { w.close(); } catch (_) {} alert('minipress: ' + msg); };
   const ts = (s) => { const t = Date.parse(s); return Number.isNaN(t) ? 0 : t; };
   const plain = (h) => {
     const d = new DOMParser().parseFromString(String(h || ''), 'text/html');
@@ -22,7 +27,7 @@
   try {
     latest = await get('/latest.json');
   } catch (e) {
-    return toast('forum refused or unreachable (' + e.message + '). Log in or wait a minute.');
+    return fail('forum refused or unreachable (' + e.message + '). Log in or wait a minute.');
   }
 
   const users = new Map((latest.users || []).map((u) => [u.id, u.username]));
@@ -67,8 +72,8 @@
     items,
   };
 
-  const w = window.open(MINIPRESS + '#await', '_blank');
-  if (!w) return toast('popup blocked. Allow popups for this forum, then click again.');
+  // Point the already-open window at minipress. Its origin is TARGET, so postMessage uses it.
+  try { w.location.href = MINIPRESS + '#await'; } catch (_) { return fail('could not open minipress.'); }
 
   let acked = false;
   const onMsg = (e) => {
@@ -76,14 +81,14 @@
   };
   window.addEventListener('message', onMsg);
 
-  // Retry until acked. The new tab's listener may not be attached on the first send.
+  // Retry until acked. The new page's listener may not be attached on the first send.
   const started = Date.now();
   const timer = setInterval(() => {
     if (acked) { clearInterval(timer); window.removeEventListener('message', onMsg); return; }
     if (w.closed || Date.now() - started > 10000) {
       clearInterval(timer);
       window.removeEventListener('message', onMsg);
-      toast('minipress did not answer. Open minipress first, then click again.');
+      if (!acked) alert('minipress: no answer. Open minipress first, then click again.');
       return;
     }
     w.postMessage({ type: 'minipress/issue', issue }, TARGET);
