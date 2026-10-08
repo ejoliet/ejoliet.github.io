@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>minipress</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#bar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.5rem;font:14px/1.3 system-ui,sans-serif;border-bottom:1px solid #888}
+.btn{border:1px solid currentColor;padding:.2rem .5rem;cursor:pointer;background:none;color:inherit;text-decoration:none;font:inherit}
+#hint{opacity:.7;margin-left:auto}
+#page{padding:1rem}
+a{color:inherit}
+.err{color:#c00}
+.empty,.muted{opacity:.7}
+.dots{flex:1;border-bottom:1px dotted currentColor;margin:0 .5ch;transform:translateY(-.3em);min-width:2ch}
+section ul{list-style:none;padding:0;margin:0 0 1rem}
+section li{display:flex;align-items:baseline;gap:.5ch}
+section h2{font-size:1em;margin:1rem 0 .3rem}
+.reps{white-space:nowrap}
+.rule{white-space:pre;overflow:hidden;line-height:1}
+.folio,.credit{font-size:.8em;opacity:.8}
+.lead h2{margin-bottom:.2rem}
+
+/* minitel: 40 character grid, scales with viewport, black and 8 colours */
+body.minitel{background:#000;color:#fff}
+body.minitel #bar{background:#000;color:#0f0;border-color:#0f0}
+body.minitel #page{width:40ch;max-width:100%;margin:0 auto;padding:0;font-size:min(18px,calc((100vw - 2rem)/24))}
+body.minitel a{color:#0ff}
+body.minitel h1,body.minitel h2{text-transform:uppercase;color:#ff0;font-weight:normal}
+body.minitel h1{font-size:2em;text-align:center;letter-spacing:.1em;margin:.2em 0}
+body.minitel .rule{color:#0f0}
+body.minitel .dots{border-color:#0f0}
+body.minitel .err{color:#f80}
+body.minitel .folio{color:#ff0}
+
+/* mono: light, thin rules, three columns on desktop */
+body.mono{background:#fafaf7;color:#111}
+body.mono #bar{border-color:#bbb}
+body.mono #page{max-width:1100px;margin:0 auto;columns:3 280px;column-gap:24px}
+body.mono .masthead,body.mono .lead,body.mono footer,body.mono .rule{column-span:all}
+body.mono h1{font-family:Georgia,serif;font-size:2.4em;text-align:center;border-bottom:3px double #111;margin:.2em 0}
+body.mono h2{font-size:.85em;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #999}
+body.mono .rule{border-top:1px solid #999;height:0;overflow:hidden;color:transparent}
+body.mono .lead h2{font-family:Georgia,serif;font-size:1.6em;text-transform:none;border:0}
+body.mono section{break-inside:avoid}
+</style>
+</head>
+<body class="minitel">
+<nav id="bar">
+  <label class="btn">Load JSON<input id="file" type="file" accept=".json,application/json" multiple hidden></label>
+  <button id="theme" class="btn" type="button">Theme</button>
+  <a id="bm" class="btn" title="Drag this link to your bookmarks bar">minipress it</a>
+  <span id="hint">Drop JSON files anywhere</span>
+</nav>
+<main id="page"></main>
+
+<script>
+'use strict';
+// AIDEV-NOTE: v2 slot. Set to a Cloudflare Worker base URL to enable the proxy fallback. Empty = disabled.
+const PROXY = '';
+const THEMES = ['minitel', 'mono'];
+const S = { items: new Map(), cats: new Map(), source: null, errors: new Set(), base: '' };
+let THEME = 'minitel';
+
+const $ = (q) => document.querySelector(q);
+
+// Text nodes only. Forum data never reaches innerHTML.
+function safeHref(u) {
+  try {
+    const x = new URL(String(u), location.href);
+    return /^https?:$/.test(x.protocol) ? x.href : '';
+  } catch (_) { return ''; }
+}
+function el(tag, opts = {}, ...kids) {
+  const n = document.createElement(tag);
+  if (opts.cls) n.className = opts.cls;
+  if (opts.text != null) n.textContent = opts.text;
+  if (opts.href) { const h = safeHref(opts.href); if (h) n.setAttribute('href', h); }
+  for (const k of kids) {
+    if (k == null || k === false) continue;
+    n.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  }
+  return n;
+}
+// Parse HTML inertly and keep only the text. Scripts and images do not run in DOMParser output.
+function plain(h) {
+  const d = new DOMParser().parseFromString(String(h ?? ''), 'text/html');
+  return (d.body?.textContent || '').replace(/\s+/g, ' ').trim();
+}
+const ts = (s) => { const t = Date.parse(s); return Number.isNaN(t) ? 0 : t; };
+const fold = (s) => THEME === 'minitel'
+  ? String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  : String(s ?? '');
+const hostOf = (u) => { try { return new URL(u).host; } catch (_) { return ''; } };
+const hrefFor = (id) => (S.base ? `${S.base}/t/${id}` : '');
+const catName = (id) => S.cats.get(id) || (id == null ? 'GENERAL' : `CATEGORY ${id}`);
+
+// ---------- Phase 0: shape detection and normalize ----------
+
+function detectShape(o) {
+  if (!o || typeof o !== 'object') return 'unknown';
+  if (o.minipress === 1) return 'issue';
+  if (o.topic_list && Array.isArray(o.topic_list.topics)) return 'latest';
+  if (o.post_stream && Array.isArray(o.post_stream.posts)) return 'topic';
+  return 'unknown';
+}
+
+// Merge by id. Empty values never overwrite existing data.
+function addItem(it) {
+  const m = { ...(S.items.get(it.id) || {}) };
+  for (const [k, v] of Object.entries(it)) if (v !== undefined && v !== '') m[k] = v;
+  S.items.set(it.id, m);
+}
+
+function ingestLatest(o) {
+  const users = new Map((o.users || []).map((u) => [u.id, u.username]));
+  for (const c of o.categories || []) S.cats.set(c.id, c.name);
+  for (const t of o.topic_list.topics) {
+    addItem({
+      id: t.id,
+      title: plain(t.fancy_title || t.title),
+      href: hrefFor(t.id),
+      author: users.get(t.posters?.[0]?.user_id) || t.last_poster_username || 'unknown',
+      created_at: ts(t.created_at),
+      bumped_at: ts(t.bumped_at),
+      category_id: t.category_id,
+      reply_count: t.reply_count || 0,
+      like_count: t.like_count || 0,
+      views: t.views || 0,
+      pinned: !!(t.pinned || t.pinned_globally),
+      tags: t.tags || [],
+      lead: plain(t.excerpt).slice(0, 600),
+    });
+  }
+}
+
+function ingestTopic(o) {
+  const first = (o.post_stream.posts || [])[0] || {};
+  const lead = plain(first.cooked).slice(0, 600);
+  if (S.items.has(o.id)) { addItem({ id: o.id, lead }); return; }
+  addItem({
+    id: o.id,
+    title: plain(o.fancy_title || o.title),
+    href: hrefFor(o.id),
+    author: first.username || 'unknown',
+    created_at: ts(o.created_at),
+    bumped_at: ts(o.last_posted_at || o.created_at),
+    category_id: o.category_id,
+    reply_count: Math.max(0, (o.posts_count || 1) - 1),
+    views: o.views || 0,
+    tags: o.tags || [],
+    lead,
+  });
+}
+
+function ingestIssue(o) {
+  if (o.source) S.source = { ...o.source };
+  for (const [k, c] of Object.entries(o.categories || {})) S.cats.set(Number(k), c.name);
+  for (const it of o.items || []) {
+    addItem({
+      id: it.id,
+      title: plain(it.title),
+      href: it.url,
+      author: it.author,
+      created_at: ts(it.created_at),
+      bumped_at: ts(it.bumped_at),
+      category_id: it.category_id,
+      reply_count: it.reply_count || 0,
+      like_count: it.like_count || 0,
+      views: it.views || 0,
+      pinned: !!it.pinned,
+      tags: it.tags || [],
+      lead: plain(it.lead).slice(0, 600),
+    });
+  }
+}
+
+function ingest(o, name) {
+  switch (detectShape(o)) {
+    case 'issue': return ingestIssue(o);
+    case 'latest': return ingestLatest(o);
+    case 'topic': return ingestTopic(o);
+    default: S.errors.add(`UNKNOWN FILE: ${name}`);
+  }
+}
+
+// ---------- Phase 1: rank ----------
+
+function rank() {
+  const now = Date.now();
+  const week = 7 * 864e5;
+  const all = [...S.items.values()].map((it) => {
+    let s = (it.reply_count || 0) + (it.like_count || 0) / 2 + (it.views || 0) / 200;
+    if (it.bumped_at && now - it.bumped_at < week) s *= 2;
+    return { ...it, score: s };
+  });
+  const notices = all.filter((i) => i.pinned).sort((a, b) => b.bumped_at - a.bumped_at);
+  const rest = all.filter((i) => !i.pinned).sort((a, b) => b.score - a.score || b.bumped_at - a.bumped_at);
+  const groups = new Map();
+  for (const it of rest.slice(5).sort((a, b) => b.bumped_at - a.bumped_at)) {
+    const k = catName(it.category_id);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(it);
+  }
+  return { notices, lead: rest[0] || null, second: rest.slice(1, 5), groups, count: all.length };
+}
+
+// ---------- render ----------
+
+function linkTo(href, label) { return el('a', { href, text: label }); }
+function rule() { return el('div', { cls: 'rule', text: '\u2580'.repeat(40) }); }
+function entry(i) {
+  return el('li', {},
+    linkTo(i.href, fold(i.title)),
+    el('span', { cls: 'dots' }),
+    el('span', { cls: 'reps', text: `${i.reply_count} REP` }));
+}
+function section(title, items) {
+  return el('section', {}, el('h2', { text: fold(title) }), el('ul', {}, ...items.map(entry)));
+}
+
+function render() {
+  document.body.className = THEME;
+  const page = $('#page');
+  page.replaceChildren();
+  $('#hint').textContent = S.items.size ? `${S.items.size} items` : 'Drop JSON files anywhere or click Load JSON';
+
+  for (const e of S.errors) page.append(el('p', { cls: 'err', text: e }));
+  if (!S.items.size) { page.append(el('p', { cls: 'empty', text: 'No stories yet.' })); return; }
+
+  const r = rank();
+  const src = S.source || {};
+  const title = src.title || hostOf(S.base) || 'LOCAL FILES';
+  page.append(el('header', { cls: 'masthead' },
+    el('h1', { text: 'MINIPRESS' }),
+    el('p', { cls: 'meta', text: fold(`${title} \u00b7 ${new Date().toISOString().slice(0, 10)} \u00b7 ${r.count} ITEMS`) }),
+    rule()));
+
+  if (r.notices.length) page.append(section('Notices', r.notices));
+
+  if (r.lead) {
+    const L = r.lead;
+    page.append(el('article', { cls: 'lead' },
+      el('h2', {}, linkTo(L.href, fold(L.title))),
+      el('p', { cls: 'byline', text: fold(`BY ${L.author} \u00b7 ${L.reply_count} REP \u00b7 ${L.views || 0} VIEWS`) }),
+      L.lead
+        ? el('p', { text: fold(L.lead) })
+        : el('p', { cls: 'muted' }, 'See online: ', linkTo(L.href, L.href || '(no link)')),
+      rule()));
+  }
+
+  if (r.second.length) page.append(section('Also today', r.second));
+  for (const [name, arr] of r.groups) page.append(section(name, arr));
+
+  page.append(el('footer', {},
+    rule(),
+    el('p', { cls: 'folio', text: '3615 MINIPRESS  P.1/1' }),
+    el('p', { cls: 'credit', text: 'Content by its authors. Rendered by minipress. Follow links to read on the source forum.' })));
+}
+
+// ---------- input ----------
+
+async function loadFiles(files) {
+  for (const f of files) {
+    try { ingest(JSON.parse(await f.text()), f.name); }
+    catch (_) { S.errors.add(`UNREADABLE: ${f.name}`); }
+  }
+  render();
+}
+
+// Direct fetch first (works only if the forum sends CORS headers), then optional proxy.
+async function fetchForum(base) {
+  const direct = `${base}/latest.json`;
+  const tries = [direct, PROXY ? `${PROXY}?u=${encodeURIComponent(direct)}` : ''].filter(Boolean);
+  for (const u of tries) {
+    try {
+      const r = await fetch(u, { headers: { Accept: 'application/json' } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      ingest(await r.json(), 'latest.json');
+      render();
+      return;
+    } catch (_) { /* try next */ }
+  }
+  S.errors.add(`FORUM FETCH FAILED: ${base} (CORS or HTTP). Load latest.json or use the bookmarklet.`);
+  render();
+}
+
+function forumFromHash() {
+  let h = '';
+  try { h = decodeURIComponent(location.hash.slice(1)); } catch (_) { return ''; }
+  return /^https?:\/\/\S+$/.test(h) ? h.replace(/\/+$/, '') : '';
+}
+
+// Bookmarklet handshake: accept only the minipress/issue type and a v1 issue. Ack back to the sender.
+function listenForIssue() {
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (!d || d.type !== 'minipress/issue' || !d.issue || d.issue.minipress !== 1) return;
+    try { e.source?.postMessage({ type: 'minipress/ack' }, e.origin); } catch (_) { /* sender gone */ }
+    try { ingest(d.issue, 'bookmarklet'); } catch (_) { S.errors.add('BOOKMARKLET: bad issue'); }
+    render();
+  });
+}
+
+// Builds a javascript: href from bookmarklet.js. void() keeps the page from being replaced by the return value.
+async function installBookmarklet() {
+  const a = $('#bm');
+  try {
+    const src = (await (await fetch('bookmarklet.js', { cache: 'no-cache' })).text()).trim();
+    const me = location.origin + location.pathname;
+    a.href = 'javascript:' + encodeURIComponent('void(\n' + src.replaceAll('__MINIPRESS_URL__', me) + '\n)');
+  } catch (_) {
+    a.removeAttribute('href');
+    a.title = 'Serve this page over http(s) to enable the bookmarklet';
+  }
+}
+
+function currentTheme() {
+  const p = new URLSearchParams(location.search).get('theme');
+  if (THEMES.includes(p)) return p;
+  try { const s = localStorage.getItem('minipress.theme'); if (THEMES.includes(s)) return s; } catch (_) { /* storage off */ }
+  return 'minitel';
+}
+
+function toggleTheme() {
+  THEME = THEME === 'minitel' ? 'mono' : 'minitel';
+  try { localStorage.setItem('minipress.theme', THEME); } catch (_) { /* cosmetic only */ }
+  render();
+}
+
+function wire() {
+  $('#file').addEventListener('change', (e) => loadFiles(e.target.files));
+  $('#theme').addEventListener('click', toggleTheme);
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer?.files?.length) loadFiles(e.dataTransfer.files);
+  });
+}
+
+async function init() {
+  THEME = currentTheme();
+  S.base = forumFromHash();
+  if (S.base) fetchForum(S.base);
+  if (location.hash === '#await') listenForIssue();
+
+  const fx = new URLSearchParams(location.search).get('fixture');
+  if (fx) {
+    try { ingest(await (await fetch('fixtures/' + encodeURIComponent(fx))).json(), fx); }
+    catch (_) { S.errors.add(`FIXTURE NOT FOUND: ${fx}`); }
+  }
+  wire();
+  installBookmarklet();
+  render();
+}
+
+init();
+</script>
+</body>
+</html>
