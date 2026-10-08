@@ -51,6 +51,7 @@ body.mono section{break-inside:avoid}
 <nav id="bar">
   <label class="btn">Load JSON<input id="file" type="file" accept=".json,application/json" multiple hidden></label>
   <button id="theme" class="btn" type="button">Theme</button>
+  <button id="copy" class="btn" type="button" disabled>Copy bookmark URL</button>
   <a id="bm" class="btn" title="Drag this link to your bookmarks bar">minipress it</a>
   <span id="hint">Drop JSON files anywhere</span>
 </nav>
@@ -63,6 +64,7 @@ const PROXY = '';
 const THEMES = ['minitel', 'mono'];
 const S = { items: new Map(), cats: new Map(), source: null, errors: new Set(), base: '' };
 let THEME = 'minitel';
+let BM_CODE = '';
 
 const $ = (q) => document.querySelector(q);
 
@@ -310,10 +312,25 @@ async function installBookmarklet() {
   try {
     const src = (await (await fetch('bookmarklet.js', { cache: 'no-cache' })).text()).trim();
     const me = location.origin + location.pathname;
-    a.href = 'javascript:' + encodeURIComponent('void(\n' + src.replaceAll('__MINIPRESS_URL__', me) + '\n)');
+    BM_CODE = 'javascript:' + encodeURIComponent('void(\n' + src.replaceAll('__MINIPRESS_URL__', me) + '\n)');
+    a.href = BM_CODE;
+    $('#copy').disabled = false;
   } catch (_) {
+    BM_CODE = '';
     a.removeAttribute('href');
+    $('#copy').disabled = true;
     a.title = 'Serve this page over http(s) to enable the bookmarklet';
+  }
+}
+
+// For iPhone: paste the javascript: string into a bookmark's URL field.
+async function copyBookmark() {
+  if (!BM_CODE) return;
+  try {
+    await navigator.clipboard.writeText(BM_CODE);
+    $('#hint').textContent = 'Copied. Paste it as a bookmark URL.';
+  } catch (_) {
+    window.prompt('Copy this bookmark URL:', BM_CODE);
   }
 }
 
@@ -333,6 +350,7 @@ function toggleTheme() {
 function wire() {
   $('#file').addEventListener('change', (e) => loadFiles(e.target.files));
   $('#theme').addEventListener('click', toggleTheme);
+  $('#copy').addEventListener('click', copyBookmark);
   window.addEventListener('dragover', (e) => e.preventDefault());
   window.addEventListener('drop', (e) => {
     e.preventDefault();
