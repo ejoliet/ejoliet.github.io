@@ -1,0 +1,10 @@
+BURGER BARN
+09/09/2026
+
+1 x Cheeseburger                9.50
+1 x Fries                        3.50
+1 x Milkshake                    5.00
+
+Subtotal                        18.00
+Tax                               1.44
+Total                            21.00
