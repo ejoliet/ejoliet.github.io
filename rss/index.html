@@ -679,12 +679,12 @@
                     <button class="primary" data-open="add">＋ Add feed</button
                     ><button class="mutebtn" id="manageRefresh">Refresh all</button>
                 </div>
-                <label class="field" for="proxy">Optional RSS proxy URL template</label
-                ><input id="proxy" class="full" placeholder="https://your-proxy.example/?url={url}" />
+                <label class="field" for="proxy">RSS proxy URL or template</label
+                ><input id="proxy" class="full" placeholder="https://proxy-github-io.ejoliet.workers.dev/" />
                 <p class="smallnote">
-                    Only for feeds blocked by browser cross-origin rules. Use <code>{url}</code> for the URL-encoded
-                    feed address. Your proxy can see feed URLs and content; never use it for private or cookie-backed
-                    feeds. Leave blank for direct-only fetching.
+                    Public feeds use this proxy when configured. Enter your Worker base URL or a template containing
+                    <code>{url}</code>. Credentials and browser cookies are never sent to the proxy. Authenticated feeds
+                    still require separate handling.
                 </p>
                 <button class="mutebtn" id="saveProxy">Save proxy setting</button>
             </div>
@@ -843,6 +843,16 @@
                     };
                 });
                 return { title, articles };
+            }
+            function proxyTemplate(value) {
+                const raw = String(value || "").trim();
+                if (!raw) return "";
+                const u = safeURL(raw);
+                if (!u) return null;
+                if (raw.includes("{url}")) return raw;
+                const parsed = new URL(u);
+                parsed.searchParams.set("url", "{url}");
+                return parsed.href.replace("%7Burl%7D", "{url}");
             }
             async function fetchFeed(f) {
                 const url = state.proxy && !f.cookies ? state.proxy.replace("{url}", encodeURIComponent(f.url)) : f.url;
@@ -1080,6 +1090,13 @@
                     db = await openDB();
                     const stored = await dbGet("library");
                     if (stored) state = { ...state, ...stored };
+                    if (state.proxy) {
+                        const normalized = proxyTemplate(state.proxy);
+                        if (normalized !== null && normalized !== state.proxy) {
+                            state.proxy = normalized;
+                            await save();
+                        }
+                    }
                 } catch (e) {
                     message("Local storage unavailable. Use HTTPS or localhost and enable browser storage.", true);
                     $$("button").forEach((b) => (b.disabled = true));
@@ -1154,12 +1171,14 @@
                 refresh();
             });
             $("#saveProxy").addEventListener("click", async () => {
-                const p = $("#proxy").value.trim();
-                if (p && (!p.includes("{url}") || !safeURL(p.replace("{url}", "https%3A%2F%2Fexample.com"))))
-                    return toast("Use a valid HTTPS proxy URL with {url}");
+                const raw = $("#proxy").value.trim();
+                const p = proxyTemplate(raw);
+                if (p === null) return toast("Enter a valid HTTP(S) proxy URL");
                 state.proxy = p;
                 await save();
-                toast("Proxy preference saved");
+                render();
+                toast(p ? "Proxy saved. Refreshing public feeds…" : "Proxy disabled");
+                if (p && state.feeds.some((f) => !f.cookies)) refresh();
             });
             $("#exportEncrypted").addEventListener("click", () => exportData(true).catch((e) => toast(e.message)));
             $("#exportPlain").addEventListener("click", () => exportData(false));
