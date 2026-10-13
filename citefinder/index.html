@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- AIDEV-NOTE: CSP is the security boundary for tokens. connect-src must list every provider host
+     (doi.org redirects to api.crossref.org / api.datacite.org / data.crosscite.org). No third-party scripts. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://api.github.com https://api.adsabs.harvard.edu https://api.datacite.org https://api.crossref.org https://doi.org https://data.crosscite.org https://pub.orcid.org https://api.semanticscholar.org; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="Find the right citation for a GitHub repository and export a CITATION.cff. Runs in your browser.">
+<title>citefinder: cite a GitHub repository</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='7' width='26' height='18' rx='1.5' fill='%23fff' stroke='%231B2A4A' stroke-width='2'/%3E%3Cpath d='M3 11h26' stroke='%23C0392B' stroke-width='2'/%3E%3Ccircle cx='16' cy='21' r='2' fill='%231B2A4A'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="masthead">
+  <h1 class="brand">citefinder</h1>
+  <p class="tagline">Find the right citation for a GitHub repository and export a <code>CITATION.cff</code>. Everything runs in your browser.</p>
+</header>
+
+<main class="layout">
+  <div class="flow">
+    <section class="step" id="step-repo" aria-labelledby="h-repo">
+      <h2 id="h-repo"><span class="n" aria-hidden="true">1</span>Repository</h2>
+      <form id="repo-form" class="repo-form" novalidate>
+        <label for="repo" class="sr-only">GitHub repository</label>
+        <input id="repo" name="repo" type="text" placeholder="owner/repo or GitHub URL" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+        <button type="submit" id="search-btn" class="primary">Find citations</button>
+      </form>
+      <p class="form-error" id="repo-error" role="alert" hidden></p>
+
+      <details class="settings" id="settings">
+        <summary>Tokens and sources <span class="summary-note" id="token-summary"></span></summary>
+        <p class="hint">Tokens stay in this tab only and are cleared when you close it. Each token is sent only to its own service. For tokens that persist, use the terminal version.</p>
+        <div id="provider-settings" class="provider-settings"></div>
+        <div class="field-row">
+          <label for="mailto">Contact email <span class="muted">(sent to Crossref as a courtesy, optional)</span></label>
+          <input id="mailto" type="email" autocomplete="email" placeholder="you@example.org">
+        </div>
+        <div class="field-row">
+          <label for="doi-kind">Zenodo DOI to cite</label>
+          <select id="doi-kind">
+            <option value="concept">All versions (concept DOI)</option>
+            <option value="version">Latest release only (version DOI)</option>
+          </select>
+        </div>
+        <button type="button" id="forget-tokens" class="quiet">Forget tokens</button>
+      </details>
+
+      <ul class="provider-status" id="provider-status" aria-live="polite"></ul>
+    </section>
+
+    <section class="step" id="step-pick" aria-labelledby="h-pick" hidden>
+      <h2 id="h-pick"><span class="n" aria-hidden="true">2</span>Pick a match</h2>
+      <p class="lede" id="pick-lede"></p>
+      <ol class="candidates" id="candidates"></ol>
+      <button type="button" class="quiet" id="toggle-weak" hidden></button>
+    </section>
+
+    <section class="step" id="step-confirm" aria-labelledby="h-confirm" hidden>
+      <h2 id="h-confirm"><span class="n" aria-hidden="true">3</span>Confirm details</h2>
+      <p class="lede" id="confirm-lede"></p>
+      <div id="editor"></div>
+    </section>
+  </div>
+
+  <aside class="card-col" aria-label="Citation preview">
+    <div class="card" id="card">
+      <div class="card-tabs" role="tablist" aria-label="Format">
+        <button type="button" role="tab" class="tab" data-tab="cff" aria-selected="true">CITATION.cff</button>
+        <button type="button" role="tab" class="tab" data-tab="apa" aria-selected="false">APA</button>
+        <button type="button" role="tab" class="tab" data-tab="bibtex" aria-selected="false">BibTeX</button>
+      </div>
+      <pre class="card-body" id="preview" tabindex="0"># Your CITATION.cff appears here.
+# Enter a repository to start.</pre>
+      <p class="card-note" id="preview-note" hidden>APA and BibTeX approximate how GitHub renders the file.</p>
+      <ul class="checks" id="checks"></ul>
+      <div class="card-actions">
+        <button type="button" class="primary" id="download" disabled>Download CITATION.cff</button>
+        <button type="button" id="copy" disabled>Copy</button>
+      </div>
+      <span class="punch" aria-hidden="true"></span>
+    </div>
+  </aside>
+</main>
+
+<footer class="fineprint">
+  <p>Prefer the terminal? <code id="npx-cmd">npx github:ejoliet/citefinder#v0.1.0 owner/repo</code> <button type="button" class="quiet small" id="copy-npx">Copy</button></p>
+  <p>Needs Node 20 or later. Tokens come from environment variables: <code>ADS_TOKEN</code>, <code>GITHUB_TOKEN</code>, <code>S2_API_KEY</code>. Writes <code>./CITATION.cff</code>. The terminal version ships with v0.1.0.</p>
+  <p>Requests go only to GitHub, ADS, DataCite, Crossref, doi.org, ORCID and Semantic Scholar. Format follows <a href="https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-citation-files" rel="noreferrer">GitHub's CITATION file guide</a>. <a href="https://github.com/ejoliet/citefinder" rel="noreferrer">Source</a>, MIT.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
