@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SnapSplit — split a receipt in 30 seconds</title>
+<meta name="description" content="Photograph a receipt, split it fairly, settle up. Runs entirely in your browser, no account, no server.">
+<meta name="theme-color" content="#0f766e">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%BE%3C/text%3E%3C/svg%3E">
+<link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22SnapSplit%22%2C%22display%22%3A%22standalone%22%7D">
+<style>
+:root{
+  color-scheme: light dark;
+  --bg:#f7f7f5; --bg-elev:#ffffff; --text:#16181d; --text-dim:#5b6270;
+  --border:#e2e5ea; --accent:#0f766e; --accent-ink:#ffffff; --accent-soft:#e6f4f2;
+  --danger:#b3261e; --danger-soft:#fdeceb; --warn:#8a5a00; --warn-soft:#fff4e0;
+  --ok:#1b7a3d; --ok-soft:#e8f6ec; --radius:14px; --radius-sm:9px;
+  --shadow: 0 1px 2px rgba(20,20,30,.06), 0 4px 16px rgba(20,20,30,.06);
+  --focus: 0 0 0 3px rgba(15,118,110,.35);
+  --maxw:880px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0d1013; --bg-elev:#171b20; --text:#eef1f4; --text-dim:#9aa3ad;
+    --border:#2a2f36; --accent:#2dd4bf; --accent-ink:#04211d; --accent-soft:#123330;
+    --danger:#ff6b60; --danger-soft:#3a1616; --warn:#ffb454; --warn-soft:#3a2c0d;
+    --ok:#5fdc8a; --ok-soft:#123320;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d1013; --bg-elev:#171b20; --text:#eef1f4; --text-dim:#9aa3ad;
+  --border:#2a2f36; --accent:#2dd4bf; --accent-ink:#04211d; --accent-soft:#123330;
+  --danger:#ff6b60; --danger-soft:#3a1616; --warn:#ffb454; --warn-soft:#3a2c0d;
+  --ok:#5fdc8a; --ok-soft:#123320;
+}
+:root[data-theme="light"]{
+  --bg:#f7f7f5; --bg-elev:#ffffff; --text:#16181d; --text-dim:#5b6270;
+  --border:#e2e5ea; --accent:#0f766e; --accent-ink:#ffffff; --accent-soft:#e6f4f2;
+  --danger:#b3261e; --danger-soft:#fdeceb; --warn:#8a5a00; --warn-soft:#fff4e0;
+  --ok:#1b7a3d; --ok-soft:#e8f6ec;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text); font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  padding-bottom: env(safe-area-inset-bottom);
+  -webkit-text-size-adjust:100%;
+}
+@media (prefers-reduced-motion: no-preference){
+  .anim{transition:transform .18s ease, opacity .18s ease, background-color .18s ease;}
+}
+a{color:var(--accent)}
+button, input, select, textarea{font:inherit; color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:none; box-shadow:var(--focus); border-radius:6px}
+.visually-hidden{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
+
+header.topbar{
+  position:sticky; top:0; z-index:20; background:var(--bg); border-bottom:1px solid var(--border);
+  padding:10px 14px calc(10px + env(safe-area-inset-top)*0); backdrop-filter: blur(6px);
+}
+.topbar-row{display:flex; align-items:center; justify-content:space-between; max-width:var(--maxw); margin:0 auto}
+.brand{display:flex; align-items:center; gap:8px; font-weight:700; font-size:17px}
+.brand .logo{font-size:20px}
+.topbar-actions{display:flex; gap:6px}
+.icon-btn{
+  background:transparent; border:1px solid var(--border); border-radius:10px; width:36px; height:36px;
+  display:flex; align-items:center; justify-content:center; font-size:16px;
+}
+.icon-btn:hover{background:var(--bg-elev)}
+
+.steps{display:flex; gap:4px; max-width:var(--maxw); margin:8px auto 0; padding:0 0 2px}
+.step-pill{
+  flex:1; text-align:center; font-size:11px; padding:6px 2px; border-radius:8px; color:var(--text-dim);
+  border-bottom:3px solid var(--border); font-weight:600; letter-spacing:.02em;
+}
+.step-pill.active{color:var(--accent); border-bottom-color:var(--accent)}
+.step-pill.done{color:var(--text)}
+.step-pill button{all:unset; cursor:pointer; display:block; width:100%}
+
+main{max-width:var(--maxw); margin:0 auto; padding:16px 14px 120px}
+.panel{background:var(--bg-elev); border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:14px; box-shadow:var(--shadow)}
+.panel h2{margin:0 0 4px; font-size:18px}
+.panel h3{margin:0 0 8px; font-size:14px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em}
+.muted{color:var(--text-dim)}
+.small{font-size:12.5px}
+
+.privacy-note{
+  display:flex; gap:8px; align-items:flex-start; background:var(--accent-soft); border:1px solid var(--border);
+  border-radius:var(--radius-sm); padding:10px 12px; font-size:12.5px; margin-bottom:14px;
+}
+
+.step-view{display:none}
+.step-view.active{display:block}
+
+.dropzone{
+  border:2px dashed var(--border); border-radius:var(--radius); padding:28px 16px; text-align:center;
+  background:var(--bg-elev); cursor:pointer;
+}
+.dropzone.drag{border-color:var(--accent); background:var(--accent-soft)}
+.dropzone .big-emoji{font-size:40px}
+.capture-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px}
+@media (max-width:420px){.capture-grid{grid-template-columns:1fr}}
+
+.btn{
+  border:1px solid var(--border); background:var(--bg-elev); border-radius:10px; padding:11px 16px;
+  font-weight:600; font-size:14px; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  min-height:44px;
+}
+.btn:hover{filter:brightness(1.03)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+.btn.danger{background:var(--danger-soft); border-color:var(--danger); color:var(--danger)}
+.btn.block{width:100%}
+.btn.ghost{background:transparent}
+.btn.sm{min-height:36px; padding:7px 12px; font-size:13px}
+.btn:disabled{opacity:.45; cursor:not-allowed}
+
+input[type=text], input[type=number], input[type=search], select, textarea{
+  border:1px solid var(--border); background:var(--bg); color:var(--text); border-radius:9px; padding:10px 11px;
+  min-height:44px; width:100%;
+}
+textarea{min-height:80px}
+label{font-size:12.5px; color:var(--text-dim); display:block; margin-bottom:4px; font-weight:600}
+.field{margin-bottom:10px}
+.row{display:flex; gap:8px}
+.row > *{flex:1}
+
+table.items-table{width:100%; border-collapse:collapse; font-size:13.5px}
+table.items-table th{text-align:left; font-size:11px; color:var(--text-dim); text-transform:uppercase; padding:6px 4px; border-bottom:1px solid var(--border)}
+table.items-table td{padding:6px 4px; border-bottom:1px solid var(--border); vertical-align:middle}
+table.items-table input{min-height:36px; padding:6px 8px; font-size:13.5px}
+.qty-input, .price-input{width:100%}
+.low-conf{background:var(--warn-soft)}
+.item-row.non-splittable{opacity:.55}
+.chip{display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:999px; font-size:11px; font-weight:700}
+.chip.warn{background:var(--warn-soft); color:var(--warn)}
+.chip.ok{background:var(--ok-soft); color:var(--ok)}
+.chip.danger{background:var(--danger-soft); color:var(--danger)}
+
+.totals-grid{display:grid; grid-template-columns:1fr auto; gap:6px 10px; font-size:14px}
+.totals-grid .label{color:var(--text-dim)}
+.totals-grid .val{text-align:right; font-variant-numeric:tabular-nums}
+.discrepancy-banner{
+  border-radius:var(--radius-sm); padding:12px; margin-top:10px; font-size:13.5px; border:1px solid;
+}
+.discrepancy-banner.bad{background:var(--danger-soft); border-color:var(--danger); color:var(--danger)}
+.discrepancy-banner.good{background:var(--ok-soft); border-color:var(--ok); color:var(--ok)}
+
+.people-list{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:12px}
+.person-chip{
+  display:flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:999px; padding:6px 12px 6px 6px;
+  background:var(--bg-elev);
+}
+.avatar{
+  width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:12px; font-weight:700; color:#fff; flex:none;
+}
+.person-chip .payer-badge{font-size:10px; background:var(--accent-soft); color:var(--accent); padding:1px 6px; border-radius:999px; font-weight:700}
+.person-chip button.remove{all:unset; cursor:pointer; color:var(--text-dim); font-size:15px; padding:2px}
+
+.assign-item-card{border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; margin-bottom:10px}
+.assign-item-card.claim-mode{padding:20px; text-align:center}
+.assign-item-head{display:flex; justify-content:space-between; gap:8px; align-items:baseline; margin-bottom:8px}
+.assign-item-head .name{font-weight:700}
+.assign-item-head .price{font-variant-numeric:tabular-nums; color:var(--text-dim)}
+.mode-tabs{display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px}
+.mode-tabs button{
+  border:1px solid var(--border); background:var(--bg); border-radius:8px; padding:5px 9px; font-size:11.5px; font-weight:700;
+}
+.mode-tabs button.active{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+.person-toggle-grid{display:flex; flex-wrap:wrap; gap:8px}
+.person-toggle{
+  border:1px solid var(--border); border-radius:999px; padding:6px 12px; display:flex; align-items:center; gap:6px; font-size:13px;
+  background:var(--bg);
+}
+.person-toggle.selected{background:var(--accent-soft); border-color:var(--accent); font-weight:700}
+.share-row{display:flex; align-items:center; gap:8px; margin-top:4px; font-size:13px}
+.share-row input{width:80px; min-height:34px; padding:4px 8px}
+
+.result-card{border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; margin-bottom:10px}
+.result-card .name-row{display:flex; justify-content:space-between; align-items:center; font-weight:700; margin-bottom:6px}
+.result-card .owed{font-size:20px; font-variant-numeric:tabular-nums}
+.result-card details{margin-top:6px; font-size:12.5px}
+.result-card table{width:100%; font-size:12.5px}
+.result-card table td{padding:2px 0}
+.result-card table td:last-child{text-align:right; font-variant-numeric:tabular-nums}
+
+.bottom-bar{
+  position:fixed; left:0; right:0; bottom:0; z-index:30; background:var(--bg-elev); border-top:1px solid var(--border);
+  padding:10px 14px calc(10px + env(safe-area-inset-bottom)); display:flex; gap:10px;
+}
+.bottom-bar > .maxw{max-width:var(--maxw); margin:0 auto; display:flex; gap:10px; width:100%}
+.bottom-bar .btn{flex:1}
+.bottom-bar .btn.back{flex:0 0 auto; width:auto}
+
+.toast-stack{position:fixed; top:10px; left:50%; transform:translateX(-50%); z-index:100; display:flex; flex-direction:column; gap:8px; width:min(92vw, 420px)}
+.toast{background:var(--bg-elev); border:1px solid var(--border); border-radius:10px; padding:10px 14px; box-shadow:var(--shadow); font-size:13.5px}
+.toast.error{border-color:var(--danger); color:var(--danger)}
+.toast.success{border-color:var(--ok); color:var(--ok)}
+
+.progress-bar{height:6px; background:var(--border); border-radius:999px; overflow:hidden; margin:8px 0}
+.progress-bar > div{height:100%; background:var(--accent); width:0%}
+
+dialog{border:none; border-radius:var(--radius); padding:0; max-width:min(92vw,480px); background:var(--bg-elev); color:var(--text)}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog .dialog-body{padding:18px}
+
+.tabbar{display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid var(--border); overflow-x:auto}
+.tabbar button{background:transparent; border:none; padding:10px 6px; font-weight:700; color:var(--text-dim); border-bottom:2px solid transparent; white-space:nowrap}
+.tabbar button.active{color:var(--accent); border-color:var(--accent)}
+
+.history-item{display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border)}
+.history-item:last-child{border-bottom:none}
+
+.badge-lock{font-size:10px; background:var(--warn-soft); color:var(--warn); padding:1px 6px; border-radius:6px; font-weight:700; margin-left:6px}
+.canvas-wrap{position:relative; max-width:100%; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--border); background:#000}
+.canvas-wrap img, .canvas-wrap canvas{display:block; max-width:100%; height:auto; width:100%}
+.crop-toolbar{display:flex; gap:6px; margin-top:8px; flex-wrap:wrap}
+
+#debugPanel{position:fixed; inset:0; z-index:200; background:var(--bg); overflow:auto; padding:16px}
+.test-result{padding:8px 10px; border-radius:8px; margin-bottom:6px; font-size:13px; font-family:ui-monospace,Menlo,Consolas,monospace}
+.test-result.pass{background:var(--ok-soft); color:var(--ok)}
+.test-result.fail{background:var(--danger-soft); color:var(--danger)}
+
+@media print{
+  header.topbar, .bottom-bar, .steps, .no-print{display:none !important}
+  main{padding:0; max-width:none}
+  body{background:#fff; color:#000}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar no-print">
+  <div class="topbar-row">
+    <div class="brand"><span class="logo">🧾</span> SnapSplit</div>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="btnHistory" title="History" aria-label="History">🕘</button>
+      <button class="icon-btn" id="btnLedger" title="Trip Ledger" aria-label="Trip Ledger">🧮</button>
+      <button class="icon-btn" id="btnSettings" title="Settings" aria-label="Settings">⚙️</button>
+      <button class="icon-btn" id="btnTheme" title="Toggle dark mode" aria-label="Toggle dark mode">🌓</button>
+    </div>
+  </div>
+  <nav class="steps" aria-label="Progress">
+    <div class="step-pill" data-step="scan"><button>1 Scan</button></div>
+    <div class="step-pill" data-step="review"><button>2 Review</button></div>
+    <div class="step-pill" data-step="people"><button>3 People</button></div>
+    <div class="step-pill" data-step="assign"><button>4 Assign</button></div>
+    <div class="step-pill" data-step="settle"><button>5 Settle</button></div>
+  </nav>
+</header>
+
+<main id="main"></main>
+
+<div class="bottom-bar no-print" id="bottomBar" style="display:none">
+  <div class="maxw">
+    <button class="btn back" id="btnBack">Back</button>
+    <button class="btn primary block" id="btnNext">Next</button>
+  </div>
+</div>
+
+<div class="toast-stack" id="toastStack" aria-live="polite"></div>
+<div class="visually-hidden" id="srAnnounce" role="status" aria-live="assertive"></div>
+
+<dialog id="dialogRoot"></dialog>
+<div id="debugPanel" style="display:none" role="region" aria-label="Developer test panel"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="js/money.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/parser.js"></script>
+<script src="js/db.js"></script>
+<script src="js/entitlements.js"></script>
+<script src="js/cloud-adapter.js"></script>
+<script src="js/crypto-backup.js"></script>
+<script src="js/image-processing.js"></script>
+<script src="js/ocr.js"></script>
+<script src="js/app.js"></script>
+<script src="js/step-scan.js"></script>
+<script src="js/step-review.js"></script>
+<script src="js/step-people.js"></script>
+<script src="js/step-assign.js"></script>
+<script src="js/step-settle.js"></script>
+<script src="js/history.js"></script>
+<script src="js/ledger.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/debug.js"></script>
+</body>
+</html>
