@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https: http:; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Redact — scrub secrets locally</title>
+<style>
+  /* AIDEV-NOTE: single-file, zero-dependency. Input text is never persisted; only rule toggles go to localStorage. */
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f6f2;
+    --panel: #ffffff;
+    --ink: #1d2126;
+    --muted: #5d6670;
+    --line: #d9d6cf;
+    --accent: #2b5d8c;
+    --mark: #ffd36a;
+    --mark-ink: #4a3600;
+    --danger: #b3261e;
+    --ok: #2e7d4f;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15181c; --panel: #1d2127; --ink: #e6e4df; --muted: #9aa3ad;
+      --line: #343a42; --accent: #7fb3e6; --mark: #8a6d1a; --mark-ink: #fff2c7;
+      --danger: #f28b82; --ok: #7fd1a0;
+    }
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html, body { margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 20px 48px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px; margin-bottom: 18px; }
+  header h1 { font-size: 26px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); }
+  .offline { font-size: 13px; color: var(--ok); }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+  .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; min-height: 440px; }
+  .pane-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .pane-head h2 { font-size: 15px; margin: 0; font-weight: 600; flex: 1 1 auto; }
+  .pane-body { flex: 1 1 auto; display: flex; flex-direction: column; position: relative; }
+
+  textarea, .out {
+    flex: 1 1 auto; width: 100%; min-height: 360px; margin: 0; padding: 12px; border: 0;
+    background: transparent; color: var(--ink); font: 13px/1.55 var(--mono); resize: vertical;
+    white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .out { overflow: auto; }
+  .out mark { background: var(--mark); color: var(--mark-ink); border-radius: 3px; padding: 0 2px; }
+  .out:empty::before { content: "Redacted text appears here."; color: var(--muted); }
+
+  .drop { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    border: 2px dashed var(--accent); background: color-mix(in srgb, var(--panel) 85%, var(--accent)); font-weight: 600; pointer-events: none; }
+  .pane.dragging .drop { display: flex; }
+
+  button, .btn, input[type="url"] { font: inherit; font-size: 13px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 6px 10px; cursor: pointer; }
+  button:hover, .btn:hover { border-color: var(--accent); }
+  button:focus-visible, input:focus-visible, .btn:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .btn input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .btn { position: relative; display: inline-block; }
+  input[type="url"] { cursor: text; min-width: 220px; flex: 1 1 200px; }
+  .urlrow { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin: 16px 0; }
+  .toolbar label { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+  .toolbar select { font: inherit; font-size: 13px; }
+
+  details.rules { margin: 6px 0 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  details.rules summary { padding: 10px 12px; cursor: pointer; font-weight: 600; font-size: 14px; }
+  .rulegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 16px; padding: 4px 12px 12px; }
+  .rulegrid label { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+  .rulegrid small { color: var(--muted); }
+
+  .status { font-size: 13px; color: var(--muted); }
+  .status.err { color: var(--danger); }
+  .count { font-weight: 600; color: var(--ink); }
+
+  .findings { margin: 18px 0 0; }
+  .findings h2 { font-size: 15px; margin: 0 0 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); }
+  td.m { font-family: var(--mono); overflow-wrap: anywhere; }
+  .wrap { overflow-x: auto; }
+
+  footer { margin-top: 28px; color: var(--muted); font-size: 13px; max-width: 72ch; }
+  footer p { margin: 6px 0; }
+  @media (prefers-reduced-motion: no-preference) { button { transition: border-color .12s; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Redact</h1>
+    <p>Scrub tokens, keys, passwords and other secrets from text before you share it.</p>
+    <span class="offline" id="netstate">Runs in your browser. Nothing is uploaded or stored.</span>
+  </header>
+
+  <details class="rules">
+    <summary>Rules</summary>
+    <div class="rulegrid" id="rules"></div>
+  </details>
+
+  <div class="toolbar">
+    <label>Replace with
+      <select id="style">
+        <option value="type">[REDACTED:TYPE]</option>
+        <option value="numbered">[TYPE_1], [TYPE_2] (same secret, same label)</option>
+        <option value="hash">[TYPE:ab12cd] (short hash, stable)</option>
+        <option value="stars">********</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="keepTail"> keep last 4 characters</label>
+    <label><input type="checkbox" id="live" checked> redact as I type</label>
+    <button class="primary" id="run">Redact</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <div class="grid">
+    <section class="pane" id="inpane">
+      <div class="pane-head">
+        <h2>Input</h2>
+        <label class="btn">Open file<input type="file" id="file" multiple></label>
+        <button id="clear">Clear</button>
+      </div>
+      <div class="urlrow">
+        <input type="url" id="url" placeholder="https://… (raw file URL; needs CORS)" spellcheck="false">
+        <button id="fetch">Fetch</button>
+      </div>
+      <div class="pane-body">
+        <textarea id="in" spellcheck="false" placeholder="Paste text, drop files here, or fetch a URL."></textarea>
+        <div class="drop">Drop files to load them</div>
+      </div>
+    </section>
+
+    <section class="pane">
+      <div class="pane-head">
+        <h2>Output</h2>
+        <button id="copy">Copy</button>
+        <button id="download">Download</button>
+      </div>
+      <div class="pane-body">
+        <div class="out" id="out" tabindex="0" aria-live="polite"></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="findings" id="findings" hidden>
+    <h2>What was redacted</h2>
+    <div class="wrap"><table>
+      <thead><tr><th>Rule</th><th>Count</th><th>Preview (first and last 3 chars)</th></tr></thead>
+      <tbody id="ftable"></tbody>
+    </table></div>
+  </section>
+
+  <footer>
+    <p>Detection is pattern-based: known token formats, key=value secrets, credentials in URLs, private key blocks, and optional high-entropy strings. It will miss secrets that look like ordinary words. Read the output before you share it.</p>
+    <p>The only network request this page can make is the URL you ask it to fetch. Your text and the result stay in this tab's memory. Rule choices are saved in localStorage.</p>
+  </footer>
+</main>
+
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+
+  // AIDEV-NOTE: rule order matters — specific formats first, generic key=value last.
+  // `group` = which capture group is the secret (0 = whole match). `on` = default enabled.
+  const RULES = [
+    { id:'privkey', name:'Private key blocks', hint:'PEM, OpenSSH, PGP', on:true,
+      re:/-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY( BLOCK)?-----/g },
+    { id:'aws_key', name:'AWS access key ID', hint:'AKIA… / ASIA…', on:true, re:/\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA)[A-Z0-9]{16}\b/g },
+    { id:'aws_secret', name:'AWS secret access key', hint:'40-char after "secret"', on:true,
+      re:/(aws[_\-]?secret[_\-]?access[_\-]?key|secret[_\-]?access[_\-]?key)\s*[:=]\s*["']?([A-Za-z0-9/+=]{40})\b/gi, group:2 },
+    { id:'github', name:'GitHub tokens', hint:'ghp_, gho_, github_pat_…', on:true, re:/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{80,})\b/g },
+    { id:'gitlab', name:'GitLab tokens', hint:'glpat-…', on:true, re:/\bglpat-[A-Za-z0-9\-_]{20,}\b/g },
+    { id:'slack', name:'Slack tokens', hint:'xoxb-, xoxp-…', on:true, re:/\bxox[abprs]-[A-Za-z0-9\-]{10,}\b/g },
+    { id:'slack_hook', name:'Slack webhooks', hint:'hooks.slack.com/services/…', on:true, re:/https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9\/_\-]+/g },
+    { id:'google', name:'Google API keys', hint:'AIza…', on:true, re:/\bAIza[0-9A-Za-z\-_]{35}\b/g },
+    { id:'openai', name:'OpenAI / Anthropic keys', hint:'sk-…, sk-ant-…', on:true, re:/\bsk-(?:ant-)?[A-Za-z0-9\-_]{20,}\b/g },
+    { id:'stripe', name:'Stripe keys', hint:'sk_live_, pk_live_, rk_live_', on:true, re:/\b[sprk]k_(?:live|test)_[A-Za-z0-9]{16,}\b/g },
+    { id:'sendgrid', name:'SendGrid / Twilio / Mailgun', hint:'SG., SK…, key-…', on:true,
+      re:/\b(?:SG\.[A-Za-z0-9\-_]{20,}\.[A-Za-z0-9\-_]{20,}|SK[0-9a-f]{32}|AC[0-9a-f]{32}|key-[0-9a-f]{32})\b/g },
+    { id:'npm', name:'npm / PyPI / Hugging Face tokens', hint:'npm_, pypi-, hf_', on:true, re:/\b(?:npm_[A-Za-z0-9]{36}|pypi-[A-Za-z0-9\-_]{50,}|hf_[A-Za-z0-9]{30,})\b/g },
+    { id:'jwt', name:'JWT', hint:'eyJ….eyJ….sig', on:true, re:/\beyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\b/g },
+    { id:'bearer', name:'Authorization headers', hint:'Bearer / Basic / Token …', on:true,
+      re:/(authorization\s*[:=]\s*["']?(?:bearer|basic|token)\s+|\b(?:bearer|basic)\s+)([A-Za-z0-9\-_.=+\/]{16,})/gi, group:2 },
+    { id:'urlcred', name:'Credentials in URLs', hint:'scheme://user:pass@host', on:true,
+      re:/([a-z][a-z0-9+.\-]*:\/\/[^\s\/:@"']+:)([^\s\/@"']+)(@)/gi, group:2 },
+    { id:'connstr', name:'Connection string passwords', hint:'Password=…;', on:true,
+      re:/\b(pwd|password|passwd)\s*=\s*([^;\s"']+)/gi, group:2 },
+    { id:'kv', name:'key = value secrets', hint:'password, token, api_key, secret…', on:true,
+      re:/\b([A-Za-z0-9_.\-]*(?:password|passwd|pwd|secret|token|api[_\-]?key|apikey|access[_\-]?key|private[_\-]?key|client[_\-]?secret|auth[_\-]?key|credentials?)[A-Za-z0-9_.\-]*)\s*(?:[:=]|:=|=>)\s*(?:["'`]?)([^\s"'`,;]{6,})/gi, group:2,
+      skip: v => /^(null|none|true|false|undefined|\$\{?[A-Z_]+\}?|<[^>]+>|\*+|x+|redacted.*)$/i.test(v) },
+    { id:'aws_acct', name:'AWS account IDs', hint:'12 digits near account/arn', on:true,
+      re:/(\barn:aws[a-z\-]*:[a-z0-9\-]*:[a-z0-9\-]*:|account(?:[_\- ]?id)?\s*[:=]\s*["']?)(\d{12})\b/gi, group:2 },
+    { id:'ip', name:'IPv4 addresses', hint:'off by default', on:false, re:/\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/g },
+    { id:'email', name:'Email addresses', hint:'off by default', on:false, re:/\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g },
+    { id:'entropy', name:'High-entropy strings', hint:'20+ chars, looks random', on:true,
+      re:/\b[A-Za-z0-9+\/_\-]{20,}={0,2}/g, skip: v => !looksRandom(v) },
+  ];
+
+  // Shannon entropy per character; mixed classes and few repeats mean "random".
+  function looksRandom(s) {
+    if (/^[0-9]+$/.test(s) || /^[a-z]+$/i.test(s) || /^[a-f0-9]+$/i.test(s) && s.length < 32) return false;
+    if (/^(?:https?|arn|file):/i.test(s)) return false;
+    const freq = {}; for (const c of s) freq[c] = (freq[c] || 0) + 1;
+    let h = 0; for (const k in freq) { const p = freq[k] / s.length; h -= p * Math.log2(p); }
+    const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[+\/=_\-]/].filter(r => r.test(s)).length;
+    const thresh = s.length >= 32 ? 3.9 : 4.1;
+    return h >= thresh && classes >= 3;
+  }
+
+  // ---- rule UI + persistence (only toggles are stored) ----
+  const PREF_KEY = 'redact.rules.v1';
+  const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREF_KEY) || '{}'); } catch { return {}; } })();
+  const rulesEl = $('rules');
+  for (const r of RULES) {
+    const on = r.id in prefs ? !!prefs[r.id] : r.on;
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="checkbox" data-rule="${r.id}" ${on ? 'checked' : ''}> <span>${r.name} <small>${r.hint}</small></span>`;
+    rulesEl.appendChild(l);
+  }
+  rulesEl.addEventListener('change', () => {
+    const o = {}; rulesEl.querySelectorAll('input').forEach(i => o[i.dataset.rule] = i.checked);
+    try { localStorage.setItem(PREF_KEY, JSON.stringify(o)); } catch {}
+    schedule();
+  });
+  const enabled = () => new Set([...rulesEl.querySelectorAll('input:checked')].map(i => i.dataset.rule));
+
+  // ---- redaction core ----
+  async function sha6(s) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+    return [...new Uint8Array(buf)].slice(0, 3).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function redact(text) {
+    const on = enabled();
+    const style = $('style').value, keepTail = $('keepTail').checked;
+    const spans = []; // {start,end,rule,value}
+    for (const r of RULES) {
+      if (!on.has(r.id)) continue;
+      r.re.lastIndex = 0;
+      let m;
+      while ((m = r.re.exec(text)) !== null) {
+        const g = r.group || 0;
+        const value = m[g];
+        if (!value) continue;
+        if (r.skip && r.skip(value)) continue;
+        let start = m.index;
+        if (g) { start = m.index + m[0].indexOf(value); }
+        const end = start + value.length;
+        if (spans.some(s => s.start < end && start < s.end)) continue; // earlier rule wins
+        spans.push({ start, end, rule: r, value });
+        if (m[0].length === 0) r.re.lastIndex++;
+      }
+    }
+    spans.sort((a, b) => a.start - b.start);
+
+    const ids = new Map(); const counters = {};
+    const labelFor = async s => {
+      const T = s.rule.id.toUpperCase();
+      let lab;
+      if (style === 'stars') lab = '********';
+      else if (style === 'numbered') {
+        const k = T + ':' + s.value;
+        if (!ids.has(k)) { counters[T] = (counters[T] || 0) + 1; ids.set(k, counters[T]); }
+        lab = `[${T}_${ids.get(k)}]`;
+      } else if (style === 'hash') lab = `[${T}:${await sha6(s.value)}]`;
+      else lab = `[REDACTED:${T}]`;
+      if (keepTail && s.value.length > 8 && s.rule.id !== 'privkey') lab += s.value.slice(-4);
+      return lab;
+    };
+
+    let out = '', html = '', pos = 0;
+    const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    for (const s of spans) {
+      const lab = await labelFor(s);
+      out += text.slice(pos, s.start) + lab;
+      html += esc(text.slice(pos, s.start)) + '<mark>' + esc(lab) + '</mark>';
+      pos = s.end;
+    }
+    out += text.slice(pos); html += esc(text.slice(pos));
+    return { out, html, spans };
+  }
+
+  // ---- wiring ----
+  let lastOut = '', timer = null, busy = false, sourceName = 'redacted.txt';
+  const inEl = $('in'), outEl = $('out'), statusEl = $('status');
+
+  function setStatus(msg, err) { statusEl.textContent = msg; statusEl.classList.toggle('err', !!err); }
+
+  async function run() {
+    if (busy) return; busy = true;
+    try {
+      const t0 = performance.now();
+      const { out, html, spans } = await redact(inEl.value);
+      lastOut = out; outEl.innerHTML = html;
+      const ms = Math.round(performance.now() - t0);
+      setStatus(spans.length ? `${spans.length} secret${spans.length > 1 ? 's' : ''} redacted in ${ms} ms` : (inEl.value ? 'Nothing matched.' : ''));
+      renderFindings(spans);
+    } catch (e) { setStatus('Error: ' + e.message, true); }
+    finally { busy = false; }
+  }
+  function schedule() { if (!$('live').checked) return; clearTimeout(timer); timer = setTimeout(run, 150); }
+
+  function renderFindings(spans) {
+    const f = $('findings'), tb = $('ftable');
+    if (!spans.length) { f.hidden = true; return; }
+    const by = new Map();
+    for (const s of spans) {
+      const e = by.get(s.rule.id) || { name: s.rule.name, n: 0, vals: new Set() };
+      e.n++; e.vals.add(s.value); by.set(s.rule.id, e);
+    }
+    tb.innerHTML = '';
+    for (const e of by.values()) {
+      const prev = [...e.vals].slice(0, 5).map(v => v.length > 8 ? v.slice(0, 3) + '…' + v.slice(-3) : '…').join(', ');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${e.name}</td><td>${e.n}</td><td class="m"></td>`;
+      tr.lastElementChild.textContent = prev + (e.vals.size > 5 ? ` (+${e.vals.size - 5} more)` : '');
+      tb.appendChild(tr);
+    }
+    f.hidden = false;
+  }
+
+  inEl.addEventListener('input', schedule);
+  $('style').addEventListener('change', schedule);
+  $('keepTail').addEventListener('change', schedule);
+  $('run').addEventListener('click', run);
+  $('clear').addEventListener('click', () => { inEl.value = ''; lastOut = ''; outEl.innerHTML = ''; setStatus(''); $('findings').hidden = true; sourceName = 'redacted.txt'; });
+
+  $('copy').addEventListener('click', async () => {
+    if (!lastOut) return setStatus('Nothing to copy.');
+    try { await navigator.clipboard.writeText(lastOut); setStatus('Copied.'); }
+    catch { setStatus('Clipboard blocked. Select the output and copy manually.', true); }
+  });
+  $('download').addEventListener('click', () => {
+    if (!lastOut) return setStatus('Nothing to download.');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([lastOut], { type: 'text/plain' }));
+    a.download = sourceName.replace(/(\.[^.]+)?$/, '.redacted$1'); a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  async function loadFiles(files) {
+    const parts = [];
+    for (const f of files) {
+      if (f.size > 50 * 1024 * 1024) { setStatus(`${f.name} is over 50 MB; skipped.`, true); continue; }
+      parts.push((files.length > 1 ? `===== ${f.name} =====\n` : '') + await f.text());
+    }
+    if (!parts.length) return;
+    sourceName = files.length === 1 ? files[0].name : 'redacted.txt';
+    inEl.value = (inEl.value ? inEl.value + '\n' : '') + parts.join('\n');
+    run();
+  }
+  $('file').addEventListener('change', e => { loadFiles([...e.target.files]); e.target.value = ''; });
+  const pane = $('inpane');
+  ['dragenter', 'dragover'].forEach(ev => pane.addEventListener(ev, e => { e.preventDefault(); pane.classList.add('dragging'); }));
+  ['dragleave', 'drop'].forEach(ev => pane.addEventListener(ev, e => { e.preventDefault(); if (ev === 'dragleave' && pane.contains(e.relatedTarget)) return; pane.classList.remove('dragging'); }));
+  pane.addEventListener('drop', e => {
+    if (e.dataTransfer.files.length) return loadFiles([...e.dataTransfer.files]);
+    const t = e.dataTransfer.getData('text/plain'); if (t) { inEl.value += t; run(); }
+  });
+
+  async function fetchUrl() {
+    const u = $('url').value.trim(); if (!u) return;
+    setStatus('Fetching…');
+    try {
+      const r = await fetch(u, { mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      inEl.value = await r.text();
+      try { sourceName = new URL(u).pathname.split('/').pop() || 'redacted.txt'; } catch {}
+      run();
+    } catch (e) {
+      setStatus(`Could not fetch (${e.message}). The server must allow CORS. For GitHub, use the raw.githubusercontent.com link, or download the file and drop it here.`, true);
+    }
+  }
+  $('fetch').addEventListener('click', fetchUrl);
+  $('url').addEventListener('keydown', e => { if (e.key === 'Enter') fetchUrl(); });
+
+  // Paste anywhere outside the textarea loads into it.
+  document.addEventListener('paste', e => {
+    if (e.target === inEl || e.target === $('url')) return;
+    const t = e.clipboardData.getData('text/plain'); if (t) { inEl.value = t; run(); }
+  });
+  if (!navigator.onLine) $('netstate').textContent = 'Offline. Everything still works.';
+})();
+</script>
+</body>
+</html>
