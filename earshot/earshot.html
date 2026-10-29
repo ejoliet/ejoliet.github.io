@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>earshot — acoustic sender</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui}body{max-width:440px;margin:48px auto;padding:0 18px;background:#10151c;color:#e5ebf1}h1{font-size:2rem}p{color:#aab9c6;line-height:1.5}label{display:block;margin:18px 0 6px;font-weight:600}input,textarea{box-sizing:border-box;width:100%;border:1px solid #52677c;border-radius:8px;padding:12px;font:inherit;background:#1f2c38;color:white}textarea{height:95px;resize:vertical}button{width:100%;margin-top:20px;padding:14px;font:inherit;font-weight:700;background:#51cfac;border:0;border-radius:8px;color:#08201c}button:disabled{opacity:.45}#status{min-height:2em}small{color:#aab9c6}
+</style></head><body>
+<h1>earshot</h1><p>Send a short command to a laptop in the same room using sound. No network is used for sending.</p>
+<label for="code">Six-digit code shown on laptop</label><input id="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" placeholder="123456">
+<label for="command">Command or short text</label><textarea id="command" maxlength="120" spellcheck="false">uptime</textarea>
+<small>Maximum encoded message: 140 UTF-8 bytes including pairing code. Only exact allowlisted commands can execute.</small>
+<button id="send" disabled>Loading sound modem…</button><p id="status" role="status">Initializing…</p>
+<script src="./ggwave.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/ggwave@0.4.0/ggwave.js'"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+let modem=null,ctx=null,instance=null,busy=false;
+(async()=>{
+ try {
+   if(typeof ggwave_factory!=='function') throw Error('Sound library missing. Install ggwave.js locally for offline use.');
+   modem=await ggwave_factory();
+   $('send').disabled=false; $('send').textContent='Send by sound'; $('status').textContent='Ready';
+ } catch(e){ $('status').textContent='Initialization failed: '+e.message; }
+})();
+$('send').addEventListener('click', async()=>{
+ if(busy || !modem) return;
+ const code=$('code').value.trim(), cmd=$('command').value;
+ if(!/^\d{6}$/.test(code)){ $('status').textContent='Enter the six-digit laptop code'; return; }
+ if(!cmd.trim() || /[\u0000]/.test(cmd)){ $('status').textContent='Enter text to send'; return; }
+ const msg=`T1|${code}|${cmd}`;
+ if(new TextEncoder().encode(msg).length>140){ $('status').textContent='Message exceeds 140 UTF-8 bytes'; return; }
+ busy=true; $('send').disabled=true;
+ try {
+   ctx ??= new AudioContext({sampleRate:48000});
+   await ctx.resume();
+   if(instance===null){
+     const p=modem.getDefaultParameters();p.sampleRateInp=ctx.sampleRate;p.sampleRateOut=ctx.sampleRate;
+     instance=modem.init(p);
+   }
+   const waveform=modem.encode(instance,msg,modem.ProtocolId.GGWAVE_PROTOCOL_AUDIBLE_FAST,25);
+   // ggwave returns raw Float32 PCM bytes, not integer audio samples.
+   const raw=new Uint8Array(waveform.byteLength);raw.set(waveform);
+   const samples=new Float32Array(raw.buffer);
+   const audio=ctx.createBuffer(1,samples.length,ctx.sampleRate);
+   audio.getChannelData(0).set(samples);
+   const src=ctx.createBufferSource();src.buffer=audio;src.connect(ctx.destination);
+   $('status').textContent=`Playing ${audio.duration.toFixed(1)}s of sound. Hold near laptop mic.`;
+   await new Promise((resolve,reject)=>{src.onended=resolve;src.start();});
+   $('status').textContent='Sent. Check Ubuntu for result and new one-time code.';
+ } catch(e){ $('status').textContent='Audio failed: '+e.message; }
+ finally{busy=false;$('send').disabled=false;}
+});
+</script></body></html>

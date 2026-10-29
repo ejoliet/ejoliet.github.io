@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="earshot logo">
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="#10151c"/>
+  <!-- terminal prompt chevron -->
+  <path d="M30 38 L58 64 L30 90" fill="none" stroke="#51cfac" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- sound waves -->
+  <path d="M76 50 q10 14 0 28" fill="none" stroke="#e5ebf1" stroke-width="7" stroke-linecap="round"/>
+  <path d="M90 40 q18 24 0 48" fill="none" stroke="#e5ebf1" stroke-width="7" stroke-linecap="round" opacity=".7"/>
+  <path d="M104 30 q26 34 0 68" fill="none" stroke="#e5ebf1" stroke-width="7" stroke-linecap="round" opacity=".4"/>
+</svg>

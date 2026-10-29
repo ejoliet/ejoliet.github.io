@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if ! command -v uv >/dev/null 2>&1; then
+  echo 'Missing uv: https://docs.astral.sh/uv/getting-started/installation/' >&2
+  exit 1
+fi
+# Dependencies must be downloaded once while online; --offline prevents network later.
+uv_flags=(--quiet --no-project)
+if [[ ${EARSHOT_OFFLINE:-0} == 1 ]]; then uv_flags+=(--offline); fi
+exec uv run "${uv_flags[@]}" --with ggwave --with sounddevice python - "$@" <<'PY'
+import argparse
+import queue
+import secrets
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import ggwave
+import sounddevice as sd
+
+DEFAULT = ("uptime", "date", "hostname", "whoami", "pwd", "id", "uname -a", "df -h", "free -h")
+p = argparse.ArgumentParser(description="earshot: sound-only, one-time-code command receiver")
+p.add_argument("--device", type=int, help="PortAudio input device ID")
+p.add_argument("--list-devices", action="store_true")
+p.add_argument("--print-only", action="store_true", help="Receive text without execution")
+p.add_argument("--allow-file", type=Path, help="File of exact allowed commands, one per line")
+p.add_argument("--once", action="store_true", help="Stop after one accepted transmission")
+a = p.parse_args()
+if a.list_devices:
+    print(sd.query_devices()); sys.exit(0)
+allowed = set(DEFAULT)
+if a.allow_file:
+    allowed = {x.strip() for x in a.allow_file.read_text().splitlines() if x.strip() and not x.lstrip().startswith('#')}
+    if not allowed and not a.print_only:
+        p.error('allow-file contains no allowed commands')
+
+# The six digits are an optical/manual pairing check, not cryptographic authentication.
+code = f'{secrets.randbelow(1_000_000):06d}'
+buffers = queue.Queue(maxsize=256)
+
+def callback(data, frames, t, status):
+    if status:
+        print(f'Audio warning: {status}', file=sys.stderr)
+    try:
+        buffers.put_nowait(bytes(data))
+    except queue.Full:
+        pass
+
+def new_code():
+    return f'{secrets.randbelow(1_000_000):06d}'
+
+instance = ggwave.init()
+try:
+    print('earshot listening at 48000 Hz (audible fast). Ctrl-C to stop.')
+    print('PAIR CODE:', code, flush=True)
+    print('Enter this code in earshot.html on the sending device. Each code works once.\n', flush=True)
+    with sd.RawInputStream(samplerate=48000, channels=1, dtype='float32',
+                           blocksize=1024, device=a.device, callback=callback):
+        while True:
+            decoded = ggwave.decode(instance, buffers.get())
+            if not decoded:
+                continue
+            try:
+                message = decoded.decode('utf-8', errors='strict')
+            except UnicodeError:
+                continue
+            if not message.startswith('T1|'):
+                continue
+            try:
+                _, received_code, cmd = message.split('|', 2)
+            except ValueError:
+                continue
+            if not secrets.compare_digest(received_code, code) or not cmd or '\x00' in cmd:
+                print('Ignored: wrong pairing code or malformed message', flush=True)
+                continue
+            # Consume the code before any execution/interaction, preventing simple replays.
+            code = new_code()
+            print(f'\nReceived: {cmd!r}', flush=True)
+            if a.print_only:
+                print('Print only: not executing', flush=True)
+            elif cmd not in allowed:
+                print('BLOCKED: command not in exact-match allowlist', flush=True)
+            else:
+                try:
+                    # Read confirmation from controlling terminal, never stdin from sound.
+                    with open('/dev/tty', 'r', encoding='utf-8') as tty:
+                        print('Run this allowlisted command? [y/N] ', end='', flush=True)
+                        yes = tty.readline().strip().lower() == 'y'
+                except OSError:
+                    yes = False
+                if yes:
+                    # Explicitly configured exact commands only. No shell interpolation of audio.
+                    result = subprocess.run(['bash', '-c', cmd], check=False, timeout=30)
+                    print(f'Exit code: {result.returncode}', flush=True)
+                else:
+                    print('Skipped', flush=True)
+            if a.once:
+                break
+            print(f'\nNEW PAIR CODE: {code}', flush=True)
+except KeyboardInterrupt:
+    print('\nStopped')
+except Exception as exc:
+    print(f'Audio error: {exc}', file=sys.stderr)
+    sys.exit(1)
+finally:
+    ggwave.free(instance)
+PY
