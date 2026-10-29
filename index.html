@@ -1,41 +1,199 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-  <meta http-equiv="Content-Style-Type" content="text/css">
-  <title>Emmanuel Joliet</title>
-  <meta name="Generator" content="Cocoa HTML Writer">
-  <meta name="CocoaVersion" content="1348.17">
-  <style type="text/css">
-    p.p2 {margin: 0.0px 0.0px 12.0px 0.0px; font: 12.0px Times; color: #000000; -webkit-text-stroke: #000000}
-    li.li3 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Times; color: #000000}
-    span.s1 {font-kerning: none}
-    ul.ul1 {list-style-type: check}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emmanuel Joliet</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1a1a1a;
+    --muted: #666666;
+    --accent: #0a5fb4;
+    --border: #e5e5e5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121212;
+      --text: #e6e6e6;
+      --muted: #999999;
+      --accent: #6fb3ff;
+      --border: #2a2a2a;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 3rem 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 0.25rem; text-wrap: balance; }
+  h1 a { color: var(--text); text-decoration: none; }
+  h1 a:hover { text-decoration: underline; }
+  .address { color: var(--muted); font-size: 0.9rem; margin: 0 0 1.25rem; }
+  nav[aria-label="Sections"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin: 0 0 2.5rem;
+    padding: 0.5rem 0;
+    background: var(--bg);
+  }
+  nav[aria-label="Sections"] a {
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  h2 {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.5rem;
+    margin: 2.5rem 0 1rem;
+    scroll-margin-top: 1rem;
+  }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { margin: 0 0 1rem; }
+  ::selection { background: var(--accent); color: var(--bg); }
+  a { color: var(--accent); text-decoration: none; text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
+  a:hover { text-decoration: underline; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  li > a:first-child { font-weight: 600; }
+  .desc { display: block; color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem; }
+  .alt { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 0.25rem; }
+  .alt::before { content: "also: "; }
+  .desc + .tag::before, .alt + .tag::before { content: " "; }
+  .tag {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  @media (min-width: 640px) {
+    .desc { display: inline; margin-top: 0; }
+    .desc::before { content: " · "; color: var(--muted); display: inline; }
+  }
+  @media (min-width: 900px) {
+    main { max-width: 960px; }
+    nav[aria-label="Sections"] { position: sticky; top: 0; }
+    h2 { scroll-margin-top: 3rem; }
+    section ul { columns: 2; column-gap: 3rem; }
+    li { break-inside: avoid; }
+  }
+</style>
 </head>
 <body>
-<h1><a href="https://www.ipac.caltech.edu/staff/emmanuel-joliet">Emmanuel Joliet</a></h1>
-<p>Infrared Processing and Analysis Center<br>
-California Institute of Technology MS 100-22<br>
-Pasadena, CA 91001<br>
-<br>
+<main>
 
-<h1 style="margin: 0.0px 0.0px 16.1px 0.0px; font: 24.0px Times; color: #000000; -webkit-text-stroke: #000000"><span class="s1"><b>Web Pages</b></span></h1>
-<ul class="ul1">
-  <li><a target="_new" href="http://irsa.ipac.caltech.edu">IRSA</a></li>
-  <li><a target="_new" href="http://irsa.ipac.caltech.edu/Missions/gaia.html">Gaia at IRSA</a></li>
-<li> <a href="/demo/">demo files</a></li>
-<li> <a href="/sofia/caom-sofia.html">SOFIA</a></li>
-<li> <a href="/radar/radar.html">radar</a></li>
-<li> <a href="/nexsci-neid/ff-neid.html">neid</a></li>
-<li> <a href="/firefly-help/index.html">Firefly help as deployed (WAR)</a></li>
-<li> <a href="/mosaic/cbs-live-mosaic-iptv.html">Mosaic</a></li>
-<li> <a href="/mosaic/autogen-mosaic-from-json.html">Mosaic auto generate from file</a></li>
-<li> <a href="mosaic/mosaic-url-input.html">Mosaic auto generate from URL</a></li>
-<li> <a href="ics/webcal.html">Create 1hr event calendar file</a></li>
-<li> <a href="/family-p2p/">P2P video chat</a></li>
-<li> <a href="family-multi-chat/">Multiple video chats</a></li>
-<li> <a href="/arrow/">The arrow points at you – P2P live arrow &amp; distance</a></li>
+<h1><a href="https://www.ipac.caltech.edu/staff/emmanuel-joliet">Emmanuel Joliet</a></h1>
+<p class="address">Infrared Processing and Analysis Center<br>
+California Institute of Technology, MS 100-22<br>
+Pasadena, CA 91001</p>
+
+<nav aria-label="Sections">
+<a href="#astro">Astronomy</a>
+<a href="#github">GitHub</a>
+<a href="#p2p">P2P</a>
+<a href="#readers">Readers</a>
+<a href="#tools">Tools</a>
+<a href="#video">Video</a>
+<a href="#games">Games</a>
+</nav>
+
+<section>
+<h2 id="astro">Astronomy / IRSA</h2>
+<ul>
+<li><a href="http://irsa.ipac.caltech.edu" target="_blank" rel="noopener">IRSA</a><span class="desc">NASA/IPAC Infrared Science Archive</span><span class="tag">external</span></li>
+<li><a href="http://irsa.ipac.caltech.edu/Missions/gaia.html" target="_blank" rel="noopener">Gaia at IRSA</a><span class="desc">Gaia mission data at IRSA</span><span class="tag">external</span></li>
+<li><a href="/sofia/caom-sofia.html">SOFIA</a><span class="desc">Firefly viewer for SOFIA CAOM data</span><span class="alt"><a href="/sofia/sofia-load-images.html">image loader</a></span><span class="tag">Firefly</span></li>
+<li><a href="/radar/radar.html">Radar</a><span class="desc">IRSA data discovery</span><span class="tag">Firefly</span></li>
+<li><a href="/nexsci-neid/ff-neid.html">NEID</a><span class="desc">Firefly/NEID prototype</span><span class="tag">Firefly</span></li>
+<li><a href="/firefly-help/index.html">Firefly help (WAR)</a><span class="desc">Firefly help as deployed</span><span class="tag">Firefly</span></li>
+<li><a href="/demo/vo-events.html">VOEvents demo</a><span class="desc">Firefly demo reacting to VO (Virtual Observatory) events</span></li>
+<li><a href="/demo/">Demo files</a><span class="desc">sample VO and IRSA data tables for testing</span></li>
+<li><a href="/romcom/">Roman commissioning timeline</a><span class="desc">interactive timeline of Roman Space Telescope commissioning activities</span></li>
 </ul>
+</section>
+
+<section>
+<h2 id="github">GitHub tools</h2>
+<ul>
+<li><a href="/gitenv/">gitenv</a><span class="desc">swap "hub" for "env" in a GitHub URL for .env.example, ports</span></li>
+<li><a href="/gitsql/">gitsql</a><span class="desc">swap "hub" for "sql" in a GitHub URL for SQL queries</span></li>
+<li><a href="/gitruntime/">GitRuntime</a><span class="desc">turns a public repo into an evidence-backed runtime contract</span></li>
+<li><a href="/reposalt/">Repo Atlas</a><span class="desc">understand and discover repositories</span></li>
+<li><a href="/repostwins/">Repo twins</a><span class="desc">find GitHub repos that solve the same problem</span></li>
+<li><a href="/citefinder/">citefinder</a><span class="desc">find the citation for a GitHub repo and export CITATION.cff</span></li>
+<li><a href="/gist/">Gist browser</a><span class="desc">browse, view and edit GitHub Gists</span></li>
+</ul>
+</section>
+
+<section>
+<h2 id="p2p">Peer-to-peer (WebRTC)</h2>
+<ul>
+<li><a href="/family-p2p/">P2P video chat</a><span class="desc">one-to-one WebRTC call, one HTML file</span><span class="tag">P2P</span></li>
+<li><a href="/family-multi-chat/">Multiple video chats</a><span class="desc">mesh call for 2 to 4 people</span><span class="tag">P2P</span></li>
+<li><a href="/arrow/">The arrow points at you</a><span class="desc">P2P live arrow and distance</span><span class="tag">P2P</span></li>
+<li><a href="/drawrelay/">DrawRelay</a><span class="desc">draw-and-guess party game, host creates a room, players join from phones</span><span class="tag">P2P</span></li>
+<li><a href="/meshdrop/web/">MeshDrop</a><span class="desc">zero-backend image replication over a WebRTC mesh</span><span class="tag">P2P</span></li>
+<li><a href="/spacex/">Launch Room</a><span class="desc">P2P mission control for SpaceX launches</span><span class="tag">P2P</span></li>
+</ul>
+</section>
+
+<section>
+<h2 id="readers">Readers</h2>
+<ul>
+<li><a href="/rss/">Still</a><span class="desc">private RSS reading space</span></li>
+<li><a href="/ics/feedglass-index.html">FeedGlass</a><span class="desc">static RSS reader</span></li>
+<li><a href="/ics/">icsview</a><span class="desc">private ICS calendar viewer</span><span class="alt"><a href="/ics/webcal.html">create 1-hour event file</a></span></li>
+<li><a href="/minipress/">minipress</a><span class="desc">Minitel-style front page for a Discourse forum</span></li>
+</ul>
+</section>
+
+<section>
+<h2 id="tools">Local tools</h2>
+<ul>
+<li><a href="/redact/">Redact</a><span class="desc">scrub tokens, keys and passwords from text in the browser</span></li>
+<li><a href="/prompt2xml/">prompt-to-xml</a><span class="desc">restructure a prompt into XML sections, runs with WebLLM on WebGPU</span><span class="tag">WebGPU</span></li>
+<li><a href="/sqlito/">SQLite Atlas</a><span class="desc">local-first SQLite explorer via WebAssembly</span><span class="tag">WASM</span></li>
+<li><a href="/s3watch/">s3watch</a><span class="desc">static S3 bucket monitor with DuckDB-WASM</span><span class="tag">WASM</span></li>
+<li><a href="/screenmark/">screenmark</a><span class="desc">local screen recorder</span></li>
+<li><a href="/warroom/">War Room</a><span class="desc">incident note rail</span></li>
+<li><a href="/claudio/">Session Recap</a><span class="desc">renders a shared assistant markdown session, P2P share</span><span class="tag">P2P</span></li>
+<li><a href="/kiosk/">kiosk</a><span class="desc">fullscreen iframe kiosk with a URL lock</span></li>
+<li><a href="/adsb/">Overhead</a><span class="desc">local ADS-B aircraft monitor</span></li>
+<li><a href="/popdrop/">popdrop</a><span class="desc">prototype spike for chunked transfer, backpressure, and streaming writes</span></li>
+</ul>
+</section>
+
+<section>
+<h2 id="video">Video</h2>
+<ul>
+<li><a href="/mosaic/cbs-live-mosaic-iptv.html">Mosaic</a><span class="desc">CBS live events video mosaic</span><span class="alt"><a href="/mosaic/autogen-mosaic-from-json.html">from JSON file</a>, <a href="/mosaic/mosaic-url-input.html">from URL</a></span></li>
+</ul>
+</section>
+
+<section>
+<h2 id="games">Games (browser)</h2>
+<ul>
+<li><a href="/games/blast-duel/">Blast Duel</a><span class="desc">2-player P2P arena shooter</span><span class="tag">P2P</span></li>
+<li><a href="/games/galaga-style-1/">Star Swarm 13k</a><span class="desc">13K retro arcade space shooter</span></li>
+<li><a href="/games/moto-tilt-13k/">MotoTilt 13k</a><span class="desc">13K tilt-steered motorcycle race, P2P</span><span class="tag">P2P</span></li>
+<li><a href="/games/motogp-p2p/">Tilt GP P2P</a><span class="desc">tilt-steered motorcycle race against a P2P rival</span><span class="tag">P2P</span></li>
+<li><a href="/games/penalty-shoutout/">P2P Penalty</a><span class="desc">host keeps goal, joining player kicks, no server</span><span class="tag">P2P</span></li>
+<li><a href="/games/pop-rumble/">Pop Rumble</a><span class="desc">P2P multiplayer emoji-pop party game</span><span class="tag">P2P</span></li>
+<li><a href="/games/starleap/">Starleap</a><span class="desc">one button, infinite sky</span></li>
+</ul>
+</section>
+
+</main>
 </body>
 </html>
