@@ -298,7 +298,8 @@
                 color: #9aa59a;
             }
             .actions button:hover,
-            .actions button.saved {
+            .actions button.saved,
+            .actions button.voted {
                 color: var(--accent);
                 background: var(--wash);
             }
@@ -422,13 +423,30 @@
                 flex-wrap: wrap;
                 margin-top: 20px;
             }
+            #manageDialog {
+                width: min(720px, calc(100vw - 30px));
+            }
+            #manageList {
+                max-height: 45dvh;
+                overflow: auto;
+                border: 1px solid var(--line);
+                border-radius: 10px;
+                padding: 0 12px;
+                margin-top: 10px;
+            }
             .manageitem {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 gap: 8px;
                 border-bottom: 1px solid var(--line);
-                padding: 12px 0;
+                padding: 7px 0;
+            }
+            .manageitem:last-child {
+                border-bottom: 0;
+            }
+            .manageitem > div {
+                min-width: 0;
             }
             .manageitem strong {
                 display: block;
@@ -437,11 +455,10 @@
             .manageitem small {
                 display: block;
                 color: #859184;
-                max-width: 360px;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
-                margin-top: 4px;
+                margin-top: 2px;
             }
             .manageitem button {
                 color: #a05353;
@@ -600,6 +617,7 @@
                     <button data-view="all" class="active">All stories <span class="count" id="allCount"></span></button
                     ><button data-view="unread">Unread <span class="count" id="unreadCount"></span></button
                     ><button data-view="saved">Saved <span class="count" id="savedCount"></span></button
+><button data-view="liked">Liked <span class="count" id="likedCount"></span></button
                     ><button data-open="manage" class="mobilemanage" hidden>Feeds</button>
                 </div>
                 <div class="sidebarfeeds">
@@ -674,6 +692,7 @@
                     <button class="close" data-close aria-label="Close">×</button>
                 </div>
                 <p>Add, remove, or refresh the feeds on this device.</p>
+                <input id="manageFilter" class="full" placeholder="Filter feeds…" aria-label="Filter feeds" />
                 <div id="manageList"></div>
                 <div class="buttonrow">
                     <button class="primary" data-open="add">＋ Add feed</button
@@ -711,7 +730,8 @@
                 <div class="buttonrow">
                     <button class="primary" id="exportEncrypted">Export encrypted feeds</button
                     ><button class="mutebtn" id="importEncrypted">Import encrypted feeds</button
-                    ><input id="importFile" type="file" accept=".json,application/json" hidden />
+                    ><button class="mutebtn" id="importOpml">Import OPML</button
+                    ><input id="importFile" type="file" accept=".json,.opml,.xml,application/json,text/xml,application/xml" hidden />
                 </div>
                 <p class="smallnote">
                     Send the file and the passphrase through separate channels. The file includes feed names, addresses,
@@ -719,7 +739,8 @@
                     A recipient still needs access to any restricted feed.
                 </p>
                 <hr style="border: 0; border-top: 1px solid var(--line); margin: 24px 0" />
-                <button class="mutebtn" id="exportPlain">Export unencrypted JSON backup</button
+                <button class="mutebtn" id="tastePrompt">Copy taste prompt (likes/dislikes)</button
+                ><button class="mutebtn" id="exportPlain">Export unencrypted JSON backup</button
                 ><button class="mutebtn" id="clearAll" style="color: #a45b54">Erase local library</button>
             </div>
         </dialog>
@@ -729,8 +750,9 @@
             const $ = (s) => document.querySelector(s),
                 $$ = (s) => [...document.querySelectorAll(s)];
             const DB = "still-rss-v1";
+            const DEFAULT_PROXY = "https://proxy-github-io.ejoliet.workers.dev/?url={url}";
             let db,
-                state = { feeds: [], articles: [], proxy: "" },
+                state = { feeds: [], articles: [], proxy: DEFAULT_PROXY },
                 view = "all",
                 sort = "latest",
                 busy = false,
@@ -840,6 +862,7 @@
                         timestamp,
                         read: false,
                         saved: false,
+                        score: 0,
                     };
                 });
                 return { title, articles };
@@ -873,12 +896,16 @@
                     const existing = new Map(state.articles.map((a) => [a.id, a]));
                     for (const a of parsed.articles) {
                         const prev = existing.get(a.id);
-                        existing.set(a.id, prev ? { ...a, read: prev.read, saved: prev.saved } : a);
+                        existing.set(a.id, prev ? { ...a, read: prev.read, saved: prev.saved, score: prev.score || 0 } : a);
                     }
                     state.articles = [...existing.values()].sort((a, b) => b.timestamp - a.timestamp).slice(0, 2500);
                     return parsed.articles.length;
                 } catch (e) {
                     f.lastError = e.name === "AbortError" ? "Timed out" : String(e.message || e);
+                    if (e.name === "TypeError")
+                        f.lastError += state.proxy
+                            ? " (blocked: proxy must allow origin " + location.origin + ")"
+                            : " (CORS: set a proxy under Manage feeds)";
                     return -1;
                 } finally {
                     clearTimeout(timeout);
@@ -913,6 +940,7 @@
                             (!feedSelection || a.feed === feedSelection) &&
                             (view !== "unread" || !a.read) &&
                             (view !== "saved" || a.saved) &&
+                            (view !== "liked" || a.score > 0) &&
                             (!q ||
                                 (
                                     a.title +
@@ -931,6 +959,7 @@
                 $("#allCount").textContent = total || "";
                 $("#unreadCount").textContent = state.articles.filter((a) => !a.read).length || "";
                 $("#savedCount").textContent = state.articles.filter((a) => a.saved).length || "";
+                $("#likedCount").textContent = state.articles.filter((a) => a.score > 0).length || "";
                 $$("[data-view]").forEach((b) =>
                     b.classList.toggle("active", b.dataset.view === view && !feedSelection)
                 );
@@ -941,8 +970,10 @@
                             `<button class="feedbutton ${feedSelection === f.url ? "active" : ""}" data-feed="${esc(f.url)}"><span>${esc(f.name)}</span><span class="count">${state.articles.filter((a) => a.feed === f.url && !a.read).length || ""}</span></button>`
                     )
                     .join("");
+                const mq = $("#manageFilter").value.toLowerCase().trim();
                 $("#manageList").innerHTML = state.feeds.length
                     ? state.feeds
+                          .filter((f) => !mq || (f.name + " " + f.url).toLowerCase().includes(mq))
                           .map(
                               (f) =>
                                   `<div class="manageitem"><div><strong>${esc(f.name)} ${f.lastError ? "⚠" : ""}</strong><small title="${esc(f.lastError || f.url)}">${esc(f.lastError || f.url)}</small></div><button data-remove="${esc(f.url)}" title="Remove source">Remove</button></div>`
@@ -953,14 +984,18 @@
                 const filteredArticles = filtered();
                 $("#heading").textContent = feedSelection
                     ? state.feeds.find((f) => f.url === feedSelection)?.name || "Your source"
-                    : view === "saved"
+                    : view === "liked"
+                      ? "More like this."
+                      : view === "saved"
                       ? "Worth keeping."
                       : view === "unread"
                         ? "To be read."
                         : "The daily read.";
                 $("#subtitle").textContent = feedSelection
                     ? "Stories from this source."
-                    : view === "saved"
+                    : view === "liked"
+                      ? "Stories you gave a thumbs up."
+                      : view === "saved"
                       ? "Everything you tucked away for later."
                       : view === "unread"
                         ? "Unopened stories, when you have a moment."
@@ -969,7 +1004,7 @@
                     filteredArticles
                         .map((a) => {
                             const f = state.feeds.find((f) => f.url === a.feed);
-                            return `<article class="article ${a.read ? "" : "unread"}"><div><div class="meta">${!a.read ? '<span class="unreadpin" title="Unread"></span>' : ""}<span>${esc(f?.name || "Feed")}</span><span>·</span><time datetime="${new Date(a.timestamp).toISOString()}">${relative(a.timestamp)}</time></div><h2><a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer" data-read="${a.id}">${esc(a.title)}</a></h2>${a.summary ? `<p>${esc(a.summary)}</p>` : ""}</div><div class="actions"><button data-toggle-save="${a.id}" class="${a.saved ? "saved" : ""}" title="${a.saved ? "Unsave" : "Save for later"}" aria-label="${a.saved ? "Unsave" : "Save for later"}">${a.saved ? "★" : "☆"}</button><button data-toggle-read="${a.id}" title="Mark ${a.read ? "unread" : "read"}" aria-label="Mark ${a.read ? "unread" : "read"}">${a.read ? "◯" : "✓"}</button></div></article>`;
+                            return `<article class="article ${a.read ? "" : "unread"}"><div><div class="meta">${!a.read ? '<span class="unreadpin" title="Unread"></span>' : ""}<span>${esc(f?.name || "Feed")}</span><span>·</span><time datetime="${new Date(a.timestamp).toISOString()}">${relative(a.timestamp)}</time></div><h2><a href="${esc(a.link)}" target="_blank" rel="noopener noreferrer" data-read="${a.id}">${esc(a.title)}</a></h2>${a.summary ? `<p>${esc(a.summary)}</p>` : ""}</div><div class="actions"><button data-toggle-save="${a.id}" class="${a.saved ? "saved" : ""}" title="${a.saved ? "Unsave" : "Save for later"}" aria-label="${a.saved ? "Unsave" : "Save for later"}">${a.saved ? "★" : "☆"}</button><button data-toggle-read="${a.id}" title="Mark ${a.read ? "unread" : "read"}" aria-label="Mark ${a.read ? "unread" : "read"}">${a.read ? "◯" : "✓"}</button><button data-vote="1" data-id="${a.id}" class="${a.score > 0 ? "voted" : ""}" title="Like" aria-label="Like">👍</button><button data-vote="-1" data-id="${a.id}" class="${a.score < 0 ? "voted" : ""}" title="Dislike" aria-label="Dislike">👎</button><button data-find="${a.id}" title="Copy prompt to find this story elsewhere" aria-label="Find elsewhere">🔍</button></div></article>`;
                         })
                         .join("") ||
                     `<div class="empty"><div class="illustration">✳</div><h2>${state.feeds.length ? "A quiet moment." : "A quieter way to read."}</h2><p>${state.feeds.length ? "No articles match this view. Try another filter or refresh your feeds." : "Add your favorite RSS or Atom sources. Your reading list stays in your browser, with no account needed."}</p>${!state.feeds.length ? '<button class="primary" data-open="add">Add your first feed</button>' : ""}</div>`;
@@ -979,14 +1014,65 @@
                 el.showModal();
                 if (name === "add") $("#feedUrl").focus();
             }
-            async function mutate(action, key) {
+            async function mutate(action, key, value) {
                 const a = state.articles.find((x) => x.id === key);
                 if (!a) return;
                 if (action === "read") a.read = true;
                 if (action === "toggle-read") a.read = !a.read;
                 if (action === "toggle-save") a.saved = !a.saved;
+                if (action === "vote") {
+                    a.score = a.score === value ? 0 : value;
+                    if (a.score < 0) a.read = true;
+                }
                 await save();
                 render();
+            }
+            const STOP = new Set(
+                "a an the and or of to in on for with by from at as is are was were be been this that these those it its into over after before about new says said how why what when who will can could would should has have had not no more than their they them his her you your our we us".split(
+                    " "
+                )
+            );
+            function keyTerms(a) {
+                const freq = {};
+                for (const w of (a.title + " " + a.title + " " + a.summary).toLowerCase().match(/[a-z0-9][a-z0-9'-]{2,}/g) || [])
+                    if (!STOP.has(w)) freq[w] = (freq[w] || 0) + 1;
+                return Object.keys(freq)
+                    .sort((x, y) => freq[y] - freq[x])
+                    .slice(0, 5);
+            }
+            async function copy(label, textValue) {
+                try {
+                    await navigator.clipboard.writeText(textValue);
+                    toast(label + " copied to clipboard");
+                } catch {
+                    prompt(label, textValue);
+                }
+            }
+            function findPrompt(a) {
+                const terms = keyTerms(a).join(" ");
+                const feedName = state.feeds.find((f) => f.url === a.feed)?.name || "Feed";
+                return `Find recent news coverage of: "${a.title}"
+Source: ${feedName}, ${date(a.timestamp)}
+Key terms: ${terms}
+Return other outlets' articles and RSS feeds covering this story.
+
+Google News RSS for these terms (paste into Add feed):
+https://news.google.com/rss/search?q=${encodeURIComponent(terms)}`;
+            }
+            function tastePrompt() {
+                const list = (sign) =>
+                    state.articles
+                        .filter((a) => sign > 0 ? a.score > 0 : a.score < 0)
+                        .slice(0, 20)
+                        .map((a) => "- " + a.title)
+                        .join("\n") || "- (none yet)";
+                return `I read news via RSS. Based on my likes and dislikes below, suggest 10 RSS feeds and 5 search queries (for news.google.com/rss/search?q=...) that match my taste.
+
+Liked:
+${list(1)}
+
+Disliked:
+${list(-1)}`;
             }
             function download(name, data) {
                 const blob = new Blob([data], { type: "application/json" }),
@@ -1047,10 +1133,22 @@
                 );
                 toast("Encrypted export created");
             }
+            function parseOPML(xml) {
+                const doc = new DOMParser().parseFromString(xml, "application/xml");
+                if (doc.querySelector("parsererror") || doc.documentElement.localName !== "opml")
+                    throw Error("Not an OPML file");
+                const feeds = [...doc.querySelectorAll("outline[xmlUrl]")].map((o) => ({
+                    url: o.getAttribute("xmlUrl"),
+                    name: o.getAttribute("title") || o.getAttribute("text") || "",
+                    customName: !!(o.getAttribute("title") || o.getAttribute("text")),
+                }));
+                return { type: "still-feeds", version: 1, feeds };
+            }
             async function doImport(file) {
                 if (!file) return;
                 try {
-                    let payload = JSON.parse(await file.text());
+                    const raw = await file.text();
+                    let payload = raw.trimStart().startsWith("<") ? parseOPML(raw) : JSON.parse(raw);
                     if (payload.type === "still-encrypted") {
                         const pass = $("#passphrase").value;
                         if (!pass) throw Error("Enter the export passphrase");
@@ -1090,6 +1188,7 @@
                     db = await openDB();
                     const stored = await dbGet("library");
                     if (stored) state = { ...state, ...stored };
+                    if (!("proxy" in (stored || {}))) state.proxy = DEFAULT_PROXY;
                     if (state.proxy) {
                         const normalized = proxyTemplate(state.proxy);
                         if (normalized !== null && normalized !== state.proxy) {
@@ -1135,6 +1234,11 @@
                 if (b.dataset.read) await mutate("read", b.dataset.read);
                 if (b.dataset.toggleSave) await mutate("toggle-save", b.dataset.toggleSave);
                 if (b.dataset.toggleRead) await mutate("toggle-read", b.dataset.toggleRead);
+                if (b.dataset.vote) await mutate("vote", b.dataset.id, Number(b.dataset.vote));
+                if (b.dataset.find) {
+                    const a = state.articles.find((x) => x.id === b.dataset.find);
+                    if (a) copy("Search prompt", findPrompt(a));
+                }
                 if (b.dataset.remove) {
                     if (confirm("Remove this source and its cached articles?")) {
                         state.feeds = state.feeds.filter((f) => f.url !== b.dataset.remove);
@@ -1165,6 +1269,7 @@
                 refresh();
             });
             $("#search").addEventListener("input", render);
+            $("#manageFilter").addEventListener("input", render);
             $("#refresh").addEventListener("click", refresh);
             $("#manageRefresh").addEventListener("click", () => {
                 $("#manageDialog").close();
@@ -1182,11 +1287,16 @@
             });
             $("#exportEncrypted").addEventListener("click", () => exportData(true).catch((e) => toast(e.message)));
             $("#exportPlain").addEventListener("click", () => exportData(false));
+            $("#tastePrompt").addEventListener("click", () => copy("Taste prompt", tastePrompt()));
             $("#importEncrypted").addEventListener("click", () => $("#importFile").click());
-            $("#importFile").addEventListener("change", (e) => doImport(e.target.files?.[0]));
+            $("#importOpml").addEventListener("click", () => $("#importFile").click());
+            $("#importFile").addEventListener("change", (e) => {
+                doImport(e.target.files?.[0]);
+                e.target.value = "";
+            });
             $("#clearAll").addEventListener("click", async () => {
                 if (!confirm("Erase all feeds, cached articles, and settings from this browser?")) return;
-                state = { feeds: [], articles: [], proxy: "" };
+                state = { feeds: [], articles: [], proxy: DEFAULT_PROXY };
                 await save();
                 feedSelection = null;
                 view = "all";
