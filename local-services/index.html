@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A browser-local directory for your HTTP and HTTPS services.">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>Local Services</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #0c1115;
+      --panel: #12191e;
+      --field: #0e1519;
+      --line: #28373c;
+      --text: #ebf3ef;
+      --muted: #a4b3b0;
+      --green: #8bf0bb;
+      --mono: ui-monospace, "SF Mono", Consolas, monospace;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--page); color: var(--text); }
+    h1, h2, p, dl, dd { margin: 0; }
+    button, input, a { font: inherit; }
+    button, .open { cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+    .shell { width: min(70rem, calc(100% - 3rem)); margin-inline: auto; }
+    .top { border-bottom: 1px solid #202e32; }
+    .top .shell { min-height: 4.25rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+    .brand, .private { display: flex; align-items: center; gap: .65rem; }
+    .brand { font-weight: 700; }
+    .mark { display: grid; place-items: center; width: 2rem; height: 2rem; border: 1px solid #3b6250; border-radius: .45rem; color: var(--green); background: #1c3028; font: 700 .875rem var(--mono); }
+    .private { color: var(--muted); font: .875rem var(--mono); }
+    .dot { width: .44rem; height: .44rem; border-radius: 50%; background: var(--green); flex: none; }
+    .hero {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      align-items: end;
+      gap: 2rem;
+      padding: 2.65rem;
+      margin-block: 2.5rem 1.75rem;
+      border: 1px solid #324641;
+      border-radius: 1rem;
+      background-color: #14221f;
+      background-image: linear-gradient(90deg, #14221f 12%, #14221f30), radial-gradient(circle, #5b89736b 1px, transparent 1.5px);
+      background-size: auto, 19px 19px;
+    }
+    h1 { max-width: 12ch; font-size: clamp(2.75rem, 6vw, 5.15rem); line-height: .98; letter-spacing: -.069em; font-weight: 670; }
+    h1 span { color: var(--green); }
+    .hero p { color: #b3c4bd; margin-top: 1rem; line-height: 1.5; max-width: 36ch; }
+    .metrics { display: grid; grid-template-columns: 1.25fr 1fr 1fr; border: 1px solid #38574a; border-radius: .65rem; background: #0e1917; }
+    .metrics div { display: flex; flex-direction: column-reverse; gap: .55rem; padding: .95rem; }
+    .metrics div + div { border-left: 1px solid #38574a; }
+    .metrics dt { color: #afc3ba; font-size: .875rem; }
+    .metrics dd { font: 600 clamp(1.4rem, 3vw, 2.1rem)/1 var(--mono); color: var(--green); }
+    .panel { border: 1px solid var(--line); border-radius: .85rem; background: var(--panel); margin-bottom: 1rem; }
+    .editor { padding: 1.25rem 1.4rem 1.4rem; }
+    h2 { font-size: 1.25rem; letter-spacing: -.025em; }
+    .entry-form { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) auto; gap: .7rem; align-items: end; margin-top: .9rem; }
+    label { display: grid; gap: .36rem; color: var(--muted); font-size: .875rem; }
+    input { min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: .45rem; background: var(--field); color: var(--text); padding: .62rem .75rem; font-size: .9375rem; }
+    input::placeholder { color: #92a29e; }
+    button, .open { display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: .45rem; background: var(--field); color: var(--text); padding: .6rem .75rem; text-decoration: none; white-space: nowrap; font-size: .875rem; }
+    button:hover:not(:disabled), .open:hover { border-color: #5d9c7a; color: var(--green); }
+    .primary { background: #1d382b; border-color: #47745b; color: #b9f7d0; font-weight: 650; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; padding: 1.15rem 1.4rem; }
+    .search { flex: 1 1 14rem; max-width: 24rem; }
+    .filters { display: flex; gap: .15rem; padding: .18rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--field); }
+    .filters button { border: 0; padding: .45rem .65rem; font-family: var(--mono); color: var(--muted); }
+    .filters button[aria-pressed="true"] { color: #cafedf; background: #254036; }
+    .results { overflow-x: auto; border-top: 1px solid var(--line); }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th, td { padding: .72rem .65rem; }
+    th:first-child, td:first-child { padding-left: 1.4rem; }
+    th:last-child, td:last-child { padding-right: 1.4rem; }
+    th { font: .8125rem var(--mono); color: var(--muted); background: var(--field); }
+    td { border-top: 1px solid var(--line); font-size: .9375rem; }
+    td:last-child .actions { justify-content: flex-end; }
+    tbody tr:hover { background: #172226; }
+    .service-name { display: block; font-weight: 650; overflow-wrap: anywhere; }
+    .address { display: block; color: var(--muted); font: .8125rem var(--mono); margin-top: .28rem; overflow-wrap: anywhere; }
+    .port { font-family: var(--mono); }
+    .protocol { display: inline-block; border: 1px solid #355160; border-radius: .3rem; background: #1b303a; color: #a9ddf4; padding: .23rem .38rem; font: .8125rem var(--mono); }
+    .protocol.https { background: #1b382e; border-color: #3c6550; color: #a6edc5; }
+    .row-action { padding: .38rem .55rem; }
+    .empty { padding: 2.45rem 1.4rem; text-align: center; color: var(--muted); line-height: 1.5; }
+    .bottom { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem 1rem; align-items: center; border-top: 1px solid var(--line); padding: .8rem 1.4rem; }
+    .notice { color: var(--muted); font-size: .875rem; line-height: 1.45; }
+    .notice[data-error="true"] { color: #ffb3ac; }
+    .editor .notice:not(:empty) { margin-top: .6rem; }
+    footer { color: var(--muted); font-size: .875rem; line-height: 1.5; padding: .3rem 0 1.6rem; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    @media (max-width: 760px) {
+      .shell { width: calc(100% - 2rem); }
+      .hero { grid-template-columns: 1fr; padding: 1.8rem; gap: 1.15rem; margin-top: 1.4rem; }
+      h1 { max-width: none; }
+      .metrics { max-width: 27rem; }
+      .entry-form { grid-template-columns: 1fr 1fr; }
+      .entry-form .actions { grid-column: 1 / -1; }
+    }
+    @media (max-width: 480px) {
+      .hero, .editor, .toolbar, .bottom { padding-inline: .9rem; }
+      .entry-form { grid-template-columns: 1fr; }
+      .metrics div { padding: .75rem .5rem; }
+      th, td { padding-inline: .35rem; }
+      th:first-child, td:first-child { padding-left: .9rem; }
+      th:last-child, td:last-child { padding-right: .9rem; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="shell">
+      <div class="brand"><span class="mark" aria-hidden="true">&gt;_</span> Local Services</div>
+      <span class="private"><span class="dot" aria-hidden="true"></span> Browser-local</span>
+    </div>
+  </header>
+  <main class="shell">
+    <section class="hero" aria-labelledby="page-title">
+      <div>
+        <h1 id="page-title">Local service directory<span>.</span></h1>
+        <p>Save and open the web services you run.</p>
+      </div>
+      <dl class="metrics" aria-label="Saved services by protocol">
+        <div><dt>Saved</dt><dd id="total">0</dd></div>
+        <div><dt>HTTP</dt><dd id="http-count">0</dd></div>
+        <div><dt>HTTPS</dt><dd id="https-count">0</dd></div>
+      </dl>
+    </section>
+    <section class="panel editor" aria-labelledby="editor-title">
+      <h2 id="editor-title">Add a service</h2>
+      <form id="entry-form" class="entry-form">
+        <label>Service name <input id="name" type="text" maxlength="120" placeholder="e.g. Dev server" autocomplete="off"></label>
+        <label>URL or port <input id="address" required type="text" maxlength="2048" placeholder="e.g. 3000 or https://localhost:8443" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <div class="actions">
+          <button type="submit" class="primary" id="save">Add service</button>
+          <button type="button" id="cancel" hidden>Cancel</button>
+        </div>
+      </form>
+      <p class="notice" id="form-message" role="status"></p>
+    </section>
+
+    <section class="panel" aria-label="Saved services">
+      <div class="toolbar">
+        <label class="search">
+          <span class="sr-only">Search saved services</span>
+          <input id="search" type="search" placeholder="Search by name, address, or port" autocomplete="off">
+        </label>
+        <div class="filters" role="group" aria-label="Filter by protocol">
+          <button type="button" data-filter="all" aria-pressed="true">All</button>
+          <button type="button" data-filter="http" aria-pressed="false">HTTP</button>
+          <button type="button" data-filter="https" aria-pressed="false">HTTPS</button>
+        </div>
+      </div>
+      <div class="results">
+        <table id="directory" hidden>
+          <thead><tr><th scope="col">Service</th><th scope="col">Port</th><th scope="col">Protocol</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p class="empty" id="empty">No saved services. Add a URL or port above to get started.</p>
+      </div>
+      <div class="bottom">
+        <p class="notice" id="message" role="status"></p>
+        <div class="actions">
+          <button type="button" id="import">Import JSON</button>
+          <button type="button" id="export" disabled>Export JSON</button>
+          <input type="file" id="file" accept=".json,application/json" hidden>
+        </div>
+      </div>
+    </section>
+    <footer>Services are added by hand and saved in this browser. Export a JSON backup to move them to another browser.</footer>
+    <noscript><p>This directory needs JavaScript to save your list in this browser.</p></noscript>
+  </main>
+  <script>
+    "use strict";
+
+    const storageKey = "local-services.directory.v1";
+    const $ = (id) => document.getElementById(id);
+    const form = $("entry-form");
+    const nameInput = $("name");
+    const addressInput = $("address");
+    const search = $("search");
+    const filters = document.querySelectorAll("[data-filter]");
+    const directory = $("directory");
+    const rows = $("rows");
+    const empty = $("empty");
+    const fileInput = $("file");
+    const exportButton = $("export");
+    let services = [];
+    let protocolFilter = "all";
+    let editingUrl = null;
+
+    function serviceUrl(input) {
+      const value = input.trim();
+      if (!value || value.length > 2048 || /[\s\\]/.test(value)) {
+        throw new Error("Enter a port from 1 to 65535 or a valid HTTP or HTTPS URL.");
+      }
+      if (/^\d+$/.test(value) && (Number(value) < 1 || Number(value) > 65535)) {
+        throw new Error("Enter a port from 1 to 65535.");
+      }
+      const address = /^\d+$/.test(value) ? `http://localhost:${value}`
+        : /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `http://${value}`;
+      let url;
+      try {
+        url = new URL(address);
+      } catch {
+        throw new Error("Enter a valid HTTP or HTTPS URL, such as http://localhost:3000.");
+      }
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.port === "0") {
+        throw new Error("Use an HTTP or HTTPS URL with a valid port and no embedded credentials.");
+      }
+      if (url.href.length > 2048) throw new Error("Use a URL of 2,048 characters or fewer.");
+      return url;
+    }
+
+    function readEntries(data) {
+      if (data?.version !== 1 || !Array.isArray(data.services)) {
+        throw new Error("Choose a JSON backup exported by Local Services.");
+      }
+      const unique = new Map();
+      for (const entry of data.services) {
+        if (typeof entry?.name !== "string" || entry.name.length > 120 || typeof entry.url !== "string") {
+          throw new Error("This backup contains an invalid service.");
+        }
+        const url = serviceUrl(entry.url);
+        unique.set(url.href, {name: entry.name.trim(), url: url.href});
+      }
+      return [...unique.values()];
+    }
+
+    function notice(text, isError = false, target = $("message")) {
+      target.textContent = text;
+      target.dataset.error = isError;
+    }
+
+    function load() {
+      try {
+        const saved = localStorage.getItem(storageKey);
+        services = saved === null ? [] : readEntries(JSON.parse(saved));
+      } catch {
+        notice("Saved services couldn’t be loaded. Browser storage may be unavailable.", true);
+      }
+    }
+
+    function persist(successMessage) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify({version: 1, services}));
+        notice(successMessage);
+      } catch {
+        notice("Browser storage couldn’t save your changes. Export JSON before closing this page.", true);
+      }
+      render();
+    }
+
+    function details(service) {
+      const url = new URL(service.url);
+      const protocol = url.protocol.slice(0, -1);
+      return {
+        ...service,
+        protocol,
+        port: Number(url.port || (protocol === "https" ? 443 : 80)),
+        label: service.name || url.host,
+      };
+    }
+
+    function edit(service) {
+      editingUrl = service.url;
+      nameInput.value = service.name;
+      addressInput.value = service.url;
+      $("editor-title").textContent = "Edit service";
+      $("save").textContent = "Save changes";
+      $("cancel").hidden = false;
+      notice("", false, $("form-message"));
+      nameInput.focus();
+    }
+
+    function resetForm() {
+      editingUrl = null;
+      form.reset();
+      $("editor-title").textContent = "Add a service";
+      $("save").textContent = "Add service";
+      $("cancel").hidden = true;
+      notice("", false, $("form-message"));
+    }
+
+    function action(label, service, handler) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "row-action";
+      button.textContent = label;
+      button.setAttribute("aria-label", `${label} ${service.label}`);
+      button.addEventListener("click", handler);
+      return button;
+    }
+
+    function makeRow(service) {
+      const row = document.createElement("tr");
+      const nameCell = row.insertCell();
+      const title = document.createElement("span");
+      title.className = "service-name";
+      title.textContent = service.label;
+      const address = document.createElement("span");
+      address.className = "address";
+      address.textContent = service.url;
+      nameCell.append(title, address);
+
+      const port = row.insertCell();
+      port.className = "port";
+      port.textContent = service.port;
+
+      const badge = document.createElement("span");
+      badge.className = `protocol ${service.protocol}`;
+      badge.textContent = service.protocol.toUpperCase();
+      row.insertCell().append(badge);
+
+      const open = document.createElement("a");
+      open.className = "open row-action";
+      open.href = service.url;
+      open.target = "_blank";
+      open.rel = "noopener noreferrer";
+      open.textContent = "Open";
+      open.setAttribute("aria-label", `Open ${service.label} in a new tab`);
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.append(open, action("Edit", service, () => edit(service)), action("Remove", service, () => {
+        if (window.confirm(`Remove ${service.label} from this directory?`)) {
+          services = services.filter((entry) => entry.url !== service.url);
+          if (editingUrl === service.url) resetForm();
+          persist("Service removed.");
+          search.focus();
+        }
+      }));
+      row.insertCell().append(actions);
+      return row;
+    }
+
+    function render() {
+      const entries = services.map(details);
+      const query = search.value.trim().toLowerCase();
+      const matching = entries
+        .filter((service) => (protocolFilter === "all" || protocolFilter === service.protocol)
+          && `${service.label} ${service.url} ${service.port}`.toLowerCase().includes(query))
+        .sort((a, b) => a.port - b.port || a.label.localeCompare(b.label));
+
+      rows.replaceChildren(...matching.map(makeRow));
+      directory.hidden = matching.length === 0;
+      empty.hidden = matching.length > 0;
+      empty.textContent = entries.length
+        ? "No services match your search or filter."
+        : "No saved services. Add a URL or port above to get started.";
+      $("total").textContent = entries.length;
+      $("http-count").textContent = entries.filter((service) => service.protocol === "http").length;
+      $("https-count").textContent = entries.filter((service) => service.protocol === "https").length;
+      exportButton.disabled = entries.length === 0;
+    }
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      try {
+        const url = serviceUrl(addressInput.value).href;
+        if (services.some((service) => service.url === url && service.url !== editingUrl)) {
+          throw new Error("That address is already saved.");
+        }
+        const entry = {name: nameInput.value.trim(), url};
+        const index = services.findIndex((service) => service.url === editingUrl);
+        if (index < 0) services.push(entry);
+        else services[index] = entry;
+        resetForm();
+        persist(index < 0 ? "Service added." : "Service updated.");
+        nameInput.focus();
+      } catch (error) {
+        notice(error.message, true, $("form-message"));
+        addressInput.focus();
+      }
+    });
+
+    $("cancel").addEventListener("click", () => {
+      resetForm();
+      nameInput.focus();
+    });
+    search.addEventListener("input", render);
+    filters.forEach((button) => button.addEventListener("click", () => {
+      protocolFilter = button.dataset.filter;
+      filters.forEach((item) => item.setAttribute("aria-pressed", item === button));
+      render();
+    }));
+
+    $("import").addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files[0];
+      fileInput.value = "";
+      if (!file) return;
+      try {
+        if (file.size > 2_000_000) throw new Error("Choose a backup smaller than 2 MB.");
+        const incoming = readEntries(JSON.parse(await file.text()));
+        const existing = new Set(services.map((service) => service.url));
+        const added = incoming.filter((service) => !existing.has(service.url));
+        services.push(...added);
+        persist(added.length ? `Imported ${added.length} ${added.length === 1 ? "service" : "services"}.`
+          : "This backup contains no new services.");
+      } catch (error) {
+        notice(error instanceof SyntaxError ? "This file is not valid JSON." : error.message, true);
+      }
+    });
+
+    exportButton.addEventListener("click", () => {
+      const content = JSON.stringify({version: 1, services}, null, 2);
+      const url = URL.createObjectURL(new Blob([content], {type: "application/json"}));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "local-services.json";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+
+    window.addEventListener("storage", (event) => {
+      if (event.key === storageKey || event.key === null) {
+        load();
+        if (editingUrl && !services.some((service) => service.url === editingUrl)) resetForm();
+        render();
+      }
+    });
+
+    load();
+    render();
+  </script>
+</body>
+</html>
