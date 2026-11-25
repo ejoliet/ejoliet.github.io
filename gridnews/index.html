@@ -4,7 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="color-scheme" content="light dark" />
 <link rel="icon" href="data:," />
-<title>GridNews 2 — Watch everything. Hear one.</title>
+<title>GridNews — Watch everything. Hear one.</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
@@ -78,6 +78,18 @@
   .tile .live{font-size:.6rem;font-weight:800;letter-spacing:.1em;background:var(--red);color:#fff;border-radius:4px;padding:.14rem .34rem;display:none;align-items:center;gap:.25rem}
   .tile.playing .live{display:inline-flex}
   .tile .live i{width:5px;height:5px;border-radius:50%;background:#fff;display:block}
+  .tile.paused .live,.tile.behind .live{display:inline-flex}
+  .tile.paused .live{background:#5b6068}
+  .tile.behind .live{background:var(--warn)}
+  .tile .pveil{position:absolute;inset:0;z-index:3;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.38);pointer-events:none}
+  .tile.paused .pveil{display:flex}
+  .tile .pveil .golive{pointer-events:auto;border:0;border-radius:999px;background:var(--red);color:#fff;font-weight:800;font-size:.92rem;padding:.65rem 1.1rem;display:inline-flex;align-items:center;gap:.45rem;box-shadow:0 8px 24px rgba(0,0,0,.45);min-height:2.6rem}
+  .tile .pveil .golive:hover{background:#c41d17}
+  .tile .bot{flex-wrap:wrap}
+  .tile.error .pveil{display:none !important}
+  .tbtn.livebtn{font-weight:800}
+  .tile.paused .livebtn,.tile.behind .livebtn{background:var(--red)}
+  .tile.paused .livebtn:hover,.tile.behind .livebtn:hover{background:#c41d17}
   .tile .onair{font-size:.6rem;font-weight:800;letter-spacing:.1em;background:#fff;color:var(--red);border-radius:4px;padding:.14rem .34rem;display:none}
   .tile.hearing .onair{display:inline-block}
   .tile .bot{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:.35rem;padding:.45rem .55rem;opacity:0;transition:opacity .15s}
@@ -179,6 +191,8 @@
     #pipBtn{padding:.4rem .55rem;font-size:.78rem;white-space:nowrap}
     .dock .saver-lbl span{display:none}
     .dock .saver-lbl{font-size:.72rem}
+    /* Dock toggles duplicate the header .msettings row on phones; their inline display:flex otherwise clips the last checkbox off-screen. */
+    .dock label.saver-lbl{display:none !important}
   }
 </style>
 </head>
@@ -199,9 +213,13 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="12" height="16" rx="2"/><path d="M19 8h2M19 12h2M19 16h2"/></svg>
       Spotlight
     </button>
-    <button class="btn" id="pauseBtn" aria-pressed="false">
+    <button class="btn" id="pauseBtn" aria-pressed="false" title="Pause every tile">
       <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-      Pause all
+      <span id="pauseLbl">Pause all</span>
+    </button>
+    <button class="btn" id="liveAllBtn" title="Resume every tile and jump to the live edge — use this after Pause all">
+      <span aria-hidden="true" style="width:8px;height:8px;border-radius:50%;background:var(--red);display:inline-block;flex:none"></span>
+      Go live
     </button>
     <button class="btn primary" id="addBtn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M12 5v14M5 12h14"/></svg>
@@ -270,7 +288,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="12" width="6" height="4" rx="1" fill="currentColor" stroke="none"/></svg>
       PiP
     </button>
-    <span class="hint"><kbd>1</kbd>–<kbd>9</kbd> hear tile · <kbd>M</kbd> mute all · <kbd>F</kbd> spotlight · <kbd>P</kbd> PiP · <kbd>Esc</kbd> exit spotlight</span>
+    <span class="hint"><kbd>1</kbd>–<kbd>9</kbd> hear tile · <kbd>M</kbd> mute all · <kbd>F</kbd> spotlight · <kbd>P</kbd> PiP · <kbd>L</kbd> go live (all) · <kbd>Esc</kbd> exit spotlight</span>
     <div class="spacer"></div>
     <label class="saver-lbl" style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:700;cursor:pointer;padding:.3rem 0;white-space:nowrap" title="When on, exiting fullscreen or minimizing / swiping home keeps that channel in Picture-in-Picture (iPhone / iPad)">
       <input type="checkbox" id="pipAuto" checked style="width:18px;height:18px;accent-color:var(--red)" />
@@ -568,6 +586,75 @@ function qualityCap(){
   var n = store.wall.length;
   return n > 6 ? 480 : (n > 3 ? 720 : -1);
 }
+/* ================= Back to live =================
+   Pausing a live HLS stream freezes it in the buffer — pressing play
+   alone resumes minutes behind the broadcast. "Go live" seeks to the
+   live edge first (hls.liveSyncPosition, else the end of the seekable
+   range), then plays. */
+function liveEdgeFor(p){
+  try{ if(p.hls && typeof p.hls.liveSyncPosition === "number" && isFinite(p.hls.liveSyncPosition)) return p.hls.liveSyncPosition; }catch(e){}
+  try{
+    var v = p.video;
+    if(v.seekable && v.seekable.length) return v.seekable.end(v.seekable.length - 1);
+    if(v.buffered && v.buffered.length) return v.buffered.end(v.buffered.length - 1);
+  }catch(e){}
+  return null;
+}
+function behindSecs(p){
+  var edge = liveEdgeFor(p);
+  if(edge == null || !isFinite(p.video.currentTime)) return 0;
+  return Math.max(0, edge - p.video.currentTime);
+}
+function updateTileControls(id){
+  var p = players[id]; if(!p) return;
+  /* A tile that has never played is still connecting, not "paused". */
+  var paused = p.video.paused && (p.hasPlayed || pausedAll);
+  var behind = !paused && behindSecs(p) > 12;
+  p.el.classList.toggle("paused", paused);
+  p.el.classList.toggle("behind", behind);
+  var badge = p.el.querySelector(".live");
+  if(badge) badge.innerHTML = paused ? "❚❚ PAUSED" : (behind ? "<i></i>BEHIND LIVE" : "<i></i>LIVE");
+  var pb = p.el.querySelector('[data-act="pause"]');
+  if(pb) pb.innerHTML = paused ? "▶ Play" : "❚❚ Pause";
+  var lb = p.el.querySelector('.livebtn');
+  if(lb) lb.textContent = paused || behind ? "● Back to live" : "● Live";
+}
+function goLive(id, silent){
+  var p = players[id]; if(!p) return;
+  var edge = liveEdgeFor(p);
+  try{ if(edge != null && isFinite(edge) && edge - p.video.currentTime > 2) p.video.currentTime = Math.max(0, edge - 1); }catch(e){}
+  /* If the edge isn't known yet (stream still loading), reload the source so it starts at live. */
+  if(edge == null && p.video.readyState < 2){ attachPlayer(id); }
+  p.video.play().catch(function(){});
+  p.el.classList.remove("paused","behind");
+  updateTileControls(id);
+  if(!silent) toast((byId[id] ? byId[id].name : "Channel") + " — back to live.");
+  /* If every tile is playing again, Pause-all state is over. */
+  var anyPaused = Object.keys(players).some(function(pid){ return players[pid].video.paused && pid !== id; });
+  if(pausedAll && !anyPaused){ pausedAll = false; syncPauseBtn(); }
+}
+function goLiveAll(){
+  pausedAll = false; syncPauseBtn();
+  Object.keys(players).forEach(function(id){ goLive(id, true); });
+  toast("All tiles back to live.");
+}
+function toggleTilePause(id){
+  var p = players[id]; if(!p) return;
+  if(p.video.paused){ goLive(id, true); toast((byId[id] ? byId[id].name : "Channel") + " — back to live."); }
+  else { p.video.pause(); updateTileControls(id); }
+}
+function syncPauseBtn(){
+  var b = document.getElementById("pauseBtn"); if(!b) return;
+  b.setAttribute("aria-pressed", pausedAll ? "true" : "false");
+  b.classList.toggle("on", pausedAll);
+  var lbl = document.getElementById("pauseLbl");
+  if(lbl) lbl.textContent = pausedAll ? "Play all — live" : "Pause all";
+}
+/* Keep paused / behind-live badges honest even when a pause happens
+   outside our buttons (native fullscreen controls, PiP, iOS). */
+setInterval(function(){
+  Object.keys(players).forEach(function(id){ updateTileControls(id); });
+}, 4000);
 /* ================= Picture-in-Picture (incl. iOS) =================
    iOS Safari does not expose requestPictureInPicture() — it uses the
    WebKit presentation-mode API on the <video> itself, and the system
@@ -683,7 +770,9 @@ function attachPlayer(id){
   } else {
     goNative();
   }
-  v.onplaying = function(){ p.el.classList.add("playing"); p.el.classList.remove("error"); };
+  v.onplaying = function(){ p.hasPlayed = true; p.el.classList.add("playing"); p.el.classList.remove("error"); updateTileControls(id); };
+  v.onpause = function(){ updateTileControls(id); };
+  v.onplay = function(){ updateTileControls(id); };
   v.onerror = function(){ if(v.src) tileError(id); };
 }
 function destroyHls(p){ if(p && p.hls){ try{ p.hls.destroy(); }catch(e){} p.hls = null; } }
@@ -717,8 +806,11 @@ function renderWall(){
       '<div class="shade"></div>' +
       '<div class="top"><span class="live"><i></i>LIVE</span><span class="onair">● ON AIR — AUDIO</span><span class="nm">' + esc(ch.name) + '</span></div>' +
       '<div class="err"><b>' + esc(ch.name) + ' isn’t playing</b><p>The stream is offline, geo-blocked, or refused the browser. Other sources for this network may be in the library.</p><div class="row"><button class="tbtn" data-act="retry">↻ Retry</button><button class="tbtn" data-act="remove">Remove</button></div></div>' +
+      '<div class="pveil"><button class="golive" data-act="live" aria-label="Resume ' + esc(ch.name) + ' at the live edge">▶ Back to live</button></div>' +
       '<div class="bot">' +
         '<button class="tbtn hear" data-act="hear">' + (audioId === id ? ICON_HEAR + "Hearing" : ICON_MUTE + "Hear this") + '</button>' +
+        '<button class="tbtn" data-act="pause" aria-label="Pause or resume ' + esc(ch.name) + '">❚❚ Pause</button>' +
+        '<button class="tbtn livebtn" data-act="live" aria-label="Jump ' + esc(ch.name) + ' to live" title="Jump to the live edge">● Live</button>' +
         '<button class="tbtn" data-act="spot">' + (focusId === id ? "Exit spotlight" : "Spotlight") + '</button>' +
         '<button class="tbtn" data-act="pip" aria-label="Picture in Picture for ' + esc(ch.name) + ' — keeps playing when you minimize" title="Picture-in-Picture — keeps playing when you minimize / swipe home (iOS)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="12" width="6" height="4" rx="1" fill="currentColor" stroke="none"/></svg> PiP</button>' +
         '<button class="tbtn" data-act="full" aria-label="Fullscreen ' + esc(ch.name) + '">⛶ Full</button>' +
@@ -735,6 +827,8 @@ function renderWall(){
         ev.stopPropagation();
         var a = act.dataset.act;
         if(a === "hear") hear(id === audioId ? null : id);
+        if(a === "pause") toggleTilePause(id);
+        if(a === "live") goLive(id);
         if(a === "remove") setWall(store.wall.filter(function(x){ return x !== id; }));
         if(a === "retry"){ el.classList.remove("error","playing"); attachPlayer(id); }
         if(a === "spot"){ focusId = (focusId === id ? null : id); syncFocusBtn(); renderWall(); }
@@ -767,7 +861,7 @@ function hear(id){
   Object.keys(players).forEach(function(pid){
     var p = players[pid];
     p.video.muted = (pid !== id);
-    if(pid === id){ p.video.volume = store.vol / 100; p.video.play().catch(function(){}); }
+    if(pid === id){ p.video.volume = store.vol / 100; if(p.video.paused) goLive(pid, true); else p.video.play().catch(function(){}); }
     p.el.classList.toggle("hearing", pid === id);
     var hb = p.el.querySelector(".hear");
     if(hb) hb.innerHTML = (pid === id ? ICON_HEAR + "Hearing" : ICON_MUTE + "Hear this");
@@ -838,11 +932,19 @@ document.getElementById("focusBtn").addEventListener("click", function(){
 var pauseBtn = document.getElementById("pauseBtn");
 pauseBtn.addEventListener("click", function(){
   pausedAll = !pausedAll;
-  pauseBtn.setAttribute("aria-pressed", pausedAll ? "true" : "false");
-  pauseBtn.classList.toggle("on", pausedAll);
-  pauseBtn.lastChild.textContent = pausedAll ? " Play all " : " Pause all ";
-  Object.keys(players).forEach(function(id){ if(pausedAll) players[id].video.pause(); else players[id].video.play().catch(function(){}); });
+  syncPauseBtn();
+  if(pausedAll){
+    Object.keys(players).forEach(function(id){ players[id].video.pause(); updateTileControls(id); });
+    toast("All tiles paused. Press “Go live” (or “Play all — live”) to resume at the live edge, not where you paused.");
+  } else {
+    /* Resuming = go live, not play-from-pause-point. */
+    Object.keys(players).forEach(function(id){ goLive(id, true); });
+    toast("All tiles back to live.");
+  }
 });
+var liveAllBtn = document.getElementById("liveAllBtn");
+if(liveAllBtn) liveAllBtn.addEventListener("click", goLiveAll);
+syncPauseBtn();
 document.getElementById("muteAllBtn").addEventListener("click", function(){ hear(null); toast("All tiles muted."); });
 /* Dock PiP: act on the hearing tile, else the last fullscreen tile, else tile 1 */
 var pipBtnEl = document.getElementById("pipBtn");
@@ -923,6 +1025,7 @@ document.getElementById("exportBtn").addEventListener("click", function(){
 document.addEventListener("keydown", function(e){
   if(e.target.matches("input,textarea,select") || e.metaKey || e.ctrlKey || e.altKey) return;
   if(e.key === "m" || e.key === "M"){ hear(null); toast("All tiles muted."); }
+  else if(e.key === "l" || e.key === "L"){ goLiveAll(); }
   else if(e.key === "p" || e.key === "P"){ var pid = pipCandidateId(); if(pid) togglePiP(pid); }
   else if(e.key === "f" || e.key === "F"){ document.getElementById("focusBtn").click(); }
   else if(e.key === "Escape"){ if(focusId){ focusId = null; syncFocusBtn(); renderWall(); } closeImport(); }
