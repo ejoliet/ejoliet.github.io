@@ -1,0 +1,9 @@
+name = "trend-api"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+# After deploying, attach the custom domain in the Cloudflare dashboard:
+# Workers & Pages -> trend-api -> Settings -> Domains & Routes -> Add -> Custom Domain
+#   trend-api.626733.xyz
+# The static page at https://ejoliet.github.io/trend/ calls
+# https://trend-api.626733.xyz/ by default (override with ?api=<url>).
