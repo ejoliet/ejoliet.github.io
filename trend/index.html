@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>HN &amp; GitHub Trending</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      button, [role="button"], select, summary, input:not([type="checkbox"], [type="radio"]) { min-height: 2rem; }
+      * { box-sizing: border-box; }
+      :root {
+        --bg: #faf8f4;
+        --surface: #ffffff;
+        --surface-2: #f2eee6;
+        --ink: #1c1a17;
+        --ink-2: #57534b;
+        --ink-3: #8a8478;
+        --line: #e3ddd0;
+        --line-strong: #c9c2b2;
+        --orange: #e85d04;
+        --orange-soft: #fdeee1;
+        --green: #1a7f37;
+        --green-soft: #e6f4ea;
+        --gold: #9a6a00;
+        --shadow: 0 1px 2px rgba(28,26,23,.05), 0 8px 24px -12px rgba(28,26,23,.12);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #14120f;
+          --surface: #1e1b17;
+          --surface-2: #26221c;
+          --ink: #ece7dd;
+          --ink-2: #b3ab9c;
+          --ink-3: #7f7869;
+          --line: #332e26;
+          --line-strong: #4a4436;
+          --orange: #ff7a29;
+          --orange-soft: #3a2412;
+          --green: #4ac26b;
+          --green-soft: #17301f;
+          --gold: #d9a72e;
+          --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+        }
+      }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Libre Franklin", system-ui, -apple-system, sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: inherit; }
+      .wrap { max-width: 1060px; margin: 0 auto; padding: 0 20px 64px; }
+
+      /* ---------- Masthead ---------- */
+      .masthead { padding: 34px 0 0; }
+      .snap-line {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+        font-family: "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 12.5px; letter-spacing: .04em; text-transform: uppercase;
+        color: var(--ink-2);
+      }
+      .snap-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--orange); flex: none; }
+      .snap-line strong { color: var(--ink); font-weight: 600; }
+      h1 {
+        font-family: "Newsreader", Georgia, serif;
+        font-size: clamp(34px, 6vw, 54px);
+        font-weight: 600; line-height: 1.04; letter-spacing: -0.015em;
+        margin: 14px 0 12px; max-width: 16em;
+      }
+      h1 em { font-style: italic; color: var(--orange); }
+      .lede { font-size: 17.5px; line-height: 1.55; color: var(--ink-2); max-width: 44em; margin: 0; }
+      .lede strong { color: var(--ink); }
+
+      .stats {
+        display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+        background: var(--line); border: 1px solid var(--line);
+        border-radius: 12px; overflow: hidden; margin: 26px 0 0;
+      }
+      .stat { background: var(--surface); padding: 14px 16px; }
+      .stat b {
+        display: block; font-family: "Newsreader", Georgia, serif;
+        font-size: 27px; font-weight: 600; line-height: 1.1; letter-spacing: -0.01em;
+      }
+      .stat span { font-size: 12.5px; color: var(--ink-2); line-height: 1.35; display: block; margin-top: 3px; }
+      @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+      /* ---------- Toolbar ---------- */
+      .toolbar {
+        position: sticky; top: 0; z-index: 20;
+        background: color-mix(in srgb, var(--bg) 88%, transparent);
+        backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+        margin: 28px -20px 0; padding: 10px 20px;
+        border-bottom: 1px solid var(--line);
+      }
+      .toolbar-inner { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+      .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+      .tab {
+        appearance: none; border: 1px solid var(--line-strong); background: var(--surface);
+        color: var(--ink-2); border-radius: 999px; padding: 8px 16px;
+        font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; min-height: 38px;
+      }
+      .tab:hover { color: var(--ink); }
+      .tab[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+      .search { flex: 1 1 180px; min-width: 150px; }
+      .search input {
+        width: 100%; font: inherit; font-size: 14.5px; padding: 9px 14px;
+        border: 1px solid var(--line-strong); border-radius: 999px;
+        background: var(--surface); color: var(--ink); min-height: 38px;
+      }
+      .search input::placeholder { color: var(--ink-3); }
+      .search input:focus { outline: 2px solid var(--orange); outline-offset: 1px; border-color: transparent; }
+
+      /* ---------- Sections ---------- */
+      section { margin-top: 40px; }
+      .sec-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+      .sec-head h2 {
+        font-family: "Newsreader", Georgia, serif; font-size: 28px; font-weight: 600;
+        margin: 0; letter-spacing: -0.01em;
+      }
+      .sec-head .src { font-size: 13px; color: var(--ink-3); }
+      .sec-head .src a { text-decoration: underline; text-underline-offset: 2px; }
+      .sec-sub { color: var(--ink-2); font-size: 14.5px; margin: 0 0 14px; max-width: 46em; }
+      .sortbar { display: flex; gap: 6px; align-items: center; margin: 0 0 10px; font-size: 13px; color: var(--ink-2); }
+      .sortbar button {
+        appearance: none; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 600;
+        color: var(--ink-3); cursor: pointer; padding: 6px 8px; border-radius: 6px; min-height: 32px;
+      }
+      .sortbar button[aria-pressed="true"] { color: var(--orange); text-decoration: underline; text-underline-offset: 3px; }
+
+      /* ---------- HN list ---------- */
+      .hn-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+      .hn-item { display: flex; gap: 14px; padding: 13px 16px; border-bottom: 1px solid var(--line); align-items: flex-start; }
+      .hn-item:last-child { border-bottom: 0; }
+      .hn-item:hover { background: var(--surface-2); }
+      .rank {
+        font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; color: var(--ink-3);
+        width: 26px; flex: none; text-align: right; padding-top: 3px;
+      }
+      .hn-main { flex: 1; min-width: 0; }
+      .hn-title { font-family: "Newsreader", Georgia, serif; font-size: 18.5px; font-weight: 500; line-height: 1.3; }
+      .hn-title a { text-decoration: none; }
+      .hn-title a:hover { color: var(--orange); text-decoration: underline; text-underline-offset: 2px; }
+      .domain { font-size: 13px; color: var(--ink-3); font-weight: 400; white-space: nowrap; }
+      .hn-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 13px; color: var(--ink-2); }
+      .hn-meta .pts { color: var(--orange); font-weight: 700; }
+      .hn-meta a { text-decoration: none; }
+      .hn-meta a:hover { text-decoration: underline; text-underline-offset: 2px; }
+      .hot { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; background: var(--orange-soft); color: var(--orange); border-radius: 4px; padding: 2px 6px; vertical-align: 2px; margin-left: 6px; white-space: nowrap; }
+
+      /* ---------- Repo grid ---------- */
+      .repo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      @media (max-width: 720px) { .repo-grid { grid-template-columns: 1fr; } }
+      .repo {
+        background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+        padding: 16px 18px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 7px;
+      }
+      .repo-top { display: flex; align-items: baseline; gap: 8px; }
+      .repo-rank { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--ink-3); }
+      .repo-name { font-weight: 700; font-size: 16.5px; line-height: 1.3; overflow-wrap: anywhere; }
+      .repo-name a { text-decoration: none; color: var(--orange); }
+      .repo-name a:hover { text-decoration: underline; text-underline-offset: 2px; }
+      .repo-name .owner { color: var(--ink-2); font-weight: 600; }
+      .repo-desc { font-size: 14px; color: var(--ink-2); line-height: 1.5; margin: 0; flex: 1; }
+      .repo-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+      .lang { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+      .lang i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+      .today-badge {
+        margin-left: auto; background: var(--green-soft); color: var(--green);
+        font-weight: 700; font-size: 12.5px; border-radius: 999px; padding: 4px 10px; white-space: nowrap;
+      }
+
+      /* ---------- Developers ---------- */
+      .dev-list { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      @media (max-width: 720px) { .dev-list { grid-template-columns: 1fr; } }
+      .dev { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 15px 17px; box-shadow: var(--shadow); display: flex; gap: 13px; align-items: flex-start; }
+      .avatar {
+        width: 46px; height: 46px; border-radius: 50%; flex: none;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 800; font-size: 16px; color: #fff; letter-spacing: .01em;
+      }
+      .dev-main { min-width: 0; flex: 1; }
+      .dev-name { font-weight: 700; font-size: 15.5px; line-height: 1.3; }
+      .dev-name a { text-decoration: none; }
+      .dev-name a:hover { color: var(--orange); }
+      .dev-user { color: var(--ink-3); font-weight: 500; font-size: 13.5px; }
+      .dev-repo { margin-top: 5px; font-size: 13.5px; }
+      .dev-repo a { color: var(--orange); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+      .dev-repo a:hover { text-decoration: underline; text-underline-offset: 2px; }
+      .dev-desc { font-size: 13.5px; color: var(--ink-2); line-height: 1.45; margin-top: 2px; }
+      .dev-rank { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--ink-3); flex: none; padding-top: 2px; }
+
+      .empty { display: none; padding: 28px 16px; text-align: center; color: var(--ink-2); background: var(--surface); border: 1px dashed var(--line-strong); border-radius: 14px; font-size: 15px; }
+      .empty.show { display: block; }
+
+      footer { margin-top: 52px; border-top: 1px solid var(--line); padding-top: 20px; font-size: 13.5px; color: var(--ink-2); line-height: 1.65; }
+      footer a { text-decoration: underline; text-underline-offset: 2px; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="masthead">
+        <div class="snap-line">
+          <span class="snap-dot" aria-hidden="true"></span>
+          <span>Snapshot · <strong>Thursday, November 26, 2026 — 1:41 PM PT</strong></span>
+          <span>Thanksgiving Day</span>
+        </div>
+        <h1>What tech is reading &amp; <em>starring</em> today</h1>
+        <p class="lede">The Hacker News front page and GitHub&rsquo;s daily trending lists, captured in one snapshot. The day&rsquo;s loudest thread isn&rsquo;t a launch at all — Scott Aaronson&rsquo;s post on the scale of what&rsquo;s now happening in AI, at <strong>1,943 points and 1,782 comments</strong>. On GitHub, the agent-skills gold rush continues: <strong>9 of today&rsquo;s 16 trending repos</strong> are Claude Code / agent tooling.</p>
+        <div class="stats" role="list" aria-label="Snapshot highlights">
+          <div class="stat" role="listitem"><b>1,943 pts</b><span>Top HN score — Aaronson, &ldquo;The magnitude of what&rsquo;s now happening&rdquo;</span></div>
+          <div class="stat" role="listitem"><b>30</b><span>Hacker News front-page stories in this snapshot</span></div>
+          <div class="stat" role="listitem"><b>10,612</b><span>Stars earned today across GitHub&rsquo;s 16 trending repos</span></div>
+          <div class="stat" role="listitem"><b>+1,600</b><span>Biggest single-day gain — elementalsouls/Claude-BugHunter</span></div>
+        </div>
+      </header>
+
+      <div class="toolbar">
+        <div class="toolbar-inner">
+          <div class="tabs" role="tablist" aria-label="Sections">
+            <button class="tab" role="tab" aria-selected="true" data-tab="all">All</button>
+            <button class="tab" role="tab" aria-selected="false" data-tab="hn">Hacker News</button>
+            <button class="tab" role="tab" aria-selected="false" data-tab="repos">Repositories</button>
+            <button class="tab" role="tab" aria-selected="false" data-tab="devs">Developers</button>
+          </div>
+          <label class="search">
+            <span hidden>Filter this snapshot</span>
+            <input id="filter" type="search" placeholder="Filter stories, repos, people…" autocomplete="off" />
+          </label>
+        </div>
+      </div>
+
+      <main>
+        <!-- ================= HACKER NEWS ================= -->
+        <section id="sec-hn" data-section="hn">
+          <div class="sec-head">
+            <h2>Hacker News — Top Stories</h2>
+            <span class="src">via <a href="https://news.ycombinator.com" target="_blank" rel="noopener">news.ycombinator.com</a></span>
+          </div>
+          <p class="sec-sub">Front page in the order HN ranked it at capture time. Points and comment counts are as of 1:41 PM PT.</p>
+          <div class="sortbar" aria-label="Sort Hacker News stories">
+            <span>Sort:</span>
+            <button type="button" data-sort="rank" aria-pressed="true">Front page</button>
+            <button type="button" data-sort="score" aria-pressed="false">Most points</button>
+            <button type="button" data-sort="comments" aria-pressed="false">Most comments</button>
+          </div>
+          <ol class="hn-list" id="hnList">
+            <li class="hn-item" data-rank="1" data-score="209" data-comments="52">
+              <span class="rank">1</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://devnull.land/amd-specific-llama-cpp" target="_blank" rel="noopener">AMD Specific Patches for Llama.cpp</a> <span class="domain">(devnull.land)</span></div>
+                <div class="hn-meta"><span class="pts">209 points</span><span>by julianlam</span><span>4h ago</span><a href="https://news.ycombinator.com/item?id=50657265" target="_blank" rel="noopener">52 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="2" data-score="27" data-comments="1">
+              <span class="rank">2</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://worksinprogress.co/issue/the-greatest-architect-youve-never-heard-of-is-in-pakistan/" target="_blank" rel="noopener">The greatest architect you&rsquo;ve never heard of is in Pakistan</a> <span class="domain">(worksinprogress.co)</span></div>
+                <div class="hn-meta"><span class="pts">27 points</span><span>by dverlaeckt80</span><span>33m ago</span><a href="https://news.ycombinator.com/item?id=50659841" target="_blank" rel="noopener">1 comment</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="3" data-score="153" data-comments="209">
+              <span class="rank">3</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://github.com/antonpictures/youtube-punisher" target="_blank" rel="noopener">YouTube Ad Punisher – Auto-reloads YouTube pages when an ad plays</a> <span class="domain">(github.com)</span></div>
+                <div class="hn-meta"><span class="pts">153 points</span><span>by iantongeorge</span><span>4h ago</span><a href="https://news.ycombinator.com/item?id=50657530" target="_blank" rel="noopener">209 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="4" data-score="147" data-comments="62">
+              <span class="rank">4</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://krebsonsecurity.com/2026/11/cto-of-ransomwarehelp-indicted-for-wire-fraud/" target="_blank" rel="noopener">CTO of &lsquo;RansomwareHelp&rsquo; Indicted for Wire Fraud</a> <span class="domain">(krebsonsecurity.com)</span></div>
+                <div class="hn-meta"><span class="pts">147 points</span><span>by Bender</span><span>3h ago</span><a href="https://news.ycombinator.com/item?id=50657645" target="_blank" rel="noopener">62 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="5" data-score="27" data-comments="7">
+              <span class="rank">5</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://github.com/eisenzopf/rvoip" target="_blank" rel="noopener">Rvoip 0.5 the complete VoIP stack in Rust</a> <span class="domain">(github.com)</span></div>
+                <div class="hn-meta"><span class="pts">27 points</span><span>by zerosegfaults</span><span>2h ago</span><a href="https://news.ycombinator.com/item?id=50658632" target="_blank" rel="noopener">7 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="6" data-score="421" data-comments="230">
+              <span class="rank">6</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://github.com/intel/intel-one-mono" target="_blank" rel="noopener">Intel One Mono font (2023)</a> <span class="domain">(github.com)</span></div>
+                <div class="hn-meta"><span class="pts">421 points</span><span>by saikatsg</span><span>11h ago</span><a href="https://news.ycombinator.com/item?id=50653667" target="_blank" rel="noopener">230 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="7" data-score="133" data-comments="122">
+              <span class="rank">7</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://micjm.com/blog/openai-is-in-cost-control-mode/" target="_blank" rel="noopener">OpenAI may be in cost control mode</a> <span class="domain">(micjm.com)</span></div>
+                <div class="hn-meta"><span class="pts">133 points</span><span>by seizethecheese</span><span>14h ago</span><a href="https://news.ycombinator.com/item?id=50652527" target="_blank" rel="noopener">122 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="8" data-score="29" data-comments="17">
+              <span class="rank">8</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://olumino.app" target="_blank" rel="noopener">Show HN: Olumino, a Markdown notes and spaced repetition app</a> <span class="domain">(olumino.app)</span></div>
+                <div class="hn-meta"><span class="pts">29 points</span><span>by Wiyseful</span><span>18h ago</span><a href="https://news.ycombinator.com/item?id=50651099" target="_blank" rel="noopener">17 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="9" data-score="94" data-comments="24">
+              <span class="rank">9</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://michidk.github.io/sidebyside/" target="_blank" rel="noopener">Show HN: Three Linux VMs in a browser tab, each running a different browser</a> <span class="domain">(michidk.github.io)</span></div>
+                <div class="hn-meta"><span class="pts">94 points</span><span>by michidk</span><span>6h ago</span><a href="https://news.ycombinator.com/item?id=50656036" target="_blank" rel="noopener">24 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="10" data-score="3" data-comments="0">
+              <span class="rank">10</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://lia.mg/posts/measuring-company-culture-with-slack-emoji/" target="_blank" rel="noopener">Company Culture = Slack Emoji ÷ √Headcount</a> <span class="domain">(lia.mg)</span></div>
+                <div class="hn-meta"><span class="pts">3 points</span><span>by liamg</span><span>51m ago</span><a href="https://news.ycombinator.com/item?id=50659640" target="_blank" rel="noopener">0 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="11" data-score="5" data-comments="0">
+              <span class="rank">11</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://topcitedscientists.com/figures/ai-at-four-us-companies/" target="_blank" rel="noopener">Top-cited AI scientists at four US companies compared</a> <span class="domain">(topcitedscientists.com)</span></div>
+                <div class="hn-meta"><span class="pts">5 points</span><span>by kkk4seis</span><span>1h ago</span><a href="https://news.ycombinator.com/item?id=50658910" target="_blank" rel="noopener">0 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="12" data-score="106" data-comments="22">
+              <span class="rank">12</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://thereader.mitpress.mit.edu/curiosity-is-no-solo-act/" target="_blank" rel="noopener">Curiosity Is No Solo Act</a> <span class="domain">(thereader.mitpress.mit.edu)</span></div>
+                <div class="hn-meta"><span class="pts">106 points</span><span>by Petiver</span><span>1d ago</span><a href="https://news.ycombinator.com/item?id=50636931" target="_blank" rel="noopener">22 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="13" data-score="26" data-comments="4">
+              <span class="rank">13</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://www.science.org/content/blog-post/george-whitesides-1939-2026" target="_blank" rel="noopener">George Whitesides, 1939–2026</a> <span class="domain">(science.org)</span></div>
+                <div class="hn-meta"><span class="pts">26 points</span><span>by dverlaeckt80</span><span>3h ago</span><a href="https://news.ycombinator.com/item?id=50657936" target="_blank" rel="noopener">4 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="14" data-score="159" data-comments="164">
+              <span class="rank">14</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://techstackups.com/articles/google-workspace-ai-agents-mcp/" target="_blank" rel="noopener">Google Will Make AI Agents Use Its MCP Servers. The Gmail One Can&rsquo;t Send Email</a> <span class="domain">(techstackups.com)</span></div>
+                <div class="hn-meta"><span class="pts">159 points</span><span>by ritzaco</span><span>11h ago</span><a href="https://news.ycombinator.com/item?id=50653477" target="_blank" rel="noopener">164 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="15" data-score="44" data-comments="8">
+              <span class="rank">15</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://psychoscript.com/" target="_blank" rel="noopener">NormalScript: A perfectly normal scripting language</a> <span class="domain">(psychoscript.com)</span></div>
+                <div class="hn-meta"><span class="pts">44 points</span><span>by hn-aarvin</span><span>17h ago</span><a href="https://news.ycombinator.com/item?id=50651430" target="_blank" rel="noopener">8 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="16" data-score="260" data-comments="56">
+              <span class="rank">16</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://fosscomics.com/posts/17.%20Lions%27%20Commentary%20on%20Unix/" target="_blank" rel="noopener">Lions&rsquo; Commentary on Unix: Why It Was Secretly Copied for 20 Years</a> <span class="domain">(fosscomics.com)</span></div>
+                <div class="hn-meta"><span class="pts">260 points</span><span>by joonehur</span><span>16h ago</span><a href="https://news.ycombinator.com/item?id=50651719" target="_blank" rel="noopener">56 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="17" data-score="24" data-comments="6">
+              <span class="rank">17</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://github.com/rxliuli/sim-drop" target="_blank" rel="noopener">Show HN: SimDrop – Running iOS simulators in the macOS Finder sidebar</a> <span class="domain">(github.com)</span></div>
+                <div class="hn-meta"><span class="pts">24 points</span><span>by rxliuli</span><span>4h ago</span><a href="https://news.ycombinator.com/item?id=50657070" target="_blank" rel="noopener">6 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="18" data-score="378" data-comments="189">
+              <span class="rank">18</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://nextcloud.com/blog/euro-office-comes-to-your-desktop-with-the-nextcloud-office-desktop-app/" target="_blank" rel="noopener">Nextcloud Office Desktop app</a> <span class="domain">(nextcloud.com)</span></div>
+                <div class="hn-meta"><span class="pts">378 points</span><span>by e12e</span><span>9h ago</span><a href="https://news.ycombinator.com/item?id=50654289" target="_blank" rel="noopener">189 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="19" data-score="523" data-comments="130">
+              <span class="rank">19</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://news.ycombinator.com/item?id=50655664" target="_blank" rel="noopener">Tell HN: Happy Thanksgiving</a> <span class="domain">(news.ycombinator.com)</span></div>
+                <div class="hn-meta"><span class="pts">523 points</span><span>by ericmay</span><span>7h ago</span><a href="https://news.ycombinator.com/item?id=50655664" target="_blank" rel="noopener">130 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="20" data-score="47" data-comments="21">
+              <span class="rank">20</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://economictimes.indiatimes.com/nri/work/ibm-gives-h-1b-green-card-holders-3-weeks-to-relocate-from-us-or-leave-company-december-31-deadline-set/articleshow/136180168.cms?from=mdr" target="_blank" rel="noopener">IBM gives H-1B, green card holders 3 weeks to relocate from US or leave company</a> <span class="domain">(economictimes.indiatimes.com)</span></div>
+                <div class="hn-meta"><span class="pts">47 points</span><span>by healsdata</span><span>3h ago</span><a href="https://news.ycombinator.com/item?id=50658170" target="_blank" rel="noopener">21 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="21" data-score="220" data-comments="128">
+              <span class="rank">21</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://commandcode.ai/moat" target="_blank" rel="noopener">Moat: OpenRouter replacement</a> <span class="domain">(commandcode.ai)</span></div>
+                <div class="hn-meta"><span class="pts">220 points</span><span>by amanverasia</span><span>15h ago</span><a href="https://news.ycombinator.com/item?id=50652184" target="_blank" rel="noopener">128 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="22" data-score="11" data-comments="2">
+              <span class="rank">22</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://bui.preetham.top/charts/" target="_blank" rel="noopener">Largest 2D Chart library in the world using BUI: BlenderUI</a> <span class="domain">(bui.preetham.top)</span></div>
+                <div class="hn-meta"><span class="pts">11 points</span><span>by ppmpreetham</span><span>3h ago</span><a href="https://news.ycombinator.com/item?id=50658193" target="_blank" rel="noopener">2 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="23" data-score="83" data-comments="49">
+              <span class="rank">23</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://phys.org/news/2026-11-discovery-curse-ritual-trash-dump.html" target="_blank" rel="noopener">Discovery of curse ritual in trash dump surprises Egyptologist</a> <span class="domain">(phys.org)</span></div>
+                <div class="hn-meta"><span class="pts">83 points</span><span>by PaulHoule</span><span>3d ago</span><a href="https://news.ycombinator.com/item?id=50619466" target="_blank" rel="noopener">49 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="24" data-score="175" data-comments="57">
+              <span class="rank">24</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://arxiv.org/abs/2611.34924" target="_blank" rel="noopener">An algebraic quantization of gravity from the null cone</a> <span class="domain">(arxiv.org)</span></div>
+                <div class="hn-meta"><span class="pts">175 points</span><span>by hecmmm</span><span>16h ago</span><a href="https://news.ycombinator.com/item?id=50651863" target="_blank" rel="noopener">57 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="25" data-score="1" data-comments="0">
+              <span class="rank">25</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://news.ycombinator.com/item?id=50654353" target="_blank" rel="noopener">Head of Software Engineering – NOX Metals</a> <span class="domain">(news.ycombinator.com)</span></div>
+                <div class="hn-meta"><span class="pts">1 point</span><span>by zane_heng</span><span>9h ago</span><a href="https://news.ycombinator.com/item?id=50654353" target="_blank" rel="noopener">0 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="26" data-score="1943" data-comments="1782">
+              <span class="rank">26</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://scottaaronson.blog/?p=10379" target="_blank" rel="noopener">Holy shit holy shit holy shit holy shit: The magnitude of what&rsquo;s now happening</a><span class="hot">Most discussed</span> <span class="domain">(scottaaronson.blog)</span></div>
+                <div class="hn-meta"><span class="pts">1,943 points</span><span>by Kotlopou</span><span>1d ago</span><a href="https://news.ycombinator.com/item?id=50646108" target="_blank" rel="noopener">1,782 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="27" data-score="386" data-comments="89">
+              <span class="rank">27</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://aresluna.org/ui-style-guides/" target="_blank" rel="noopener">Collection of preserved UI style guides</a> <span class="domain">(aresluna.org)</span></div>
+                <div class="hn-meta"><span class="pts">386 points</span><span>by sohkamyung</span><span>21h ago</span><a href="https://news.ycombinator.com/item?id=50649834" target="_blank" rel="noopener">89 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="28" data-score="136" data-comments="23">
+              <span class="rank">28</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://github.com/gary23w/f-ck_data_brokers" target="_blank" rel="noopener">Show HN: Fuck_data_brokers.py</a> <span class="domain">(github.com)</span></div>
+                <div class="hn-meta"><span class="pts">136 points</span><span>by gary23w</span><span>3h ago</span><a href="https://news.ycombinator.com/item?id=50658191" target="_blank" rel="noopener">23 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="29" data-score="279" data-comments="44">
+              <span class="rank">29</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://progrium.github.io/minipg/" target="_blank" rel="noopener">Minipg: PostgreSQL as a Single Executable</a> <span class="domain">(progrium.github.io)</span></div>
+                <div class="hn-meta"><span class="pts">279 points</span><span>by rguiscard</span><span>18h ago</span><a href="https://news.ycombinator.com/item?id=50650892" target="_blank" rel="noopener">44 comments</a></div>
+              </div>
+            </li>
+            <li class="hn-item" data-rank="30" data-score="134" data-comments="100">
+              <span class="rank">30</span>
+              <div class="hn-main">
+                <div class="hn-title"><a href="https://asteriskmag.com/issues/16/marginal-grains" target="_blank" rel="noopener">The history of civilization is the history of wheat</a> <span class="domain">(asteriskmag.com)</span></div>
+                <div class="hn-meta"><span class="pts">134 points</span><span>by NaOH</span><span>2d ago</span><a href="https://news.ycombinator.com/item?id=50634381" target="_blank" rel="noopener">100 comments</a></div>
+              </div>
+            </li>
+          </ol>
+          <p class="empty" data-empty="hn">No stories match that filter in this snapshot.</p>
+        </section>
+
+        <!-- ================= GITHUB REPOS ================= -->
+        <section id="sec-repos" data-section="repos">
+          <div class="sec-head">
+            <h2>GitHub Trending — Repositories</h2>
+            <span class="src">via <a href="https://github.com/trending?since=daily" target="_blank" rel="noopener">github.com/trending</a> · today</span>
+          </div>
+          <p class="sec-sub">The 16 repos GitHub listed as trending today, in GitHub&rsquo;s order. Agent skills dominate — Claude Code bundles, diagram tooling for coding agents, and research skills fill most of the board.</p>
+          <div class="repo-grid" id="repoGrid">
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#1</span><div class="repo-name"><a href="https://github.com/elementalsouls/Claude-BugHunter" target="_blank" rel="noopener"><span class="owner">elementalsouls/</span>Claude-BugHunter</a></div></div>
+              <p class="repo-desc">A Claude Code skill bundle for bug hunting and external red-team work — 85 skills, 16 slash commands, 681 disclosed-report patterns curated across 24 core vulnerability classes, plus enterprise identity + infrastructure attack matrices.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#3572A5"></i>Python</span><span>★ 24,401</span><span>⑂ 2,484 forks</span><span class="today-badge">★ +1,600 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#2</span><div class="repo-name"><a href="https://github.com/obra/superpowers" target="_blank" rel="noopener"><span class="owner">obra/</span>superpowers</a></div></div>
+              <p class="repo-desc">An agentic skills framework &amp; software development methodology that works.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#89e051"></i>Shell</span><span>★ 327,401</span><span>⑂ 29,037 forks</span><span class="today-badge">★ +853 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#3</span><div class="repo-name"><a href="https://github.com/HKUDS/CLI-Anything" target="_blank" rel="noopener"><span class="owner">HKUDS/</span>CLI-Anything</a></div></div>
+              <p class="repo-desc">&ldquo;CLI-Anything: Making ALL Software Agent-Native&rdquo; — CLI-Hub: clianything.cc</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#3572A5"></i>Python</span><span>★ 66,282</span><span>⑂ 6,028 forks</span><span class="today-badge">★ +744 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#4</span><div class="repo-name"><a href="https://github.com/jingyaogong/minimind" target="_blank" rel="noopener"><span class="owner">jingyaogong/</span>minimind</a></div></div>
+              <p class="repo-desc">Train your own 64M LLM from scratch in 2 hours.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#3572A5"></i>Python</span><span>★ 71,581</span><span>⑂ 9,294 forks</span><span class="today-badge">★ +701 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#5</span><div class="repo-name"><a href="https://github.com/cursor/plugins" target="_blank" rel="noopener"><span class="owner">cursor/</span>plugins</a></div></div>
+              <p class="repo-desc">Cursor plugin specification and official plugins.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#3178c6"></i>TypeScript</span><span>★ 19,763</span><span>⑂ 2,138 forks</span><span class="today-badge">★ +268 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#6</span><div class="repo-name"><a href="https://github.com/firecrawl/firecrawl" target="_blank" rel="noopener"><span class="owner">firecrawl/</span>firecrawl</a></div></div>
+              <p class="repo-desc">Knowledge infrastructure to make your agents smarter. Search, scrape and access 550+ data providers through one API.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#3178c6"></i>TypeScript</span><span>★ 210,852</span><span>⑂ 11,047 forks</span><span class="today-badge">★ +1,042 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#7</span><div class="repo-name"><a href="https://github.com/nginx/nginx" target="_blank" rel="noopener"><span class="owner">nginx/</span>nginx</a></div></div>
+              <p class="repo-desc">The official NGINX Open Source repository.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#555555"></i>C</span><span>★ 33,505</span><span>⑂ 8,421 forks</span><span class="today-badge">★ +150 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#8</span><div class="repo-name"><a href="https://github.com/openvinotoolkit/openvino" target="_blank" rel="noopener"><span class="owner">openvinotoolkit/</span>openvino</a></div></div>
+              <p class="repo-desc">OpenVINO is an open source toolkit for optimizing and deploying AI inference.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#f34b7d"></i>C++</span><span>★ 12,800</span><span>⑂ 3,735 forks</span><span class="today-badge">★ +176 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#9</span><div class="repo-name"><a href="https://github.com/cathrynlavery/diagram-design" target="_blank" rel="noopener"><span class="owner">cathrynlavery/</span>diagram-design</a></div></div>
+              <p class="repo-desc">Editorial diagram design for Claude Code, Codex, GitHub Copilot, Cursor, Factory Droid, Qoder, and Pi. 52 diagram types. Self-contained HTML + SVG.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#e34c26"></i>HTML</span><span>★ 73,774</span><span>⑂ 4,926 forks</span><span class="today-badge">★ +951 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#10</span><div class="repo-name"><a href="https://github.com/mvanhorn/last30days-skill" target="_blank" rel="noopener"><span class="owner">mvanhorn/</span>last30days-skill</a></div></div>
+              <p class="repo-desc">AI agent skill that researches any topic across Reddit, X, YouTube, HN, Polymarket, and the web — then synthesizes a grounded summary.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#3572A5"></i>Python</span><span>★ 75,674</span><span>⑂ 6,674 forks</span><span class="today-badge">★ +755 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#11</span><div class="repo-name"><a href="https://github.com/google-labs-code/stitch-skills" target="_blank" rel="noopener"><span class="owner">google-labs-code/</span>stitch-skills</a></div></div>
+              <p class="repo-desc">A library of Agent Skills designed to work with the Stitch MCP server. Each skill follows the Agent Skills open standard, for compatibility with coding agents such as Antigravity, Gemini CLI, Claude Code, and Cursor.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#3178c6"></i>TypeScript</span><span>★ 13,254</span><span>⑂ 1,561 forks</span><span class="today-badge">★ +308 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#12</span><div class="repo-name"><a href="https://github.com/mjmirza/app-store-compliance" target="_blank" rel="noopener"><span class="owner">mjmirza/</span>app-store-compliance</a></div></div>
+              <p class="repo-desc">Avoid common App Store and Google Play rejections. Open playbook and pre-submission guard with 125 documented rejection patterns and fixes, privacy manifest and Data safety checks, 117 tracked deadlines, and a skill for AI coding agents.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#89e051"></i>Shell</span><span>★ 6,971</span><span>⑂ 464 forks</span><span class="today-badge">★ +561 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#13</span><div class="repo-name"><a href="https://github.com/Tracer-Cloud/opensre" target="_blank" rel="noopener"><span class="owner">Tracer-Cloud/</span>opensre</a></div></div>
+              <p class="repo-desc">The open-source agent for CI/CD reliability.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#3572A5"></i>Python</span><span>★ 15,778</span><span>⑂ 2,058 forks</span><span class="today-badge">★ +325 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#14</span><div class="repo-name"><a href="https://github.com/toeverything/AFFiNE" target="_blank" rel="noopener"><span class="owner">toeverything/</span>AFFiNE</a></div></div>
+              <p class="repo-desc">There can be more than Notion and Miro. AFFiNE is a next-gen knowledge base that brings planning, sorting and creating all together. Privacy first, open-source, customizable and ready to use.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#3178c6"></i>TypeScript</span><span>★ 78,911</span><span>⑂ 5,750 forks</span><span class="today-badge">★ +521 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#15</span><div class="repo-name"><a href="https://github.com/XiaoYouChR/Ghost-Downloader-3" target="_blank" rel="noopener"><span class="owner">XiaoYouChR/</span>Ghost-Downloader-3</a></div></div>
+              <p class="repo-desc">The only downloader you need.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#3572A5"></i>Python</span><span>★ 19,037</span><span>⑂ 1,148 forks</span><span class="today-badge">★ +887 today</span></div>
+            </article>
+            <article class="repo">
+              <div class="repo-top"><span class="repo-rank">#16</span><div class="repo-name"><a href="https://github.com/zhouxiaoka/autoclip" target="_blank" rel="noopener"><span class="owner">zhouxiaoka/</span>autoclip</a></div></div>
+              <p class="repo-desc">AutoClip — the open-source OpusClip alternative: local-first AI clipping &amp; MCP server, zero subscriptions. Turns podcasts, interviews, and lectures into short clips with subtitles and covers for TikTok, Reels, and YouTube Shorts.</p>
+              <div class="repo-meta"><span class="lang"><i style="background:#3572A5"></i>Python</span><span>★ 16,874</span><span>⑂ 2,379 forks</span><span class="today-badge">★ +770 today</span></div>
+            </article>
+          </div>
+          <p class="empty" data-empty="repos">No repositories match that filter in this snapshot.</p>
+        </section>
+
+        <!-- ================= DEVELOPERS ================= -->
+        <section id="sec-devs" data-section="devs">
+          <div class="sec-head">
+            <h2>GitHub Trending — Developers</h2>
+            <span class="src">via <a href="https://github.com/trending/developers?since=daily" target="_blank" rel="noopener">github.com/trending/developers</a> · today</span>
+          </div>
+          <p class="sec-sub">The 25 developers GitHub ranked as trending today, each with the popular repo that put them on the list.</p>
+          <div class="dev-list" id="devList">
+            <article class="dev"><span class="dev-rank">#1</span><div class="avatar" style="background:#7c4a21">S</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/lalalune" target="_blank" rel="noopener">Shaw</a> <span class="dev-user">@lalalune</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/lalalune/vibestack" target="_blank" rel="noopener">lalalune/vibestack</a></div><div class="dev-desc">Ship apps. Not slop.</div></div></article>
+            <article class="dev"><span class="dev-rank">#2</span><div class="avatar" style="background:#2f5d3a">YM</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/yairm210" target="_blank" rel="noopener">Yair Morgenstern</a> <span class="dev-user">@yairm210</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/yairm210/Unciv" target="_blank" rel="noopener">yairm210/Unciv</a></div><div class="dev-desc">Open-source Android/Desktop remake of Civ V</div></div></article>
+            <article class="dev"><span class="dev-rank">#3</span><div class="avatar" style="background:#33526b">WG</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/wey-gu" target="_blank" rel="noopener">Wey Gu</a> <span class="dev-user">@wey-gu</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/wey-gu/ducter" target="_blank" rel="noopener">wey-gu/ducter</a></div><div class="dev-desc">A personal AI for builders, on your own computers or servers. Talk to one partner from your phone, desk or chat app; it runs your AI agents for you.</div></div></article>
+            <article class="dev"><span class="dev-rank">#4</span><div class="avatar" style="background:#5b3a6e">CD</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/1337isnot1337" target="_blank" rel="noopener">Cinna Davis</a> <span class="dev-user">@1337isnot1337</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/1337isnot1337/solved-conjectures" target="_blank" rel="noopener">1337isnot1337/solved-conjectures</a></div><div class="dev-desc">Math drop, curated by myself and 6.2-astra</div></div></article>
+            <article class="dev"><span class="dev-rank">#5</span><div class="avatar" style="background:#6e3a2f">D</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/cryppadotta" target="_blank" rel="noopener">Dotta</a> <span class="dev-user">@cryppadotta</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/cryppadotta/dotta-license" target="_blank" rel="noopener">cryppadotta/dotta-license</a></div><div class="dev-desc">ERC721-based Software Licensing Framework</div></div></article>
+            <article class="dev"><span class="dev-rank">#6</span><div class="avatar" style="background:#2f5d5a">DM</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/DouweM" target="_blank" rel="noopener">Douwe Maan</a> <span class="dev-user">@DouweM</span></div><div class="dev-desc">Works for @Pydantic</div></div></article>
+            <article class="dev"><span class="dev-rank">#7</span><div class="avatar" style="background:#4a5d23">MV</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/DeusData" target="_blank" rel="noopener">Martin Vogel</a> <span class="dev-user">@DeusData</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/DeusData/codebase-memory-mcp" target="_blank" rel="noopener">DeusData/codebase-memory-mcp</a></div><div class="dev-desc">Local code intelligence for developers and AI agents. Connect code, docs and infrastructure in a persistent graph, with CBM Lens and MCP tooling.</div></div></article>
+            <article class="dev"><span class="dev-rank">#8</span><div class="avatar" style="background:#7c2d3e">TC</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/tmchow" target="_blank" rel="noopener">Trevin Chow</a> <span class="dev-user">@tmchow</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/tmchow/illo-skill" target="_blank" rel="noopener">tmchow/illo-skill</a></div><div class="dev-desc">illo skill — an AI agent skill that turns ideas and articles into original print-style editorial illustrations, starring a recurring mascot.</div></div></article>
+            <article class="dev"><span class="dev-rank">#9</span><div class="avatar" style="background:#24506e">SG</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/saiemgilani" target="_blank" rel="noopener">Saiem Gilani</a> <span class="dev-user">@saiemgilani</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/saiemgilani/game-on-paper-app" target="_blank" rel="noopener">saiemgilani/game-on-paper-app</a></div><div class="dev-desc">gameonpaper.com</div></div></article>
+            <article class="dev"><span class="dev-rank">#10</span><div class="avatar" style="background:#5d4a2f">IL</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/igorlukanin" target="_blank" rel="noopener">Igor Lukanin</a> <span class="dev-user">@igorlukanin</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/igorlukanin/atrisk" target="_blank" rel="noopener">igorlukanin/atrisk</a></div><div class="dev-desc">A student project to create a POC of ISO 2700x-compliant ISRMS</div></div></article>
+            <article class="dev"><span class="dev-rank">#11</span><div class="avatar" style="background:#2f4a6e">EH</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/koala73" target="_blank" rel="noopener">Elie Habib</a> <span class="dev-user">@koala73</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/koala73/worldmonitor" target="_blank" rel="noopener">koala73/worldmonitor</a></div><div class="dev-desc">Real-time global intelligence dashboard. AI-powered news aggregation, geopolitical monitoring, and infrastructure tracking in a unified surface.</div></div></article>
+            <article class="dev"><span class="dev-rank">#12</span><div class="avatar" style="background:#6e5a2f">YK</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/code-yeongyu" target="_blank" rel="noopener">YeonGyu-Kim</a> <span class="dev-user">@code-yeongyu</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/code-yeongyu/oh-my-openagent" target="_blank" rel="noopener">code-yeongyu/oh-my-openagent</a></div><div class="dev-desc">OmO: Just type &ldquo;mass ulw&rdquo; keyword with your prompt. Now you are the master of graph engineering.</div></div></article>
+            <article class="dev"><span class="dev-rank">#13</span><div class="avatar" style="background:#3a5d2f">AM</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/andimarafioti" target="_blank" rel="noopener">Andrés Marafioti</a> <span class="dev-user">@andimarafioti</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/andimarafioti/faster-qwen3-tts" target="_blank" rel="noopener">andimarafioti/faster-qwen3-tts</a></div><div class="dev-desc">Real-time text-to-speech with Qwen3-TTS</div></div></article>
+            <article class="dev"><span class="dev-rank">#14</span><div class="avatar" style="background:#5d2f4a">И</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/777genius" target="_blank" rel="noopener">Илия</a> <span class="dev-user">@777genius</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/777genius/agent-teams-ai" target="_blank" rel="noopener">777genius/agent-teams-ai</a></div><div class="dev-desc">You&rsquo;re the boss, agents are your team. They handle tasks on their own, message each other, and review each other&rsquo;s work.</div></div></article>
+            <article class="dev"><span class="dev-rank">#15</span><div class="avatar" style="background:#2f5d6e">JK</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/bdraco" target="_blank" rel="noopener">J. Nick Koston</a> <span class="dev-user">@bdraco</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/bdraco/discovery30303" target="_blank" rel="noopener">bdraco/discovery30303</a></div><div class="dev-desc">Python asyncio discovery for port 30303</div></div></article>
+            <article class="dev"><span class="dev-rank">#16</span><div class="avatar" style="background:#4a3a5d">MB</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/mwbrooks" target="_blank" rel="noopener">Michael Brooks</a> <span class="dev-user">@mwbrooks</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/mwbrooks/claude-plugins-official" target="_blank" rel="noopener">mwbrooks/claude-plugins-official</a></div><div class="dev-desc">Official, Anthropic-managed directory of high quality Claude Code Plugins.</div></div></article>
+            <article class="dev"><span class="dev-rank">#17</span><div class="avatar" style="background:#6e2f2f">GM</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/mogery" target="_blank" rel="noopener">Gergő Móricz</a> <span class="dev-user">@mogery</span></div><div class="dev-desc">Works for @firecrawl</div></div></article>
+            <article class="dev"><span class="dev-rank">#18</span><div class="avatar" style="background:#2f6e4a">FF</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/punkpeye" target="_blank" rel="noopener">Frank Fiegel</a> <span class="dev-user">@punkpeye</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/punkpeye/awesome-remote-mcp-servers" target="_blank" rel="noopener">punkpeye/awesome-remote-mcp-servers</a></div><div class="dev-desc">A collection of remote MCP servers.</div></div></article>
+            <article class="dev"><span class="dev-rank">#19</span><div class="avatar" style="background:#5d5a2f">JM</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/jmanico" target="_blank" rel="noopener">Jim Manico</a> <span class="dev-user">@jmanico</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/jmanico/grim-prompter" target="_blank" rel="noopener">jmanico/grim-prompter</a></div><div class="dev-desc">Threat modeling for AI coding agents: point Claude Code, Codex or any agent at your repo and get an evidence-traced threat model.</div></div></article>
+            <article class="dev"><span class="dev-rank">#20</span><div class="avatar" style="background:#3a2f5d">R</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/ruvnet" target="_blank" rel="noopener">rUv</a> <span class="dev-user">@ruvnet</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/ruvnet/RuView" target="_blank" rel="noopener">ruvnet/RuView</a></div><div class="dev-desc">RuView turns commodity WiFi signals into real-time spatial intelligence, vital sign monitoring, and presence detection — all without a camera.</div></div></article>
+            <article class="dev"><span class="dev-rank">#21</span><div class="avatar" style="background:#6e3a5a">冬</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/chthollyphile" target="_blank" rel="noopener">冬霧</a> <span class="dev-user">@chthollyphile</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/chthollyphile/folia-major" target="_blank" rel="noopener">chthollyphile/folia-major</a></div><div class="dev-desc">A multi-platform music player for local files, Navidrome, and online streaming services, featuring elaborate animated lyrics.</div></div></article>
+            <article class="dev"><span class="dev-rank">#22</span><div class="avatar" style="background:#2f4a5d">MH</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/mvanhorn" target="_blank" rel="noopener">Matt Van Horn</a> <span class="dev-user">@mvanhorn</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/mvanhorn/last30days-skill" target="_blank" rel="noopener">mvanhorn/last30days-skill</a></div><div class="dev-desc">AI agent skill that researches any topic across Reddit, X, YouTube, HN, Polymarket, and the web — then synthesizes a grounded summary. Also trending as a repo today (#10 above).</div></div></article>
+            <article class="dev"><span class="dev-rank">#23</span><div class="avatar" style="background:#5d3a2f">T</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/tt-a1i" target="_blank" rel="noopener">tt-a1i</a> <span class="dev-user">@tt-a1i</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/tt-a1i/archify" target="_blank" rel="noopener">tt-a1i/archify</a></div><div class="dev-desc">Turn any idea, plan, or codebase into an interactive diagram or one-page answer: 10 diagram types, Architecture Diagnosis, and story video.</div></div></article>
+            <article class="dev"><span class="dev-rank">#24</span><div class="avatar" style="background:#335d2f">AC</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/alexechoi" target="_blank" rel="noopener">Alex Choi</a> <span class="dev-user">@alexechoi</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/alexechoi/instinct-coder" target="_blank" rel="noopener">alexechoi/instinct-coder</a></div><div class="dev-desc">Use your Instinct account to complete coding tasks</div></div></article>
+            <article class="dev"><span class="dev-rank">#25</span><div class="avatar" style="background:#4a2f6e">CC</div><div class="dev-main"><div class="dev-name"><a href="https://github.com/cbcoutinho" target="_blank" rel="noopener">Chris Coutinho</a> <span class="dev-user">@cbcoutinho</span></div><div class="dev-repo">Popular repo: <a href="https://github.com/cbcoutinho/nextcloud-mcp-server" target="_blank" rel="noopener">cbcoutinho/nextcloud-mcp-server</a></div><div class="dev-desc">Nextcloud MCP Server</div></div></article>
+          </div>
+          <p class="empty" data-empty="devs">No developers match that filter in this snapshot.</p>
+        </section>
+      </main>
+
+      <footer>
+        <p><strong>About this page.</strong> A fixed snapshot captured Thursday, November 26, 2026 at 1:41 PM PT from the <a href="https://hacker-news.firebaseio.com/v0/topstories.json" target="_blank" rel="noopener">Hacker News API</a>, <a href="https://github.com/trending?since=daily" target="_blank" rel="noopener">GitHub Trending (repositories)</a>, and <a href="https://github.com/trending/developers?since=daily" target="_blank" rel="noopener">GitHub Trending (developers)</a>. It does not update on its own and keeps no history — when you want a fresh edition, just ask Muse to refresh it and this page will be rebuilt with the latest lists.</p>
+      </footer>
+    </div>
+
+    <script>
+      (function () {
+        var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+        var sections = {
+          hn: document.getElementById('sec-hn'),
+          repos: document.getElementById('sec-repos'),
+          devs: document.getElementById('sec-devs')
+        };
+        var currentTab = 'all';
+
+        function applyTabs() {
+          tabs.forEach(function (t) {
+            t.setAttribute('aria-selected', t.getAttribute('data-tab') === currentTab ? 'true' : 'false');
+          });
+          Object.keys(sections).forEach(function (key) {
+            sections[key].hidden = !(currentTab === 'all' || currentTab === key);
+          });
+          applyFilter();
+        }
+        tabs.forEach(function (t) {
+          t.addEventListener('click', function () {
+            currentTab = t.getAttribute('data-tab');
+            applyTabs();
+          });
+        });
+
+        var filterInput = document.getElementById('filter');
+        function filterGroup(items, emptyEl) {
+          var q = filterInput.value.trim().toLowerCase();
+          var visible = 0;
+          items.forEach(function (el) {
+            var show = !q || el.textContent.toLowerCase().indexOf(q) !== -1;
+            el.hidden = !show;
+            if (show) visible++;
+          });
+          if (emptyEl) emptyEl.classList.toggle('show', q.length > 0 && visible === 0);
+          return visible;
+        }
+        function applyFilter() {
+          filterGroup(Array.prototype.slice.call(document.querySelectorAll('#hnList .hn-item')), document.querySelector('[data-empty="hn"]'));
+          filterGroup(Array.prototype.slice.call(document.querySelectorAll('#repoGrid .repo')), document.querySelector('[data-empty="repos"]'));
+          filterGroup(Array.prototype.slice.call(document.querySelectorAll('#devList .dev')), document.querySelector('[data-empty="devs"]'));
+        }
+        filterInput.addEventListener('input', applyFilter);
+
+        var hnList = document.getElementById('hnList');
+        var hnItems = Array.prototype.slice.call(hnList.querySelectorAll('.hn-item'));
+        var sortBtns = Array.prototype.slice.call(document.querySelectorAll('[data-sort]'));
+        sortBtns.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            sortBtns.forEach(function (b) { b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'); });
+            var mode = btn.getAttribute('data-sort');
+            var sorted = hnItems.slice().sort(function (a, b) {
+              if (mode === 'score') return (+b.getAttribute('data-score')) - (+a.getAttribute('data-score'));
+              if (mode === 'comments') return (+b.getAttribute('data-comments')) - (+a.getAttribute('data-comments'));
+              return (+a.getAttribute('data-rank')) - (+b.getAttribute('data-rank'));
+            });
+            sorted.forEach(function (el, i) {
+              hnList.appendChild(el);
+              el.querySelector('.rank').textContent = mode === 'rank' ? el.getAttribute('data-rank') : String(i + 1);
+            });
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>
